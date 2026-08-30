@@ -102,6 +102,8 @@ def classify_slide_archetype(slide: Any, slide_idx: int, shapes_summary: List[Di
     """
     Classifies a template slide into a semantic design archetype:
     - title_cover: Presentation master title/intro slide
+    - chart_visual: Slide containing native charts/data visualizations
+    - smartart_diagram: Flowcharts, process steps, hierarchies, cycles
     - table_matrix: Data tables & tabular comparisons
     - metrics_stats: Number callouts, KPIs, large statistics
     - multi_column: 2 or 3 column comparison / card layout
@@ -111,6 +113,15 @@ def classify_slide_archetype(slide: Any, slide_idx: int, shapes_summary: List[Di
     """
     if slide_idx == 0:
         return "title_cover"
+
+    # Check for native charts & SmartArt
+    has_chart = any(s.get("shape_type") == "CHART" or "chart" in s.get("shape_name", "").lower() for s in shapes_summary)
+    if has_chart:
+        return "chart_visual"
+
+    has_smartart = any("smartart" in s.get("shape_name", "").lower() or "diagram" in s.get("shape_name", "").lower() for s in shapes_summary)
+    if has_smartart:
+        return "smartart_diagram"
 
     has_table = any(s.get("is_table") or s.get("shape_type") == "TABLE" for s in shapes_summary)
     if has_table:

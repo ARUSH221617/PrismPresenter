@@ -181,8 +181,8 @@ def _remove_shapes(slide: Any, shape_indices: List[int]) -> None:
 
 def clone_slide_across_presentations(source_prs: Presentation, target_prs: Presentation, slide_index: int) -> Any:
     """
-    Deep clones a slide from source_prs into target_prs, preserving layout, media parts,
-    and relationship mappings while avoiding duplicate/corrupted package parts.
+    Deep clones a slide from source_prs into target_prs, preserving layout, background,
+    media parts, and relationship mappings while avoiding duplicate/corrupted package parts.
     """
     src_slide = source_prs.slides[slide_index]
     
@@ -221,6 +221,41 @@ def clone_slide_across_presentations(source_prs: Presentation, target_prs: Prese
                 rel_id_map[rel_id] = new_rid
         except Exception:
             pass
+
+    # Copy background definition (from slide or source layout/master) into target slide element
+    try:
+        src_cSld = src_slide._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}cSld")
+        target_cSld = target_slide._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}cSld")
+        
+        # 1. Check if source slide has explicit <p:bg>
+        src_bg = src_cSld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}bg") if src_cSld is not None else None
+        
+        # 2. If not on slide, check source layout <p:bg>
+        if src_bg is None and src_slide.slide_layout:
+            l_cSld = src_slide.slide_layout._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}cSld")
+            src_bg = l_cSld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}bg") if l_cSld is not None else None
+            
+        # 3. If not on layout, check source master <p:bg>
+        if src_bg is None and src_slide.slide_layout and src_slide.slide_layout.slide_master:
+            m_cSld = src_slide.slide_layout.slide_master._element.find("{http://schemas.openxmlformats.org/presentationml/2006/main}cSld")
+            src_bg = m_cSld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}bg") if m_cSld is not None else None
+
+        if src_bg is not None and target_cSld is not None:
+            # Check if target already has <p:bg>
+            t_bg = target_cSld.find("{http://schemas.openxmlformats.org/presentationml/2006/main}bg")
+            if t_bg is not None:
+                target_cSld.remove(t_bg)
+            copied_bg = copy.deepcopy(src_bg)
+            # Remap relationship IDs in background (e.g. blipFill images)
+            for elem in copied_bg.iter():
+                for attr_name in list(elem.attrib.keys()):
+                    if "embed" in attr_name or "id" in attr_name or "link" in attr_name:
+                        val = elem.attrib[attr_name]
+                        if val in rel_id_map:
+                            elem.attrib[attr_name] = rel_id_map[val]
+            target_cSld.insert(0, copied_bg)
+    except Exception:
+        pass
             
     # Replace target slide's spTree (shape tree) with deep copied source spTree
     target_spTree = target_slide.shapes._spTree
@@ -482,16 +517,14 @@ def build_pptx_with_agent(
             prs_cache[tpl_file] = Presentation(str(p))
         return prs_cache[tpl_file]
 
-    # Pre-open first source template to create matching target presentation
+    # Pre-open first source template to create matching target presentation package
     first_tpl_name = template_inventory[0]["template_file"]
-    base_src_prs = get_source_prs(first_tpl_name)
+    first_tpl_path = DATA_DIR / first_tpl_name if (DATA_DIR / first_tpl_name).exists() else next(DATA_DIR.glob("*.pptx"))
     
-    # Initialize target presentation with matching dimensions
-    target_prs = Presentation()
-    target_prs.slide_width = base_src_prs.slide_width
-    target_prs.slide_height = base_src_prs.slide_height
+    # Initialize target presentation from base template to retain themes, color palettes, and layouts
+    target_prs = Presentation(str(first_tpl_path))
     
-    # Clear any default blank slides in newly initialized presentation
+    # Clear existing slides from target presentation
     while len(target_prs.slides) > 0:
         rId = target_prs.slides._sldIdLst[0].rId
         target_prs.part.drop_rel(rId)

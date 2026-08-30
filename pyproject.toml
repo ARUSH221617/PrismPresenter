@@ -17,6 +17,8 @@ dependencies = [
     "pillow>=11.1.0",
     "arabic-reshaper>=3.0.1",
     "python-bidi>=0.6.11",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
     "pywin32>=312",
     "comtypes>=1.4.16",
 ]

@@ -1,9 +1,8 @@
 import sys
-from pptx_jahat.gui.app import run_gui
-from pptx_jahat.agent import AIAgent
 
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "--cli":
+        from pptx_jahat.agent import AIAgent
         print("PPTX Jahat AI Agent Interactive CLI. (Type 'exit' to quit)")
         agent = AIAgent()
         while True:
@@ -17,6 +16,7 @@ def main() -> None:
             except (KeyboardInterrupt, EOFError):
                 break
     else:
+        from pptx_jahat.gui.app import run_gui
         run_gui()
 
 if __name__ == "__main__":

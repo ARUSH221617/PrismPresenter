@@ -130,6 +130,15 @@ def main():
     previews = render_pptx_file_previews(out_pptx, target_width_px=600)
     print(f"Rendered {len(previews)} preview images from output deck.")
     assert len(previews) > 0, "Generated presentation has 0 previewable slides"
+
+    # Run full pure-Python render engine test suite
+    print("\n--- Running Pure-Python Slide Rendering Engine Suite ---")
+    import unittest
+    from tests.test_render_engine import TestRenderEngine
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestRenderEngine)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    assert result.wasSuccessful(), "Render engine test suite failed"
     print("ALL TESTS PASSED SUCCESSFULLY!")
 
 if __name__ == "__main__":

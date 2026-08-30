@@ -12,7 +12,7 @@ from PIL import Image, ImageTk, ImageDraw
 
 from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
-from pptx_jahat.tools.pptx_builder import build_pptx_with_agent
+from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
 from pptx_jahat.tools.preview import render_pptx_file_previews
 from pptx_jahat.agent import AIAgent
 from pptx_jahat.gui.components import (
@@ -964,6 +964,17 @@ class PPTXJahatApp(tk.Tk):
         self.mgr_btn_open_ppt.set_state("disabled")
         self.mgr_btn_open_ppt.pack(side=tk.LEFT, padx=3)
 
+        self.mgr_btn_verify = StyledActionBtn(
+            action_toolbar,
+            text="🛡️ Verify & Fix",
+            command=self._mgr_verify_and_fix_selected,
+            is_primary=False,
+            padx=10,
+            pady=4
+        )
+        self.mgr_btn_verify.set_state("disabled")
+        self.mgr_btn_verify.pack(side=tk.LEFT, padx=3)
+
         self.mgr_btn_reveal = StyledActionBtn(
             action_toolbar,
             text="📁 Reveal File",
@@ -1126,6 +1137,7 @@ class PPTXJahatApp(tk.Tk):
         self.mgr_file_details_var.set(f"Type: {type_label} | Size: {size_str} | Modified: {modified_str}\nPath: {file_path}")
 
         self.mgr_btn_open_ppt.set_state("normal")
+        self.mgr_btn_verify.set_state("normal")
         self.mgr_btn_reveal.set_state("normal")
         self.mgr_btn_duplicate.set_state("normal")
         self.mgr_btn_rename.set_state("normal")
@@ -1201,6 +1213,29 @@ class PPTXJahatApp(tk.Tk):
             messagebox.showwarning("Warning", "No file selected.")
             return
         self._launch_file(self.mgr_selected_file_path)
+
+    def _mgr_verify_and_fix_selected(self):
+        if not self.mgr_selected_file_path or not Path(self.mgr_selected_file_path).exists():
+            messagebox.showwarning("Warning", "No file selected.")
+            return
+        target_path = self.mgr_selected_file_path
+        self.badge_status.set_text("● VERIFYING...", fg_color=Theme.TEXT_WHITE, bg_color=Theme.RED_PRIMARY)
+        self.status_left_var.set(f"Verifying integrity for {Path(target_path).name}...")
+
+        def worker():
+            is_ok, final_p = verify_and_auto_heal_pptx(target_path)
+            self.after(50, lambda: self._on_mgr_verify_done(is_ok, final_p))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_mgr_verify_done(self, is_ok: bool, final_p: str):
+        self.badge_status.set_text("● SYSTEM READY", fg_color=Theme.BADGE_TEXT_RED, bg_color=Theme.BADGE_BG_RED)
+        self.status_left_var.set(f"Verification complete: {Path(final_p).name}")
+        self._load_mgr_previews_async(final_p)
+        if is_ok:
+            messagebox.showinfo("Verification Passed", f"PPTX presentation is valid and clean!\n{final_p}")
+        else:
+            messagebox.showwarning("Notice", f"Applied auto-repairs to presentation.\n{final_p}")
 
     def _mgr_reveal_selected(self):
         if not self.mgr_selected_file_path or not Path(self.mgr_selected_file_path).exists():

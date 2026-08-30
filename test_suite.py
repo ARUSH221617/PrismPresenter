@@ -11,6 +11,9 @@ from pptx_jahat.tools.pptx_engine import extract_all_templates, inspect_all_temp
 from pptx_jahat.tools.pptx_builder import (
     build_pptx_with_agent,
     clone_slide_across_presentations,
+    verify_pptx_integrity,
+    repair_pptx_package,
+    verify_and_auto_heal_pptx,
     _remove_shape,
     _remove_shapes
 )
@@ -117,6 +120,11 @@ def main():
     print("\n--- Testing Multi-Template Vision Presentation Builder ---")
     out_pptx = build_pptx_with_agent(DATA_DIR / "sample_document.docx", log_callback=print)
     print(f"\nSuccessfully generated presentation: {out_pptx}")
+    
+    # Verify generated presentation integrity
+    is_valid, issues = verify_pptx_integrity(out_pptx)
+    print(f"PPTX Integrity check: is_valid={is_valid}, issues={issues}")
+    assert is_valid, f"PPTX integrity check failed: {issues}"
     
     # Verify generated presentation can be rendered to preview images
     previews = render_pptx_file_previews(out_pptx, target_width_px=600)

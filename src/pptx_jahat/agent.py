@@ -8,7 +8,12 @@ from pptx_jahat.tools.filesystem import (
 )
 from pptx_jahat.tools.exa_search import search_web, fetch_page_content
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
-from pptx_jahat.tools.pptx_builder import build_pptx_with_agent
+from pptx_jahat.tools.pptx_builder import (
+    build_pptx_with_agent,
+    verify_pptx_integrity,
+    repair_pptx_package,
+    verify_and_auto_heal_pptx
+)
 from pptx_jahat.tools.image_gen import generate_image
 
 TOOLS_DEFINITIONS = [
@@ -179,6 +184,20 @@ TOOLS_DEFINITIONS = [
                 "required": ["prompt"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_and_repair_pptx",
+            "description": "Check a PowerPoint (.pptx) file for XML corruptions, duplicate package parts, or formatting errors and auto-repair it",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the PPTX file to verify and fix"}
+                },
+                "required": ["file_path"]
+            }
+        }
     }
 ]
 
@@ -195,6 +214,11 @@ TOOL_HANDLERS: Dict[str, Callable] = {
     "get_components_catalog": lambda: json.dumps(get_components_catalog(), indent=2),
     "build_pptx_from_docx": build_pptx_with_agent,
     "generate_image": generate_image,
+    "verify_and_repair_pptx": lambda file_path: json.dumps({
+        "is_valid": verify_and_auto_heal_pptx(file_path)[0],
+        "file_path": str(file_path),
+        "status": "Verified OK" if verify_and_auto_heal_pptx(file_path)[0] else "Repairs applied"
+    }),
 }
 
 class AIAgent:

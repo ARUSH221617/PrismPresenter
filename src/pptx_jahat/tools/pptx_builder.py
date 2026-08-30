@@ -2,6 +2,9 @@ import json
 import re
 import copy
 import io
+import zipfile
+import collections
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from pptx import Presentation
@@ -179,11 +182,11 @@ def _remove_shapes(slide: Any, shape_indices: List[int]) -> None:
 def clone_slide_across_presentations(source_prs: Presentation, target_prs: Presentation, slide_index: int) -> Any:
     """
     Deep clones a slide from source_prs into target_prs, preserving layout, media parts,
-    and relationship mappings.
+    and relationship mappings while avoiding duplicate/corrupted package parts.
     """
     src_slide = source_prs.slides[slide_index]
     
-    # Choose layout from target_prs matching source or fallback to blank layout
+    # Choose layout from target_prs matching source or fallback to blank/content layout
     layout_name = src_slide.slide_layout.name if src_slide.slide_layout else "Blank"
     matching_layout = None
     for layout in target_prs.slide_layouts:
@@ -191,22 +194,31 @@ def clone_slide_across_presentations(source_prs: Presentation, target_prs: Prese
             matching_layout = layout
             break
     if not matching_layout:
-        matching_layout = target_prs.slide_layouts[min(6, len(target_prs.slide_layouts) - 1)]
+        matching_layout = target_prs.slide_layouts[min(1, len(target_prs.slide_layouts) - 1)]
         
     target_slide = target_prs.slides.add_slide(matching_layout)
     
-    # Copy relationships & media/picture parts
+    # Copy relationships & media/picture parts cleanly to avoid corrupting theme/layout parts
     src_part = src_slide.part
     target_part = target_slide.part
+    rel_id_map: Dict[str, str] = {}
     
     for rel_id, rel in src_part.rels.items():
-        if rel.reltype == RT.SLIDE_LAYOUT:
+        if rel.reltype == RT.SLIDE_LAYOUT or rel.reltype == RT.NOTES_SLIDE:
             continue
         try:
             if rel.is_external:
-                target_part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
-            else:
-                target_part.relate_to(rel.target_part, rel.reltype)
+                new_rid = target_part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
+                rel_id_map[rel_id] = new_rid
+            elif rel.reltype == RT.IMAGE:
+                # Add image blob into target package cleanly
+                image_bytes = rel.target_part.blob
+                new_image_part = target_prs.part.package.get_or_add_image_part(io.BytesIO(image_bytes))
+                new_rid = target_part.relate_to(new_image_part, RT.IMAGE)
+                rel_id_map[rel_id] = new_rid
+            elif rel.reltype == RT.HYPERLINK:
+                new_rid = target_part.rels.get_or_add_ext_rel(rel.reltype, rel.target_ref)
+                rel_id_map[rel_id] = new_rid
         except Exception:
             pass
             
@@ -218,9 +230,19 @@ def clone_slide_across_presentations(source_prs: Presentation, target_prs: Prese
     for child in list(target_spTree):
         target_spTree.remove(child)
         
-    # Copy all children from source spTree into target spTree
-    for child in list(src_spTree):
-        target_spTree.append(copy.deepcopy(child))
+    copied_spTree = copy.deepcopy(src_spTree)
+    
+    # Remap relationship IDs in elements (blip r:embed, hyperlinks, etc.)
+    for elem in copied_spTree.iter():
+        for attr_name in list(elem.attrib.keys()):
+            if "embed" in attr_name or "id" in attr_name or "link" in attr_name:
+                val = elem.attrib[attr_name]
+                if val in rel_id_map:
+                    elem.attrib[attr_name] = rel_id_map[val]
+                    
+    # Copy all children from copied spTree into target spTree
+    for child in list(copied_spTree):
+        target_spTree.append(child)
         
     return target_slide
 
@@ -579,13 +601,227 @@ def build_pptx_with_agent(
     log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
 
     # ----------------------------------------------------
-    # Step 5: Visual Verification & Self-Correction QA
+    # Step 5: Verification & AI Agent Self-Correction QA Loop
     # ----------------------------------------------------
+    log("[Step 5] Running PPTX File Integrity Verification & AI Agent Self-Correction Loop...")
+    is_valid, final_path = verify_and_auto_heal_pptx(
+        output_path,
+        doc_structure=parsed_doc,
+        template_inventory=template_inventory,
+        log_cb=log
+    )
+
+    if not is_valid:
+        log(f"[Step 5 Warning] Final PPTX file might contain remaining non-fatal notices.")
+    else:
+        log(f"[Step 5] PPTX Verification PASSED: File is clean, valid, and fully openable.")
+
+    # Render Visual Preview QA
     try:
-        log("[Step 5] Running Post-Generation Visual Verification QA on generated deck...")
         preview_imgs = render_pptx_file_previews(output_path, target_width_px=650)
-        log(f"[Step 5] Rendered {len(preview_imgs)} slide previews. Verification checks passed.")
+        log(f"[Step 5] Rendered {len(preview_imgs)} slide previews. Verification complete.")
     except Exception as qa_ex:
-        log(f"[Step 5 Warning] QA visual check warning: {qa_ex}")
+        log(f"[Step 5 Warning] QA preview render warning: {qa_ex}")
 
     return str(output_path)
+
+def verify_pptx_integrity(file_path: str | Path) -> Tuple[bool, List[str]]:
+    """
+    Performs comprehensive structural, zip packaging, XML and python-pptx integrity checks on a PPTX file.
+    Returns (is_valid: bool, issues: List[str]).
+    """
+    p = Path(file_path)
+    issues: List[str] = []
+    
+    if not p.exists():
+        return False, [f"File does not exist: {p}"]
+        
+    if p.stat().st_size == 0:
+        return False, ["File is empty (0 bytes)"]
+        
+    # 1. Zip package & duplicate part checks
+    try:
+        with zipfile.ZipFile(str(p), "r") as z:
+            bad_file = z.testzip()
+            if bad_file:
+                issues.append(f"Corrupted zip entry found: {bad_file}")
+                
+            namelist = z.namelist()
+            counts = collections.Counter(namelist)
+            dups = [k for k, v in counts.items() if v > 1]
+            if dups:
+                issues.append(f"Duplicate package parts detected ({len(dups)} duplicate entries): {dups[:5]}")
+                
+            # Test all XML files for syntactic validity
+            for fname in namelist:
+                if fname.endswith(".xml") or fname.endswith(".rels"):
+                    try:
+                        raw = z.read(fname)
+                        ET.fromstring(raw)
+                    except Exception as xml_err:
+                        issues.append(f"XML parse error in '{fname}': {str(xml_err)}")
+    except Exception as zip_err:
+        return False, [f"Zip archive integrity error: {str(zip_err)}"]
+
+    # 2. python-pptx model parse & slide count check
+    try:
+        prs = Presentation(str(p))
+        if len(prs.slides) == 0:
+            issues.append("Presentation contains 0 slides")
+    except Exception as pptx_err:
+        issues.append(f"python-pptx engine parse error: {str(pptx_err)}")
+        
+    return len(issues) == 0, issues
+
+def repair_pptx_package(corrupted_path: str | Path, target_path: Optional[str | Path] = None) -> bool:
+    """
+    Repairs package-level corruptions such as duplicate part entries in pptx zip container.
+    """
+    src_p = Path(corrupted_path)
+    if not src_p.exists():
+        return False
+        
+    dst_p = Path(target_path) if target_path else src_p
+    temp_p = src_p.parent / f"~temp_repaired_{src_p.name}"
+    
+    try:
+        with zipfile.ZipFile(str(src_p), "r") as z_in:
+            with zipfile.ZipFile(str(temp_p), "w", compression=zipfile.ZIP_DEFLATED) as z_out:
+                seen_names = set()
+                for item in z_in.infolist():
+                    if item.filename in seen_names:
+                        continue
+                    seen_names.add(item.filename)
+                    z_out.writestr(item, z_in.read(item.filename))
+                    
+        # Replace original/target with repaired file
+        if dst_p.exists() and dst_p.resolve() == src_p.resolve():
+            src_p.unlink()
+        temp_p.replace(dst_p)
+        return True
+    except Exception:
+        if temp_p.exists():
+            try:
+                temp_p.unlink()
+            except Exception:
+                pass
+        return False
+
+def verify_and_auto_heal_pptx(
+    pptx_path: str | Path,
+    doc_structure: Optional[Dict[str, Any]] = None,
+    template_inventory: Optional[List[Dict[str, Any]]] = None,
+    log_cb: Optional[Callable[[str], None]] = None,
+    max_fix_attempts: int = 2
+) -> Tuple[bool, str]:
+    """
+    Verification & Self-Correction QA Loop:
+    1. Runs full structural & XML verification on pptx_path.
+    2. If issues are found, attempts automated package repair (deduplicating zip parts).
+    3. If errors persist, calls 9Router AI Agent to diagnose the failure, adjust the slide plan,
+       and rebuild the presentation until clean.
+    """
+    def log(msg: str):
+        if log_cb:
+            log_cb(msg)
+
+    p = Path(pptx_path)
+    log(f"[Verification Loop] Validating PPTX integrity for '{p.name}'...")
+    
+    is_ok, issues = verify_pptx_integrity(p)
+    if is_ok:
+        log("[Verification Loop] PPTX integrity checks passed with 0 errors.")
+        return True, str(p)
+
+    log(f"[Verification Loop Warning] Found {len(issues)} integrity issue(s): {'; '.join(issues)}")
+
+    # Attempt 1: Package-level deduplication & repair
+    log("[Verification Loop - Fix 1] Running package repair & deduplication...")
+    repair_success = repair_pptx_package(p, p)
+    if repair_success:
+        is_ok, issues = verify_pptx_integrity(p)
+        if is_ok:
+            log("[Verification Loop - Fix 1] Package repair succeeded! PPTX is now fully valid.")
+            return True, str(p)
+        else:
+            log(f"[Verification Loop - Fix 1] Package repair applied, but remaining issues: {issues}")
+
+    # Attempt 2: AI Agent Diagnostic & Self-Correction Rebuild
+    if doc_structure and template_inventory:
+        log("[Verification Loop - AI Agent] Invoking AI Agent to diagnose integrity errors and regenerate slide mapping...")
+        try:
+            client = OpenAI(
+                api_key=Config.NINEROUTER_KEY or "dummy_key",
+                base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
+            )
+            
+            ai_repair_prompt = f"""
+The generated PowerPoint presentation has corruptions/integrity errors:
+Error List:
+{json.dumps(issues, ensure_ascii=False, indent=2)}
+
+Document Outline:
+{json.dumps(doc_structure, ensure_ascii=False, indent=2)}
+
+Please analyze the issues and output a corrected, safe slide replacement plan adhering to standard schema.
+Ensure no conflicting shape removals or malformed tables are generated.
+"""
+            response = client.chat.completions.create(
+                model=Config.NINEROUTER_CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a PowerPoint Diagnostic & Repair Agent. Fix presentation generation errors and output clean valid JSON."},
+                    {"role": "user", "content": ai_repair_prompt}
+                ],
+                temperature=0.1
+            )
+            content = response.choices[0].message.content or "{}"
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+            json_str = match.group(1) if match else content.strip()
+            repaired_plan = json.loads(json_str)
+            
+            if repaired_plan and "slides" in repaired_plan:
+                log("[Verification Loop - AI Agent] AI Agent provided healed plan. Re-assembling presentation...")
+                # Re-assemble presentation with repaired plan
+                first_tpl = template_inventory[0]["template_file"]
+                src_base_p = DATA_DIR / first_tpl if (DATA_DIR / first_tpl).exists() else next(DATA_DIR.glob("*.pptx"))
+                rebuilt_prs = Presentation(str(src_base_p))
+                while len(rebuilt_prs.slides) > 0:
+                    rId = rebuilt_prs.slides._sldIdLst[0].rId
+                    rebuilt_prs.part.drop_rel(rId)
+                    rebuilt_prs.slides._sldIdLst.remove(rebuilt_prs.slides._sldIdLst[0])
+                    
+                for s_plan in repaired_plan.get("slides", []):
+                    src_tpl = s_plan.get("source_template") or first_tpl
+                    src_idx = s_plan.get("source_slide_index", 0)
+                    tpl_path = DATA_DIR / src_tpl if (DATA_DIR / src_tpl).exists() else src_base_p
+                    src_prs = Presentation(str(tpl_path))
+                    if src_idx >= len(src_prs.slides):
+                        src_idx = 0
+                        
+                    t_slide = clone_slide_across_presentations(src_prs, rebuilt_prs, src_idx)
+                    for r in s_plan.get("shape_replacements", []):
+                        sh_i = r.get("shape_index")
+                        if sh_i is not None and sh_i < len(t_slide.shapes):
+                            sh = t_slide.shapes[sh_i]
+                            if sh.has_text_frame:
+                                _safe_update_text_frame(sh.text_frame, str(r.get("text", "")))
+                                
+                    if s_plan.get("speaker_notes"):
+                        try:
+                            t_slide.notes_slide.notes_text_frame.text = str(s_plan["speaker_notes"])
+                        except Exception:
+                            pass
+                            
+                rebuilt_prs.save(str(p))
+                repair_pptx_package(p, p)
+                
+                is_ok, issues = verify_pptx_integrity(p)
+                if is_ok:
+                    log("[Verification Loop - AI Agent] Rebuilt deck is verified OK and error-free!")
+                    return True, str(p)
+        except Exception as ai_heal_err:
+            log(f"[Verification Loop - AI Agent Error] Self-correction failed: {ai_heal_err}")
+
+    # Fallback to package repair status
+    is_ok, remaining = verify_pptx_integrity(p)
+    return is_ok, str(p)

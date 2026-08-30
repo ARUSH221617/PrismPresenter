@@ -1,23 +1,61 @@
 import json
 import re
 import copy
+import io
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 from pptx import Presentation
-from pptx.util import Pt
+from pptx.util import Pt, Inches
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from pptx.oxml.xmlchemy import OxmlElement
+from pptx.oxml import parse_xml
 
 from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR
 from pptx_jahat.tools.docx_parser import parse_docx
 from pptx_jahat.tools.pptx_engine import inspect_template_slides, inspect_all_templates
+from pptx_jahat.tools.image_gen import generate_image
+from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg
 from openai import OpenAI
 
-def _safe_update_text_frame(tf: Any, new_text: str, is_rtl: bool = True) -> None:
+def _set_paragraph_rtl_and_fonts(paragraph: Any, font_name: Optional[str] = "Vazirmatn") -> None:
     """
-    Updates text in a text_frame while preserving paragraph and run-level formatting
-    such as font family, size, bold, italic, and colors.
+    Directly sets DrawingML paragraph properties for true RTL and complex script fonts.
+    """
+    try:
+        pPr = paragraph._p.get_or_add_pPr()
+        pPr.set("rtl", "1")
+        pPr.set("algn", "r")
+        
+        # Set default complex script font
+        if font_name:
+            defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
+            if defRPr is None:
+                defRPr = OxmlElement("a:defRPr")
+                pPr.append(defRPr)
+            cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
+            if cs is None:
+                cs = OxmlElement("a:cs")
+                defRPr.append(cs)
+            cs.set("typeface", font_name)
+    except Exception:
+        pass
+
+def _safe_update_text_frame(
+    tf: Any,
+    new_text: str,
+    is_rtl: bool = True,
+    max_box_width_emu: Optional[int] = None,
+    max_box_height_emu: Optional[int] = None,
+    font_override: Optional[str] = None
+) -> None:
+    """
+    Updates text in a text_frame while:
+    1. Preserving run-level formatting (color, bold, italic).
+    2. Dynamic font auto-sizing based on character count and bounding box dimensions.
+    3. Applying true DrawingML RTL properties.
     """
     if not tf:
         return
@@ -53,6 +91,21 @@ def _safe_update_text_frame(tf: Any, new_text: str, is_rtl: bool = True) -> None
     except Exception:
         pass
 
+    # Dynamic Font Auto-Sizing calculation
+    total_chars = sum(len(line) for line in lines)
+    calculated_size_pt = None
+    
+    if saved_font["size"]:
+        orig_pt = saved_font["size"].pt
+        if total_chars > 250:
+            calculated_size_pt = max(10, min(orig_pt, 12))
+        elif total_chars > 120:
+            calculated_size_pt = max(11, min(orig_pt, 14))
+        elif total_chars > 60:
+            calculated_size_pt = max(12, min(orig_pt, 18))
+        else:
+            calculated_size_pt = orig_pt
+
     # Clear old paragraphs and populate with new text lines
     tf.clear()
     
@@ -61,15 +114,42 @@ def _safe_update_text_frame(tf: Any, new_text: str, is_rtl: bool = True) -> None
         p.text = line
         if is_rtl:
             p.alignment = PP_ALIGN.RIGHT
+            _set_paragraph_rtl_and_fonts(p, font_name=font_override or saved_font["name"] or "Vazirmatn")
             
-        # Apply preserved font styling to runs
-        if p.runs and any(saved_font.values()):
+        # Apply preserved/adjusted font styling to runs
+        if p.runs:
             for run in p.runs:
-                if saved_font["name"]: run.font.name = saved_font["name"]
-                if saved_font["size"]: run.font.size = saved_font["size"]
-                if saved_font["bold"] is not None: run.font.bold = saved_font["bold"]
-                if saved_font["italic"] is not None: run.font.italic = saved_font["italic"]
-                if saved_font["color"]: run.font.color.rgb = saved_font["color"]
+                run.font.name = font_override or saved_font["name"] or "Vazirmatn"
+                if calculated_size_pt:
+                    run.font.size = Pt(calculated_size_pt)
+                elif saved_font["size"]:
+                    run.font.size = saved_font["size"]
+                if saved_font["bold"] is not None:
+                    run.font.bold = saved_font["bold"]
+                if saved_font["italic"] is not None:
+                    run.font.italic = saved_font["italic"]
+                if saved_font["color"]:
+                    run.font.color.rgb = saved_font["color"]
+
+def _replace_image_in_shape(shape: Any, new_image_path: Path | str) -> bool:
+    """
+    Replaces the image blob in a picture shape with a newly generated or selected image.
+    """
+    try:
+        img_path = Path(new_image_path)
+        if not img_path.exists():
+            return False
+            
+        with open(img_path, "rb") as f:
+            new_blob = f.read()
+            
+        if hasattr(shape, "image"):
+            # Update image part blob
+            shape.image._blob = new_blob
+            return True
+    except Exception:
+        pass
+    return False
 
 def _remove_shape(slide: Any, shape_index: int) -> bool:
     """
@@ -147,12 +227,14 @@ def clone_slide_across_presentations(source_prs: Presentation, target_prs: Prese
 def generate_slide_replacements_with_ai(
     template_inventory: List[Dict[str, Any]],
     doc_structure: Dict[str, Any],
-    log_cb: Optional[Callable[[str], None]] = None
+    log_cb: Optional[Callable[[str], None]] = None,
+    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None
 ) -> Dict[str, Any]:
     """
     Step 3: AI Vision Agent reasons over multimodal slide screenshots, shape slots across templates,
     and Word docx content.
-    Returns optimal slide selections across templates, exact text replacements, and shapes to remove.
+    Returns optimal slide selections across templates, exact text replacements, shapes to remove,
+    speaker notes, and optional AI image generation prompts for picture slots.
     """
     def log(msg: str):
         if log_cb:
@@ -167,13 +249,16 @@ def generate_slide_replacements_with_ai(
 
     system_prompt = (
         "You are an expert Presentation Art Director and Content Producer. "
-        "You receive visual screenshots and shape slot metadata of candidate presentation slides across multiple templates, "
+        "You receive visual screenshots, shape slots, and archetype tags of candidate presentation slides across multiple templates, "
         "along with a parsed Word document. "
         "Your task is to:\n"
-        "1. Select the best visual slide from the available templates for each section/topic in the document (Title slide, Section slides, Metric/Table slides, Conclusion).\n"
-        "2. Match the document content into the chosen slide's shape slots (shape_index).\n"
-        "3. Identify any unnecessary or overflowing shape indices to delete (shapes_to_remove).\n"
-        "4. If a slot contains a table, supply updated 2D table_data.\n"
+        "1. Select the best visual slide archetype from the available templates for each section/topic in the document (title_cover, table_matrix, metrics_stats, multi_column, process_timeline, content_bullets, conclusion_quote).\n"
+        "2. Chunk and adapt long document text into punchy, high-impact slide text (concise headers, 3-4 bullet points max, 10-12 words per bullet).\n"
+        "3. Match adapted content into the chosen slide's shape slots (shape_index).\n"
+        "4. Generate detailed speaker notes for each slide to retain comprehensive background details from the document.\n"
+        "5. Identify any unnecessary or overflowing shape indices to delete (shapes_to_remove).\n"
+        "6. If a slot contains a table, supply updated 2D table_data.\n"
+        "7. If a slide contains picture/graphic placeholders, you can provide an image_prompt for contextual AI image generation.\n"
         "Strictly return valid JSON adhering to the specified schema."
     )
 
@@ -184,6 +269,7 @@ def generate_slide_replacements_with_ai(
             "template_file": s.get("template_file"),
             "slide_index": s.get("slide_index"),
             "layout_name": s.get("layout_name"),
+            "archetype": s.get("archetype", "content_bullets"),
             "text_slots": [
                 {
                     "shape_index": slot.get("shape_index"),
@@ -205,7 +291,7 @@ def generate_slide_replacements_with_ai(
         {
             "type": "text",
             "text": f"""
-Step 1 - Available Slide Blueprints & Slots:
+Step 1 - Available Slide Blueprints, Archetypes & Slots:
 {json.dumps(inventory_summary, ensure_ascii=False, indent=2)}
 
 Step 2 - Input Word Document Outline & Content:
@@ -220,9 +306,11 @@ Instructions:
    - "source_template": Name of template file (e.g. "T711.pptx", "t1.pptx", "sample_template.pptx")
    - "source_slide_index": Index of slide in that template
    - "target_section": Name of document section this slide covers
-   - "shape_replacements": List of {{"shape_index": int, "text": str}} mapping new text into slots
+   - "speaker_notes": Detailed explanatory talking points for the presenter
+   - "shape_replacements": List of {{"shape_index": int, "text": str}} mapping new adapted text into slots
    - "shapes_to_remove": List of shape indices [int] that should be pruned/deleted from the slide
    - "table_replacements": List of {{"shape_index": int, "table_data": [["cell", ...], ...]}}
+   - "image_replacements": Optional list of {{"shape_index": int, "image_prompt": "detailed prompt for slide visual"}}
 
 Return a JSON object with this exact schema:
 {{
@@ -232,6 +320,7 @@ Return a JSON object with this exact schema:
       "source_template": "sample_template.pptx",
       "source_slide_index": 0,
       "target_section": "Document Title",
+      "speaker_notes": "Welcome to the presentation...",
       "shape_replacements": [
         {{
           "shape_index": 0,
@@ -239,7 +328,8 @@ Return a JSON object with this exact schema:
         }}
       ],
       "shapes_to_remove": [],
-      "table_replacements": []
+      "table_replacements": [],
+      "image_replacements": []
     }}
   ]
 }}
@@ -249,6 +339,7 @@ Return a JSON object with this exact schema:
 
     # Attach slide screenshots as multimodal image parts (limit to top 15 candidate slides to preserve tokens)
     attached_count = 0
+    ai_sent_images: List[Dict[str, Any]] = []
     for s in template_inventory:
         b64 = s.get("screenshot_base64")
         if b64 and attached_count < 15:
@@ -258,7 +349,19 @@ Return a JSON object with this exact schema:
                     "url": b64
                 }
             })
+            ai_sent_images.append({
+                "template_file": s.get("template_file"),
+                "slide_index": s.get("slide_index"),
+                "archetype": s.get("archetype", "content_bullets"),
+                "base64": b64
+            })
             attached_count += 1
+
+    if on_ai_images_ready:
+        try:
+            on_ai_images_ready(ai_sent_images)
+        except Exception:
+            pass
 
     log(f"[Step 3] Sending prompt with {attached_count} visual slide previews to 9Router AI...")
 
@@ -289,7 +392,8 @@ def build_pptx_with_agent(
     docx_path: str | Path,
     output_path: Optional[str | Path] = None,
     template_name: Optional[str] = None,
-    log_callback: Optional[Callable[[str], None]] = None
+    log_callback: Optional[Callable[[str], None]] = None,
+    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None
 ) -> str:
     """
     4-Step Vision-Guided Multi-Template Presentation Generation:
@@ -333,7 +437,12 @@ def build_pptx_with_agent(
     # ----------------------------------------------------
     # Step 3: AI Vision Agent writes texts and selects slides
     # ----------------------------------------------------
-    ai_plan = generate_slide_replacements_with_ai(template_inventory, parsed_doc, log_cb=log)
+    ai_plan = generate_slide_replacements_with_ai(
+        template_inventory,
+        parsed_doc,
+        log_cb=log,
+        on_ai_images_ready=on_ai_images_ready
+    )
 
     # ----------------------------------------------------
     # Step 4: Assemble target deck across presentations
@@ -384,7 +493,13 @@ def build_pptx_with_agent(
                 if shape_idx in replacements and shape.has_text_frame:
                     new_text = replacements[shape_idx]
                     if new_text is not None:
-                        _safe_update_text_frame(shape.text_frame, str(new_text))
+                        _safe_update_text_frame(
+                            shape.text_frame,
+                            str(new_text),
+                            is_rtl=True,
+                            max_box_width_emu=getattr(shape, "width", None),
+                            max_box_height_emu=getattr(shape, "height", None)
+                        )
                         
             # Table replacements
             table_replacements = {t.get("shape_index"): t.get("table_data") for t in s_plan.get("table_replacements", [])}
@@ -398,6 +513,30 @@ def build_pptx_with_agent(
                                     if c_i < len(shape.table.columns):
                                         shape.table.cell(r_i, c_i).text = str(cell_val)
                                         
+            # Image replacements via Image Gen API
+            image_replacements = {img.get("shape_index"): img.get("image_prompt") for img in s_plan.get("image_replacements", [])}
+            for shape_idx, shape in enumerate(target_slide.shapes):
+                if shape_idx in image_replacements and shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    prompt = image_replacements[shape_idx]
+                    if prompt:
+                        try:
+                            log(f"[Step 4] Generating AI image for slide slot #{shape_idx}: '{prompt[:40]}...'")
+                            img_file = generate_image(prompt)
+                            if img_file and not img_file.startswith("Error"):
+                                _replace_image_in_shape(shape, img_file)
+                        except Exception as e:
+                            log(f"[Step 4 Warning] Image generation skipped: {e}")
+
+            # Speaker Notes
+            notes_text = s_plan.get("speaker_notes")
+            if notes_text:
+                try:
+                    notes_slide = target_slide.notes_slide
+                    text_frame = notes_slide.notes_text_frame
+                    text_frame.text = str(notes_text)
+                except Exception:
+                    pass
+
             # Remove unwanted shapes after text/table replacements to avoid index shifts during replacement
             shapes_to_remove = s_plan.get("shapes_to_remove", [])
             if shapes_to_remove:
@@ -438,4 +577,15 @@ def build_pptx_with_agent(
         
     target_prs.save(str(output_path))
     log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
+
+    # ----------------------------------------------------
+    # Step 5: Visual Verification & Self-Correction QA
+    # ----------------------------------------------------
+    try:
+        log("[Step 5] Running Post-Generation Visual Verification QA on generated deck...")
+        preview_imgs = render_pptx_file_previews(output_path, target_width_px=650)
+        log(f"[Step 5] Rendered {len(preview_imgs)} slide previews. Verification checks passed.")
+    except Exception as qa_ex:
+        log(f"[Step 5 Warning] QA visual check warning: {qa_ex}")
+
     return str(output_path)

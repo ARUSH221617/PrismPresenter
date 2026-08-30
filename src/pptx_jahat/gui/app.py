@@ -56,6 +56,13 @@ class PPTXJahatApp(tk.Tk):
         self.preview_images_tk: List[ImageTk.PhotoImage] = []
         self.current_slide_idx: int = 0
 
+        # Multi-tab Visual Previews State
+        self.visual_latest_pil_images: List[Image.Image] = []
+        self.visual_latest_idx: int = 0
+
+        self.ai_test_pil_images: List[Dict[str, Any]] = []
+        self.ai_test_idx: int = 0
+
         # Manager state
         self.mgr_selected_file_path: Optional[str] = None
         self.mgr_preview_pil_images: List[Image.Image] = []
@@ -272,21 +279,43 @@ class PPTXJahatApp(tk.Tk):
         self.gen_console = ConsoleLogWidget(left_container, title="Generation Execution Stream", height=10)
         self.gen_console.pack(fill=tk.BOTH, expand=True)
 
-        # --- RIGHT PANEL: Interactive In-App Slide Preview ---
+        # --- RIGHT PANEL: Interactive In-App Multi-Tab Preview ---
         right_container = tk.Frame(paned, bg=Theme.BG_MAIN, padx=5, pady=5)
         paned.add(right_container, minsize=480, stretch="always")
 
         preview_card = ModernCard(
             right_container,
-            title="LIVE SLIDE PREVIEW",
-            subtitle="Interactive Rendered Visual Deck",
+            title="VISUAL DECK & AI INSPECTOR",
+            subtitle="Live Generated Slides, High-Res Visuals & AI Multimodal Payloads",
             show_accent_stripe=True,
             accent_color=Theme.RED_PRIMARY
         )
         preview_card.pack(fill=tk.BOTH, expand=True)
 
+        # Multi-tab sub notebook inside generator preview card
+        self.preview_sub_notebook = ttk.Notebook(preview_card.body)
+        self.preview_sub_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # SUB-TAB 1: Preview (Interactive Slide Viewer)
+        self.subtab_preview = tk.Frame(self.preview_sub_notebook, bg=Theme.BG_SURFACE)
+        self.preview_sub_notebook.add(self.subtab_preview, text="  📊 Live Deck Preview  ")
+        self._setup_subtab_deck_preview()
+
+        # SUB-TAB 2: Visual Image (Screenshot of Latest Generated Slides)
+        self.subtab_visual = tk.Frame(self.preview_sub_notebook, bg=Theme.BG_SURFACE)
+        self.preview_sub_notebook.add(self.subtab_visual, text="  🖼️ Visual Screenshots  ")
+        self._setup_subtab_visual_images()
+
+        # SUB-TAB 3: Visual AI Test Image (Images Sent to AI Agent)
+        self.subtab_ai_test = tk.Frame(self.preview_sub_notebook, bg=Theme.BG_SURFACE)
+        self.preview_sub_notebook.add(self.subtab_ai_test, text="  🤖 Visual AI Test Images  ")
+        self._setup_subtab_ai_test_images()
+
+        self._refresh_templates()
+
+    def _setup_subtab_deck_preview(self):
         # Nav & Controls Toolbar
-        nav_toolbar = tk.Frame(preview_card.body, bg=Theme.BG_SURFACE, pady=4)
+        nav_toolbar = tk.Frame(self.subtab_preview, bg=Theme.BG_SURFACE, pady=4)
         nav_toolbar.pack(fill=tk.X, side=tk.TOP)
 
         self.btn_prev_slide = StyledActionBtn(
@@ -323,12 +352,12 @@ class PPTXJahatApp(tk.Tk):
 
         # Slide Display Canvas Box
         self.preview_display_box = tk.Frame(
-            preview_card.body,
+            self.subtab_preview,
             bg=Theme.BG_DARKEST,
             highlightbackground=Theme.BORDER_DARK,
             highlightthickness=1
         )
-        self.preview_display_box.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.preview_display_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
         self.preview_display_box.bind("<Configure>", lambda e: self._on_preview_resize())
 
         self.preview_label = tk.Label(
@@ -341,7 +370,119 @@ class PPTXJahatApp(tk.Tk):
         )
         self.preview_label.pack(fill=tk.BOTH, expand=True)
 
-        self._refresh_templates()
+    def _setup_subtab_visual_images(self):
+        # Nav & Controls Toolbar for Visual Screenshots
+        nav_toolbar = tk.Frame(self.subtab_visual, bg=Theme.BG_SURFACE, pady=4)
+        nav_toolbar.pack(fill=tk.X, side=tk.TOP)
+
+        self.btn_prev_visual = StyledActionBtn(
+            nav_toolbar,
+            text="◀ Prev Image",
+            command=self._prev_visual_image,
+            is_primary=False,
+            padx=10,
+            pady=4
+        )
+        self.btn_prev_visual.set_state("disabled")
+        self.btn_prev_visual.pack(side=tk.LEFT, padx=4)
+
+        self.visual_counter_var = tk.StringVar(value="No visual screenshot loaded")
+        lbl_counter = tk.Label(
+            nav_toolbar,
+            textvariable=self.visual_counter_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_RED,
+            font=Theme.FONT_TITLE
+        )
+        lbl_counter.pack(side=tk.LEFT, expand=True)
+
+        self.btn_next_visual = StyledActionBtn(
+            nav_toolbar,
+            text="Next Image ▶",
+            command=self._next_visual_image,
+            is_primary=False,
+            padx=10,
+            pady=4
+        )
+        self.btn_next_visual.set_state("disabled")
+        self.btn_next_visual.pack(side=tk.RIGHT, padx=4)
+
+        # Slide Display Canvas Box
+        self.visual_display_box = tk.Frame(
+            self.subtab_visual,
+            bg=Theme.BG_DARKEST,
+            highlightbackground=Theme.BORDER_DARK,
+            highlightthickness=1
+        )
+        self.visual_display_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        self.visual_display_box.bind("<Configure>", lambda e: self._on_visual_resize())
+
+        self.visual_label = tk.Label(
+            self.visual_display_box,
+            text="Rendered high-res visual screenshots of latest slides will appear here.",
+            bg=Theme.BG_DARKEST,
+            fg=Theme.TEXT_MUTED,
+            font=Theme.FONT_BODY,
+            anchor="center"
+        )
+        self.visual_label.pack(fill=tk.BOTH, expand=True)
+
+    def _setup_subtab_ai_test_images(self):
+        # Nav & Controls Toolbar for AI Test Images
+        nav_toolbar = tk.Frame(self.subtab_ai_test, bg=Theme.BG_SURFACE, pady=4)
+        nav_toolbar.pack(fill=tk.X, side=tk.TOP)
+
+        self.btn_prev_ai_test = StyledActionBtn(
+            nav_toolbar,
+            text="◀ Prev AI Image",
+            command=self._prev_ai_test_image,
+            is_primary=False,
+            padx=10,
+            pady=4
+        )
+        self.btn_prev_ai_test.set_state("disabled")
+        self.btn_prev_ai_test.pack(side=tk.LEFT, padx=4)
+
+        self.ai_test_counter_var = tk.StringVar(value="No AI test payload loaded")
+        lbl_counter = tk.Label(
+            nav_toolbar,
+            textvariable=self.ai_test_counter_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_RED,
+            font=Theme.FONT_TITLE
+        )
+        lbl_counter.pack(side=tk.LEFT, expand=True)
+
+        self.btn_next_ai_test = StyledActionBtn(
+            nav_toolbar,
+            text="Next AI Image ▶",
+            command=self._next_ai_test_image,
+            is_primary=False,
+            padx=10,
+            pady=4
+        )
+        self.btn_next_ai_test.set_state("disabled")
+        self.btn_next_ai_test.pack(side=tk.RIGHT, padx=4)
+
+        # Slide Display Canvas Box
+        self.ai_test_display_box = tk.Frame(
+            self.subtab_ai_test,
+            bg=Theme.BG_DARKEST,
+            highlightbackground=Theme.BORDER_DARK,
+            highlightthickness=1
+        )
+        self.ai_test_display_box.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        self.ai_test_display_box.bind("<Configure>", lambda e: self._on_ai_test_resize())
+
+        self.ai_test_label = tk.Label(
+            self.ai_test_display_box,
+            text="Visual screenshots sent to 9Router Vision AI Agent will be displayed here.",
+            bg=Theme.BG_DARKEST,
+            fg=Theme.TEXT_MUTED,
+            font=Theme.FONT_BODY,
+            anchor="center"
+        )
+        self.ai_test_label.pack(fill=tk.BOTH, expand=True)
 
     def _browse_docx(self):
         f = filedialog.askopenfilename(filetypes=[("Word Document", "*.docx")])
@@ -398,17 +539,57 @@ class PPTXJahatApp(tk.Tk):
         if self.raw_preview_pil_images and self.current_slide_idx < len(self.raw_preview_pil_images):
             self._update_preview_display()
 
+    def _on_visual_resize(self):
+        """Re-render visual screenshot if window dimensions change."""
+        if self.visual_latest_pil_images and self.visual_latest_idx < len(self.visual_latest_pil_images):
+            self._update_visual_display()
+
+    def _on_ai_test_resize(self):
+        """Re-render AI test image if window dimensions change."""
+        if self.ai_test_pil_images and self.ai_test_idx < len(self.ai_test_pil_images):
+            self._update_ai_test_display()
+
     def _load_slide_previews(self, pptx_path: str):
         try:
             self.gen_console.log("Rendering high-res slide visual previews...", "accent")
             self.raw_preview_pil_images = render_pptx_file_previews(pptx_path, target_width_px=800)
             self.current_slide_idx = 0
             self._update_preview_display()
-            self.gen_console.log(f"Successfully rendered {len(self.raw_preview_pil_images)} slides into previewer.", "success")
+
+            # Update Subtab 2: Visual screenshots of latest generated slides
+            self.visual_latest_pil_images = list(self.raw_preview_pil_images)
+            self.visual_latest_idx = 0
+            self._update_visual_display()
+
+            self.gen_console.log(f"Successfully rendered {len(self.raw_preview_pil_images)} slides into previewer and visual inspector.", "success")
             if hasattr(self, "_refresh_manager_lists"):
                 self._refresh_manager_lists()
         except Exception as e:
             self.gen_console.log(f"Preview render warning: {str(e)}", "warning")
+
+    def _set_ai_test_images(self, sent_images: List[Dict[str, Any]]):
+        """Receives base64 template slide snapshots sent directly to the AI agent."""
+        parsed_images = []
+        for item in sent_images:
+            b64 = item.get("base64")
+            if b64 and "," in b64:
+                try:
+                    import base64
+                    import io
+                    raw_b64 = b64.split(",", 1)[1]
+                    img_data = base64.b64decode(raw_b64)
+                    pil_img = Image.open(io.BytesIO(img_data)).convert("RGB")
+                    parsed_images.append({
+                        "image": pil_img,
+                        "template_file": item.get("template_file", "Template"),
+                        "slide_index": item.get("slide_index", 0),
+                        "archetype": item.get("archetype", "Archetype")
+                    })
+                except Exception:
+                    pass
+        self.ai_test_pil_images = parsed_images
+        self.ai_test_idx = 0
+        self._update_ai_test_display()
 
     def _update_preview_display(self):
         if not self.raw_preview_pil_images:
@@ -450,6 +631,88 @@ class PPTXJahatApp(tk.Tk):
             self.current_slide_idx += 1
             self._update_preview_display()
 
+    def _update_visual_display(self):
+        if not self.visual_latest_pil_images:
+            self.visual_label.config(image="", text="No visual screenshots available.")
+            self.visual_counter_var.set("0 / 0")
+            self.btn_prev_visual.set_state("disabled")
+            self.btn_next_visual.set_state("disabled")
+            return
+
+        total = len(self.visual_latest_pil_images)
+        self.visual_counter_var.set(f"Visual Screenshot {self.visual_latest_idx + 1} of {total}")
+
+        box_w = max(100, self.visual_display_box.winfo_width() - 20)
+        box_h = max(100, self.visual_display_box.winfo_height() - 20)
+
+        raw_img = self.visual_latest_pil_images[self.visual_latest_idx]
+        img_w, img_h = raw_img.size
+
+        scale = min(box_w / img_w, box_h / img_h, 1.0)
+        new_w = max(1, int(img_w * scale))
+        new_h = max(1, int(img_h * scale))
+
+        resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        self._visual_current_tk_img = ImageTk.PhotoImage(resized)
+
+        self.visual_label.config(image=self._visual_current_tk_img, text="")
+
+        self.btn_prev_visual.set_state("normal" if self.visual_latest_idx > 0 else "disabled")
+        self.btn_next_visual.set_state("normal" if self.visual_latest_idx < total - 1 else "disabled")
+
+    def _prev_visual_image(self):
+        if self.visual_latest_idx > 0:
+            self.visual_latest_idx -= 1
+            self._update_visual_display()
+
+    def _next_visual_image(self):
+        if self.visual_latest_idx < len(self.visual_latest_pil_images) - 1:
+            self.visual_latest_idx += 1
+            self._update_visual_display()
+
+    def _update_ai_test_display(self):
+        if not self.ai_test_pil_images:
+            self.ai_test_label.config(image="", text="No AI test images sent yet.")
+            self.ai_test_counter_var.set("0 / 0")
+            self.btn_prev_ai_test.set_state("disabled")
+            self.btn_next_ai_test.set_state("disabled")
+            return
+
+        total = len(self.ai_test_pil_images)
+        entry = self.ai_test_pil_images[self.ai_test_idx]
+        tpl_name = entry.get("template_file", "")
+        s_idx = entry.get("slide_index", 0)
+        arch = entry.get("archetype", "")
+        self.ai_test_counter_var.set(f"AI Payload {self.ai_test_idx + 1}/{total} • {tpl_name} [Slide {s_idx+1}] ({arch})")
+
+        box_w = max(100, self.ai_test_display_box.winfo_width() - 20)
+        box_h = max(100, self.ai_test_display_box.winfo_height() - 20)
+
+        raw_img = entry["image"]
+        img_w, img_h = raw_img.size
+
+        scale = min(box_w / img_w, box_h / img_h, 1.0)
+        new_w = max(1, int(img_w * scale))
+        new_h = max(1, int(img_h * scale))
+
+        resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        self._ai_test_current_tk_img = ImageTk.PhotoImage(resized)
+
+        self.ai_test_label.config(image=self._ai_test_current_tk_img, text="")
+
+        self.btn_prev_ai_test.set_state("normal" if self.ai_test_idx > 0 else "disabled")
+        self.btn_next_ai_test.set_state("normal" if self.ai_test_idx < total - 1 else "disabled")
+
+    def _prev_ai_test_image(self):
+        if self.ai_test_idx > 0:
+            self.ai_test_idx -= 1
+            self._update_ai_test_display()
+
+    def _next_ai_test_image(self):
+        if self.ai_test_idx < len(self.ai_test_pil_images) - 1:
+            self.ai_test_idx += 1
+            self._update_ai_test_display()
+
     def _run_generator(self):
         docx_p = self.docx_path_var.get().strip()
         if not docx_p or not Path(docx_p).exists():
@@ -470,9 +733,18 @@ class PPTXJahatApp(tk.Tk):
             def log_fn(msg):
                 self.gen_console.log(msg)
 
+            def ai_images_cb(sent_images):
+                self.after(50, lambda: self._set_ai_test_images(sent_images))
+
             try:
                 self.gen_console.log(f"Starting PPTX generation pipeline for '{Path(docx_p).name}'", "accent")
-                res = build_pptx_with_agent(docx_p, out_p, tpl_name, log_callback=log_fn)
+                res = build_pptx_with_agent(
+                    docx_p,
+                    out_p,
+                    tpl_name,
+                    log_callback=log_fn,
+                    on_ai_images_ready=ai_images_cb
+                )
                 self.current_generated_pptx = res
                 self.gen_console.log(f"SUCCESS: Generated PPTX saved at {res}", "success")
                 

@@ -15,6 +15,10 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "pillow>=11.1.0",
+    "arabic-reshaper>=3.0.1",
+    "python-bidi>=0.6.11",
+    "pywin32>=312",
+    "comtypes>=1.4.16",
 ]
 
 [project.scripts]

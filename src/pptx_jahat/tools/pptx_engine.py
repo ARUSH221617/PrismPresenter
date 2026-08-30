@@ -98,6 +98,49 @@ def _determine_component_label_and_description(shape: Any, shape_type_name: str,
     
     return f"{shape_type_name} Component", f"Presentation element of type {shape_type_name}"
 
+def classify_slide_archetype(slide: Any, slide_idx: int, shapes_summary: List[Dict[str, Any]]) -> str:
+    """
+    Classifies a template slide into a semantic design archetype:
+    - title_cover: Presentation master title/intro slide
+    - table_matrix: Data tables & tabular comparisons
+    - metrics_stats: Number callouts, KPIs, large statistics
+    - multi_column: 2 or 3 column comparison / card layout
+    - process_timeline: Sequential steps, numbered points, or flow
+    - content_bullets: Standard topic overview with headings and bullet list
+    - conclusion_quote: Summary, takeaway or final slide
+    """
+    if slide_idx == 0:
+        return "title_cover"
+
+    has_table = any(s.get("is_table") or s.get("shape_type") == "TABLE" for s in shapes_summary)
+    if has_table:
+        return "table_matrix"
+
+    # Count metrics or numeric callouts
+    numeric_callouts = 0
+    body_blocks = 0
+    cards_containers = 0
+    for s in shapes_summary:
+        txt = s.get("original_text", "")
+        font_sz = s.get("font", {}).get("size_pt") or 14
+        if any(c.isdigit() for c in txt) and font_sz >= 22 and len(txt.split()) <= 4:
+            numeric_callouts += 1
+        elif len(txt.split()) > 10:
+            body_blocks += 1
+        if "card" in s.get("shape_name", "").lower() or s.get("shape_type") in ["AUTO_SHAPE", "GROUP"]:
+            cards_containers += 1
+
+    if numeric_callouts >= 2:
+        return "metrics_stats"
+    if cards_containers >= 2 and body_blocks >= 2:
+        return "multi_column"
+    if any(kw in s.get("original_text", "").lower() for s in shapes_summary for kw in ["step", "phase", "مرحله", "راهبرد"]):
+        return "process_timeline"
+    if any(kw in s.get("original_text", "").lower() for s in shapes_summary for kw in ["thank", "summary", "پایان", "نتیجه", "conclusion"]):
+        return "conclusion_quote"
+
+    return "content_bullets"
+
 def extract_pptx_file(pptx_path: Path) -> Dict[str, Any]:
     prs = Presentation(str(pptx_path))
     slide_width = prs.slide_width
@@ -277,6 +320,8 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
                     "is_decorative": True
                 })
                 
+        # Classify semantic archetype
+        slide_entry["archetype"] = classify_slide_archetype(slide, slide_idx, slide_entry["text_slots"])
         slides_summary.append(slide_entry)
         
     return slides_summary

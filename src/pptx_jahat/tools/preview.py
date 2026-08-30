@@ -1,39 +1,60 @@
-import os
 import io
-import math
 import base64
+import colorsys
+import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple, Any, Dict
 from pptx import Presentation
-from PIL import Image, ImageDraw, ImageFont, ImageColor
+from PIL import Image, ImageDraw, ImageFont
+
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    HAS_BIDI = True
+except Exception:
+    HAS_BIDI = False
+
+logger = logging.getLogger(__name__)
 
 # DrawingML & OpenXML Namespaces
 NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main"
 NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
+def _is_rtl_text(text: str) -> bool:
+    """Checks if text contains Arabic/Persian/Hebrew characters."""
+    if not text: return False
+    for ch in text:
+        if '\u0600' <= ch <= '\u06FF' or '\u0750' <= ch <= '\u077F' or '\uFB50' <= ch <= '\uFDFF' or '\uFE70' <= ch <= '\uFEFF' or '\u0590' <= ch <= '\u05FF':
+            return True
+    return False
+
+def _shape_text_for_display(text: str) -> str:
+    """Correctly shapes Arabic/Persian letters with joining and RTL BiDi ordering."""
+    if not text or not HAS_BIDI:
+        return text
+    if _is_rtl_text(text):
+        try:
+            reshaped = arabic_reshaper.reshape(text)
+            return get_display(reshaped)
+        except Exception:
+            return text
+    return text
+
 def _extract_theme_color_palette(prs: Presentation) -> Dict[str, Tuple[int, int, int]]:
     """
     Extracts the color palette (dk1, lt1, accent1-6, etc.) from the theme1.xml part.
     """
     colors: Dict[str, Tuple[int, int, int]] = {
-        "dk1": (0, 0, 0),
-        "lt1": (255, 255, 255),
-        "dk2": (80, 80, 70),
-        "lt2": (238, 236, 225),
-        "accent1": (232, 76, 34),
-        "accent2": (255, 189, 71),
-        "accent3": (182, 73, 38),
-        "accent4": (255, 132, 39),
-        "accent5": (204, 153, 0),
-        "accent6": (178, 38, 0),
-        "hlink": (204, 153, 0),
-        "folHlink": (102, 102, 153),
-        "bg1": (255, 255, 255),
-        "bg2": (245, 245, 245),
-        "tx1": (0, 0, 0),
-        "tx2": (100, 100, 100)
+        "dk1": (0, 0, 0), "lt1": (255, 255, 255),
+        "dk2": (80, 80, 70), "lt2": (238, 236, 225),
+        "accent1": (232, 76, 34), "accent2": (255, 189, 71),
+        "accent3": (182, 73, 38), "accent4": (255, 132, 39),
+        "accent5": (204, 153, 0), "accent6": (178, 38, 0),
+        "hlink": (204, 153, 0), "folHlink": (102, 102, 153),
+        "bg1": (255, 255, 255), "bg2": (245, 245, 245),
+        "tx1": (0, 0, 0), "tx2": (100, 100, 100)
     }
 
     try:
@@ -64,11 +85,21 @@ def _extract_theme_color_palette(prs: Presentation) -> Dict[str, Tuple[int, int,
                                 if tag == "dk2": colors["tx2"] = (r, g, b)
                             except Exception:
                                 pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to extract theme: {e}")
 
     return colors
 
+def _apply_lum_transforms(r: int, g: int, b: int, lum_mod: float = 1.0, lum_off: float = 0.0) -> Tuple[int, int, int]:
+    """Applies DrawingML luminance modifications (lumMod and lumOff) using HSL conversion."""
+    try:
+        h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
+        l = l * lum_mod + lum_off
+        l = max(0.0, min(1.0, l))
+        r2, g2, b2 = colorsys.hls_to_rgb(h, l, s)
+        return int(r2 * 255), int(g2 * 255), int(b2 * 255)
+    except Exception:
+        return r, g, b
 
 def _resolve_element_color(
     elem: Optional[ET.Element],
@@ -107,27 +138,26 @@ def _resolve_element_color(
 
     # Check color transforms (lumMod, lumOff, alpha)
     if color_node is not None:
-        lum_mod = color_node.find(f"{{{NS_A}}}lumMod")
-        lum_off = color_node.find(f"{{{NS_A}}}lumOff")
+        lum_mod_node = color_node.find(f"{{{NS_A}}}lumMod")
+        lum_off_node = color_node.find(f"{{{NS_A}}}lumOff")
         alpha_node = color_node.find(f"{{{NS_A}}}alpha")
 
-        if lum_mod is not None and "val" in lum_mod.attrib:
-            mod_val = int(lum_mod.attrib["val"]) / 100000.0
-            r = int(r * mod_val)
-            g = int(g * mod_val)
-            b = int(b * mod_val)
+        lum_mod_val = 1.0
+        lum_off_val = 0.0
 
-        if lum_off is not None and "val" in lum_off.attrib:
-            off_val = int(lum_off.attrib["val"]) / 100000.0
-            r = min(255, int(r + 255 * off_val))
-            g = min(255, int(g + 255 * off_val))
-            b = min(255, int(b + 255 * off_val))
+        if lum_mod_node is not None and "val" in lum_mod_node.attrib:
+            lum_mod_val = int(lum_mod_node.attrib["val"]) / 100000.0
+
+        if lum_off_node is not None and "val" in lum_off_node.attrib:
+            lum_off_val = int(lum_off_node.attrib["val"]) / 100000.0
+
+        if lum_mod_val != 1.0 or lum_off_val != 0.0:
+            r, g, b = _apply_lum_transforms(r, g, b, lum_mod_val, lum_off_val)
 
         if alpha_node is not None and "val" in alpha_node.attrib:
             alpha = max(0, min(255, int(int(alpha_node.attrib["val"]) * 255 / 100000.0)))
 
     return (max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)), alpha)
-
 
 def _get_shape_colors_from_xml(
     sp_element: ET.Element,
@@ -140,12 +170,10 @@ def _get_shape_colors_from_xml(
     line_rgba = None
     line_w = 1
 
-    # Check solidFill, gradFill, noFill in spPr
     spPr = sp_element.find(f"{{{NS_P}}}spPr")
     if spPr is None:
         spPr = sp_element.find(f"{{{NS_A}}}spPr")
     if spPr is None:
-        # direct search
         spPr = sp_element
 
     # 1. Fill
@@ -158,10 +186,11 @@ def _get_shape_colors_from_xml(
     elif solid_fill is not None:
         fill_rgba = _resolve_element_color(solid_fill, palette)
     elif grad_fill is not None:
-        # Resolve first stop color of gradient
-        first_stop = grad_fill.find(f".//{{{NS_A}}}gs")
-        if first_stop is not None:
-            fill_rgba = _resolve_element_color(first_stop, palette)
+        gs_lst = grad_fill.find(f"{{{NS_A}}}gsLst")
+        if gs_lst is not None:
+            first_stop = gs_lst.find(f"{{{NS_A}}}gs")
+            if first_stop is not None:
+                fill_rgba = _resolve_element_color(first_stop, palette)
 
     # 2. Line Outline
     ln = spPr.find(f"{{{NS_A}}}ln")
@@ -176,7 +205,6 @@ def _get_shape_colors_from_xml(
             line_rgba = _resolve_element_color(ln_solid, palette)
 
     return fill_rgba, line_rgba, line_w
-
 
 def _draw_cubic_bezier(p0, p1, p2, p3, steps=16) -> List[Tuple[float, float]]:
     """Calculates points along a cubic bezier segment."""
@@ -193,7 +221,6 @@ def _draw_cubic_bezier(p0, p1, p2, p3, steps=16) -> List[Tuple[float, float]]:
         y = uuu * p0[1] + 3 * uu * t * p1[1] + 3 * u * tt * p2[1] + ttt * p3[1]
         points.append((x, y))
     return points
-
 
 def _render_custom_geom(
     draw: ImageDraw.Draw,
@@ -223,26 +250,29 @@ def _render_custom_geom(
         sx = shape_w_px / pw
         sy = shape_h_px / ph
 
-        polygon_points: List[Tuple[float, float]] = []
+        polygons: List[List[Tuple[float, float]]] = []
+        current_subpath: List[Tuple[float, float]] = []
         current_pt = (shape_left_px, shape_top_px)
 
         for cmd in path_elem:
             tag = cmd.tag.split("}")[-1]
             if tag == "moveTo":
+                if current_subpath:
+                    polygons.append(current_subpath)
+                    current_subpath = []
                 pt_node = cmd.find(f"{{{NS_A}}}pt")
                 if pt_node is not None:
                     x = shape_left_px + float(pt_node.attrib["x"]) * sx
                     y = shape_top_px + float(pt_node.attrib["y"]) * sy
                     current_pt = (x, y)
-                    if not polygon_points:
-                        polygon_points.append(current_pt)
+                    current_subpath.append(current_pt)
             elif tag == "lnTo":
                 pt_node = cmd.find(f"{{{NS_A}}}pt")
                 if pt_node is not None:
                     x = shape_left_px + float(pt_node.attrib["x"]) * sx
                     y = shape_top_px + float(pt_node.attrib["y"]) * sy
                     current_pt = (x, y)
-                    polygon_points.append(current_pt)
+                    current_subpath.append(current_pt)
             elif tag == "cubicBezTo":
                 pts = cmd.findall(f"{{{NS_A}}}pt")
                 if len(pts) == 3:
@@ -250,17 +280,51 @@ def _render_custom_geom(
                     p2 = (shape_left_px + float(pts[1].attrib["x"]) * sx, shape_top_px + float(pts[1].attrib["y"]) * sy)
                     p3 = (shape_left_px + float(pts[2].attrib["x"]) * sx, shape_top_px + float(pts[2].attrib["y"]) * sy)
                     curve_pts = _draw_cubic_bezier(current_pt, p1, p2, p3)
-                    polygon_points.extend(curve_pts)
+                    current_subpath.extend(curve_pts)
                     current_pt = p3
             elif tag == "close":
-                if polygon_points:
-                    polygon_points.append(polygon_points[0])
+                if current_subpath:
+                    current_subpath.append(current_subpath[0])
+                    polygons.append(current_subpath)
+                    current_subpath = []
 
-        if len(polygon_points) >= 3 and fill_color:
-            draw.polygon(polygon_points, fill=fill_color[:3])
-        if len(polygon_points) >= 2 and outline_color:
-            draw.line(polygon_points, fill=outline_color[:3], width=max(1, line_width))
+        if current_subpath:
+            polygons.append(current_subpath)
+            
+        for poly in polygons:
+            if len(poly) >= 3 and fill_color:
+                draw.polygon(poly, fill=fill_color[:3])
+            if len(poly) >= 2 and outline_color:
+                draw.line(poly, fill=outline_color[:3], width=max(1, line_width))
 
+def _get_slide_bg_color(slide, palette: Dict[str, Tuple[int, int, int]]) -> Tuple[int, int, int]:
+    """Determines the background color of the slide, falling back to layout and master."""
+    bg_color = palette.get("bg1", (255, 255, 255))
+    
+    targets = [slide, getattr(slide, "slide_layout", None), getattr(slide, "slide_master", None)]
+    
+    for target in targets:
+        if not target:
+            continue
+            
+        # Check python-pptx API
+        bg = getattr(target, "background", None)
+        if bg and bg.fill and bg.fill.type is not None:
+            try:
+                if bg.fill.type == 1 and bg.fill.fore_color and getattr(bg.fill.fore_color, "rgb", None):
+                    rgb = bg.fill.fore_color.rgb
+                    return (rgb[0], rgb[1], rgb[2])
+            except Exception:
+                pass
+                
+        # Check XML structure as a more robust fallback
+        bg_elem = target.element.find(f".//{{{NS_P}}}bgPr/{{{NS_A}}}solidFill")
+        if bg_elem is not None:
+            c = _resolve_element_color(bg_elem, palette)
+            if c:
+                return c[:3]
+                
+    return bg_color
 
 def _render_shape_recursive(
     shape: Any,
@@ -268,22 +332,84 @@ def _render_shape_recursive(
     draw: ImageDraw.Draw,
     scale_x: float,
     scale_y: float,
-    palette: Dict[str, Tuple[int, int, int]]
+    palette: Dict[str, Tuple[int, int, int]],
+    group_offset: Optional[Tuple[float, float, float, float]] = None
 ):
-    """
-    Renders shapes, nested groups, tables, images, vector paths, and text with accurate coordinates.
-    """
     try:
-        # If shape is a GroupShape, iterate its children
+        # Check if shape is a GroupShape (has .shapes)
         if hasattr(shape, "shapes"):
+            grp_elem = shape.element
+            xfrm = grp_elem.find(f"{{{NS_P}}}grpSpPr/{{{NS_A}}}xfrm")
+            if xfrm is None:
+                xfrm = grp_elem.find(f"{{{NS_A}}}xfrm")
+
+            raw_gx = float(getattr(shape, "left", 0) or 0)
+            raw_gy = float(getattr(shape, "top", 0) or 0)
+            raw_gw = float(getattr(shape, "width", 1) or 1)
+            raw_gh = float(getattr(shape, "height", 1) or 1)
+            
+            cx, cy, cw, ch = 0, 0, 1, 1
+            if xfrm is not None:
+                off = xfrm.find(f"{{{NS_A}}}off")
+                ext = xfrm.find(f"{{{NS_A}}}ext")
+                chOff = xfrm.find(f"{{{NS_A}}}chOff")
+                chExt = xfrm.find(f"{{{NS_A}}}chExt")
+                
+                if off is not None and "x" in off.attrib: raw_gx = float(off.attrib["x"])
+                if off is not None and "y" in off.attrib: raw_gy = float(off.attrib["y"])
+                if ext is not None and "cx" in ext.attrib: raw_gw = float(ext.attrib["cx"])
+                if ext is not None and "cy" in ext.attrib: raw_gh = float(ext.attrib["cy"])
+                
+                if chOff is not None and "x" in chOff.attrib: cx = float(chOff.attrib["x"])
+                if chOff is not None and "y" in chOff.attrib: cy = float(chOff.attrib["y"])
+                if chExt is not None and "cx" in chExt.attrib: cw = float(chExt.attrib["cx"])
+                if chExt is not None and "cy" in chExt.attrib: ch = float(chExt.attrib["cy"])
+
+            fx = raw_gw / cw if cw > 0 else 1.0
+            fy = raw_gh / ch if ch > 0 else 1.0
+
+            local_off_x = raw_gx - cx * fx
+            local_off_y = raw_gy - cy * fy
+            local_fx = fx
+            local_fy = fy
+
+            # Compose with parent group_offset
+            if group_offset:
+                p_go_x, p_go_y, p_gfx, p_gfy = group_offset
+                new_go_x = p_go_x + local_off_x * p_gfx
+                new_go_y = p_go_y + local_off_y * p_gfy
+                new_fx = p_gfx * local_fx
+                new_fy = p_gfy * local_fy
+                next_offset = (new_go_x, new_go_y, new_fx, new_fy)
+            else:
+                next_offset = (local_off_x, local_off_y, local_fx, local_fy)
+
             for child in shape.shapes:
-                _render_shape_recursive(child, img, draw, scale_x, scale_y, palette)
+                _render_shape_recursive(child, img, draw, scale_x, scale_y, palette, next_offset)
             return
 
-        left_px = int(shape.left * scale_x)
-        top_px = int(shape.top * scale_y)
-        width_px = max(1, int(shape.width * scale_x))
-        height_px = max(1, int(shape.height * scale_y))
+        # Calculate actual coordinates including group transforms
+        raw_left = float(getattr(shape, "left", 0) or 0)
+        raw_top = float(getattr(shape, "top", 0) or 0)
+        raw_w = float(getattr(shape, "width", 0) or 0)
+        raw_h = float(getattr(shape, "height", 0) or 0)
+
+        if group_offset:
+            go_x, go_y, gfx, gfy = group_offset
+            calc_left = go_x + raw_left * gfx
+            calc_top = go_y + raw_top * gfy
+            calc_w = raw_w * gfx
+            calc_h = raw_h * gfy
+        else:
+            calc_left = raw_left
+            calc_top = raw_top
+            calc_w = raw_w
+            calc_h = raw_h
+
+        left_px = int(calc_left * scale_x)
+        top_px = int(calc_top * scale_y)
+        width_px = max(1, int(calc_w * scale_x))
+        height_px = max(1, int(calc_h * scale_y))
         right_px = left_px + width_px
         bottom_px = top_px + height_px
 
@@ -293,7 +419,7 @@ def _render_shape_recursive(
         # Fallback to python-pptx standard properties if available
         if fill_rgba is None and hasattr(shape, "fill") and shape.fill:
             try:
-                if shape.fill.type == 1 and shape.fill.fore_color.rgb:
+                if shape.fill.type == 1 and getattr(shape.fill.fore_color, "rgb", None):
                     rgb = shape.fill.fore_color.rgb
                     fill_rgba = (rgb[0], rgb[1], rgb[2], 255)
             except Exception:
@@ -301,7 +427,7 @@ def _render_shape_recursive(
 
         if line_rgba is None and hasattr(shape, "line") and shape.line:
             try:
-                if shape.line.fill.type is not None and shape.line.color.rgb:
+                if shape.line.fill and shape.line.fill.type is not None and getattr(shape.line.color, "rgb", None):
                     rgb = shape.line.color.rgb
                     line_rgba = (rgb[0], rgb[1], rgb[2], 255)
             except Exception:
@@ -315,7 +441,7 @@ def _render_shape_recursive(
         # 2. Standard Shapes (Rectangles, Ovals, Rounded Rectangles)
         else:
             shape_type_str = str(getattr(shape, "shape_type", ""))
-            shape_name = shape.name.lower()
+            shape_name = shape.name.lower() if shape.name else ""
 
             if fill_rgba or line_rgba:
                 fill_rgb = fill_rgba[:3] if fill_rgba else None
@@ -341,7 +467,19 @@ def _render_shape_recursive(
             except Exception:
                 pass
 
-        # 4. Table Rendering
+        # 4. Chart Placeholder
+        if getattr(shape, "has_chart", False):
+            try:
+                draw.rectangle([(left_px, top_px), (right_px, bottom_px)], fill=(235, 235, 235), outline=(180, 180, 180), width=2)
+                try:
+                    chart_font = ImageFont.truetype("tahoma.ttf", 16)
+                except Exception:
+                    chart_font = ImageFont.load_default()
+                draw.text((left_px + 10, top_px + 10), "[Chart]", fill=(80, 80, 80), font=chart_font)
+            except Exception:
+                pass
+
+        # 5. Table Rendering
         if getattr(shape, "has_table", False):
             table = shape.table
             rows = len(table.rows)
@@ -356,19 +494,30 @@ def _render_shape_recursive(
                         c_x2 = int(c_x1 + col_w)
                         c_y2 = int(c_y1 + row_h)
 
-                        c_fill = palette.get("accent1", (230, 80, 40)) if r_idx == 0 else (255, 255, 255)
+                        # Extract cell fill
+                        c_fill = None
+                        try:
+                            c_rgba, _, _ = _get_shape_colors_from_xml(cell._tc, palette)
+                            if c_rgba: c_fill = c_rgba[:3]
+                        except Exception:
+                            pass
+                            
+                        if c_fill is None:
+                            c_fill = palette.get("accent1", (230, 80, 40)) if r_idx == 0 else (255, 255, 255)
+
                         draw.rectangle([(c_x1, c_y1), (c_x2, c_y2)], fill=c_fill, outline=(200, 200, 200))
 
                         cell_text = cell.text.strip()
                         if cell_text:
                             text_color = (255, 255, 255) if r_idx == 0 else (30, 40, 50)
                             try:
-                                font = ImageFont.truetype("arial.ttf", max(8, int(11 * scale_y)))
+                                font = ImageFont.truetype("tahoma.ttf", max(8, int(11 * scale_y)))
                             except Exception:
                                 font = ImageFont.load_default()
-                            draw.text((c_x1 + 6, c_y1 + 4), cell_text[:30], fill=text_color, font=font)
+                            shaped_cell = _shape_text_for_display(cell_text[:30])
+                            draw.text((c_x1 + 6, c_y1 + 4), shaped_cell, fill=text_color, font=font)
 
-        # 5. Text Frame Rendering
+        # 6. Text Frame Rendering
         if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip():
             tf = shape.text_frame
             curr_y = top_px + 4
@@ -382,17 +531,20 @@ def _render_shape_recursive(
                 font_color = palette.get("tx1", (20, 20, 20))
                 is_bold = False
 
-                # Extract font specs from paragraph or first run
                 for r in p.runs:
                     if r.font:
                         if r.font.size: pt_size = r.font.size.pt
                         if r.font.bold: is_bold = True
-                        if r.font.color and hasattr(r.font.color, "rgb") and r.font.color.rgb:
-                            font_color = (r.font.color.rgb[0], r.font.color.rgb[1], r.font.color.rgb[2])
+                        
+                        # Check text color via XML for theme support
+                        rPr = r._r.find(f"{{{NS_A}}}rPr")
+                        if rPr is not None:
+                            c = _resolve_element_color(rPr, palette)
+                            if c: font_color = c[:3]
                     break
 
                 px_font_size = max(8, int(pt_size * scale_y * 1.05))
-                font_name = "arialbd.ttf" if is_bold else "arial.ttf"
+                font_name = "tahomabd.ttf" if is_bold else "tahoma.ttf"
                 try:
                     font = ImageFont.truetype(font_name, px_font_size)
                 except Exception:
@@ -401,27 +553,59 @@ def _render_shape_recursive(
                     except Exception:
                         font = ImageFont.load_default()
 
-                # Alignments & wrapping
-                words = txt.split()
-                line = ""
-                for w in words:
-                    test_line = f"{line} {w}".strip()
-                    bbox = draw.textbbox((0, 0), test_line, font=font)
-                    w_w = bbox[2] - bbox[0]
-                    if w_w > (width_px - 8) and line:
-                        draw.text((left_px + 6, curr_y), line, fill=font_color, font=font)
+                is_rtl = _is_rtl_text(txt)
+                
+                is_centered = False
+                is_right = False
+                align = p.alignment
+                if align is not None:
+                    align_name = align.name if hasattr(align, "name") else str(align)
+                    if "CENTER" in align_name: is_centered = True
+                    elif "RIGHT" in align_name: is_right = True
+
+                lines_to_draw = txt.split("\n") if "\n" in txt else [txt]
+                for raw_line in lines_to_draw:
+                    words = raw_line.split()
+                    curr_line = ""
+                    for w in words:
+                        test_line = f"{curr_line} {w}".strip()
+                        bbox = draw.textbbox((0, 0), test_line, font=font)
+                        w_w = bbox[2] - bbox[0]
+                        if w_w > (width_px - 12) and curr_line:
+                            shaped_display = _shape_text_for_display(curr_line)
+                            line_bbox = draw.textbbox((0, 0), shaped_display, font=font)
+                            line_w_px = line_bbox[2] - line_bbox[0]
+                            
+                            if is_centered:
+                                draw_x = left_px + (width_px - line_w_px) // 2
+                            elif is_right or is_rtl:
+                                draw_x = right_px - line_w_px - 8
+                            else:
+                                draw_x = left_px + 8
+
+                            draw.text((draw_x, curr_y), shaped_display, fill=font_color, font=font)
+                            curr_y += int(px_font_size * 1.35)
+                            curr_line = w
+                        else:
+                            curr_line = test_line
+
+                    if curr_line:
+                        shaped_display = _shape_text_for_display(curr_line)
+                        line_bbox = draw.textbbox((0, 0), shaped_display, font=font)
+                        line_w_px = line_bbox[2] - line_bbox[0]
+
+                        if is_centered:
+                            draw_x = left_px + (width_px - line_w_px) // 2
+                        elif is_right or is_rtl:
+                            draw_x = right_px - line_w_px - 8
+                        else:
+                            draw_x = left_px + 8
+
+                        draw.text((draw_x, curr_y), shaped_display, fill=font_color, font=font)
                         curr_y += int(px_font_size * 1.35)
-                        line = w
-                    else:
-                        line = test_line
 
-                if line:
-                    draw.text((left_px + 6, curr_y), line, fill=font_color, font=font)
-                    curr_y += int(px_font_size * 1.35)
-
-    except Exception:
-        pass
-
+    except Exception as e:
+        logger.debug(f"Error rendering shape: {e}")
 
 def render_pptx_slide_to_image(
     slide: Any,
@@ -430,10 +614,6 @@ def render_pptx_slide_to_image(
     target_width_px: int = 850,
     palette: Optional[Dict[str, Tuple[int, int, int]]] = None
 ) -> Image.Image:
-    """
-    Renders a comprehensive high-fidelity 2D visual preview of a PPTX slide with shapes,
-    vectors, colors, containers, tables, pictures, and formatted text.
-    """
     aspect_ratio = slide_height_emu / slide_width_emu if slide_width_emu else (9 / 16)
     target_height_px = int(target_width_px * aspect_ratio)
 
@@ -441,41 +621,27 @@ def render_pptx_slide_to_image(
     scale_y = target_height_px / slide_height_emu if slide_height_emu else 1.0
 
     theme_palette = palette or {}
-
-    # 1. Slide Background Color
-    bg_color = theme_palette.get("bg1", (255, 255, 255))
-    try:
-        if hasattr(slide, "background") and slide.background and slide.background.fill:
-            if slide.background.fill.type == 1 and slide.background.fill.fore_color.rgb:
-                rgb = slide.background.fill.fore_color.rgb
-                bg_color = (rgb[0], rgb[1], rgb[2])
-    except Exception:
-        pass
-
-    img = Image.new("RGB", (target_width_px, target_height_px), color=bg_color)
+    bg_color = _get_slide_bg_color(slide, theme_palette)
+    
+    # Initialize as RGBA to safely support transparent image pasting
+    img = Image.new("RGBA", (target_width_px, target_height_px), color=bg_color + (255,))
     draw = ImageDraw.Draw(img)
 
-    # 2. Render Slide Layout Shapes (Base Template Layout)
     try:
         if hasattr(slide, "slide_layout") and slide.slide_layout:
             for layout_shape in slide.slide_layout.shapes:
-                # Do not render title/body placeholders from layout if the slide itself overrides them
                 if not getattr(layout_shape, "is_placeholder", False):
                     _render_shape_recursive(layout_shape, img, draw, scale_x, scale_y, theme_palette)
     except Exception:
         pass
 
-    # 3. Render Slide Shapes
     for shape in slide.shapes:
         _render_shape_recursive(shape, img, draw, scale_x, scale_y, theme_palette)
 
-    return img
-
+    # Convert final image to RGB for standard output
+    return img.convert("RGB")
 
 def render_pptx_file_previews(pptx_path: Path | str, target_width_px: int = 850) -> List[Image.Image]:
-    """
-    Renders all slides in a PPTX file into a list of PIL Images using the extracted theme palette.
-    """
     prs = Presentation(str(pptx_path))
     palette = _extract_theme_color_palette(prs)
     slide_w = prs.slide_width
@@ -494,11 +660,7 @@ def render_pptx_file_previews(pptx_path: Path | str, target_width_px: int = 850)
 
     return images
 
-
 def image_to_base64_jpeg(img: Image.Image, quality: int = 85) -> str:
-    """
-    Converts a PIL Image to a base64 encoded JPEG data URL string.
-    """
     buffered = io.BytesIO()
     rgb_img = img.convert("RGB")
     rgb_img.save(buffered, format="JPEG", quality=quality)

@@ -7,7 +7,15 @@ authors = [
     { name = "arush", email = "arush221617@gmail.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "python-pptx>=1.0.2",
+    "python-docx>=1.1.2",
+    "openai>=1.65.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+    "pillow>=11.1.0",
+]
 
 [project.scripts]
 pptx-jahat = "pptx_jahat:main"

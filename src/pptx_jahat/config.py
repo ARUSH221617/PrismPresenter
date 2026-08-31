@@ -26,6 +26,11 @@ class Config:
     NINEROUTER_SEARCH_MODEL: str = os.getenv("NINEROUTER_SEARCH_MODEL", "tavily")
     NINEROUTER_FETCH_MODEL: str = os.getenv("NINEROUTER_FETCH_MODEL", "jina-reader")
     NINEROUTER_IMAGE_MODEL: str = os.getenv("NINEROUTER_IMAGE_MODEL", "gemini/gemini-3-pro-image-preview")
+
+    # Render Engine Configuration
+    # If False (default is True), disables pure-Python PIL fallback and enforces native PowerPoint COM export.
+    # If PowerPoint COM fails or is unavailable when PURE_PIL_ACTIVE is False, an error is raised.
+    PURE_PIL_ACTIVE: bool = os.getenv("PURE_PIL_ACTIVE", "true").strip().lower() in ("1", "true", "yes", "on")
     
     @classmethod
     def reload(cls):
@@ -36,3 +41,4 @@ class Config:
         cls.NINEROUTER_SEARCH_MODEL = os.getenv("NINEROUTER_SEARCH_MODEL", "tavily")
         cls.NINEROUTER_FETCH_MODEL = os.getenv("NINEROUTER_FETCH_MODEL", "jina-reader")
         cls.NINEROUTER_IMAGE_MODEL = os.getenv("NINEROUTER_IMAGE_MODEL", "gemini/gemini-3-pro-image-preview")
+        cls.PURE_PIL_ACTIVE = os.getenv("PURE_PIL_ACTIVE", "true").strip().lower() in ("1", "true", "yes", "on")

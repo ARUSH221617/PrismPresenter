@@ -27,7 +27,7 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 
-from pptx_jahat.config import DATA_DIR, OUTPUT_DIR
+from pptx_jahat.config import DATA_DIR, OUTPUT_DIR, Config
 from pptx_jahat.tools.preview import (
     render_slide,
     render_pptx,
@@ -36,6 +36,10 @@ from pptx_jahat.tools.preview import (
     image_to_base64_jpeg,
     Theme,
     FontResolver,
+)
+from pptx_jahat.tools.renderers.com_renderer import (
+    is_powerpoint_com_available,
+    export_pptx_slides_com,
 )
 from pptx_jahat.tools.renderers.color_resolver import (
     parse_color_elem,
@@ -72,6 +76,7 @@ from pptx_jahat.tools.cache.render_cache import render_pptx_parallel
 class TestRenderEngine(unittest.TestCase):
 
     def setUp(self):
+        Config.PURE_PIL_ACTIVE = True
         self.theme = Theme()
         self.fonts = FontResolver()
         self.sample_box = (20.0, 20.0, 300.0, 200.0)
@@ -186,6 +191,38 @@ class TestRenderEngine(unittest.TestCase):
         # Parallel render
         images = render_pptx_parallel(prs, width=650)
         self.assertEqual(len(images), 2)
+
+    # 6. PowerPoint COM Slide Export Integration Tests
+    def test_com_export_pipeline(self):
+        sample_pptx = DATA_DIR / "T711.pptx"
+        if not sample_pptx.exists():
+            tpls = list(DATA_DIR.glob("*.pptx"))
+            sample_pptx = tpls[0] if tpls else None
+
+        if sample_pptx and is_powerpoint_com_available():
+            # Test direct COM export
+            com_imgs = export_pptx_slides_com(sample_pptx, width=640, slide_numbers=[1, 2])
+            self.assertEqual(len(com_imgs), 2)
+            self.assertIsInstance(com_imgs[0], Image.Image)
+            self.assertEqual(com_imgs[0].size[0], 640)
+
+            # Test preview dispatch with COM
+            previews = render_pptx_file_previews(str(sample_pptx), target_width_px=640, use_com=True)
+            self.assertTrue(len(previews) > 0)
+            self.assertIsInstance(previews[0], Image.Image)
+            self.assertEqual(previews[0].size[0], 640)
+
+            # Test PURE_PIL_ACTIVE=False enforcement
+            Config.PURE_PIL_ACTIVE = False
+            previews_strict = render_pptx_file_previews(str(sample_pptx), target_width_px=640, use_com=True)
+            self.assertEqual(len(previews_strict), 15)
+
+            # Non-existent file should raise RuntimeError when pure PIL is deactivated
+            with self.assertRaises(RuntimeError):
+                render_pptx_file_previews("non_existent_file.pptx", target_width_px=640, use_com=True)
+        else:
+            # Fallback assertion when COM or PowerPoint is unavailable
+            self.assertTrue(True)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ class PPTXJahatApp(tk.Tk):
 
         self.current_generated_pptx: Optional[str] = None
         self.raw_preview_pil_images: List[Image.Image] = []
+        self.preview_engine_name: str = ""
         self.preview_images_tk: List[ImageTk.PhotoImage] = []
         self.current_slide_idx: int = 0
 
@@ -66,6 +67,7 @@ class PPTXJahatApp(tk.Tk):
         # Manager state
         self.mgr_selected_file_path: Optional[str] = None
         self.mgr_preview_pil_images: List[Image.Image] = []
+        self.mgr_preview_engine_name: str = ""
         self.mgr_current_slide_idx: int = 0
 
         self._build_header()
@@ -330,14 +332,32 @@ class PPTXJahatApp(tk.Tk):
         self.btn_prev_slide.pack(side=tk.LEFT, padx=4)
 
         self.slide_counter_var = tk.StringVar(value="No slides loaded")
+        self.preview_engine_badge_var = tk.StringVar(value="")
+
+        center_info_box = tk.Frame(nav_toolbar, bg=Theme.BG_SURFACE)
+        center_info_box.pack(side=tk.LEFT, expand=True)
+
         lbl_counter = tk.Label(
-            nav_toolbar,
+            center_info_box,
             textvariable=self.slide_counter_var,
             bg=Theme.BG_SURFACE,
             fg=Theme.TEXT_RED,
             font=Theme.FONT_TITLE
         )
-        lbl_counter.pack(side=tk.LEFT, expand=True)
+        lbl_counter.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.lbl_preview_engine = tk.Label(
+            center_info_box,
+            textvariable=self.preview_engine_badge_var,
+            bg=Theme.BADGE_BG_RED,
+            fg=Theme.BADGE_TEXT_RED,
+            font=Theme.FONT_CAPTION,
+            padx=6,
+            pady=1,
+            highlightbackground=Theme.BADGE_BORDER_RED,
+            highlightthickness=1
+        )
+        self.lbl_preview_engine.pack(side=tk.LEFT)
 
         self.btn_next_slide = StyledActionBtn(
             nav_toolbar,
@@ -552,7 +572,12 @@ class PPTXJahatApp(tk.Tk):
     def _load_slide_previews(self, pptx_path: str):
         try:
             self.gen_console.log("Rendering high-res slide visual previews...", "accent")
-            self.raw_preview_pil_images = render_pptx_file_previews(pptx_path, target_width_px=800)
+            res = render_pptx_file_previews(pptx_path, target_width_px=800, return_engine_info=True)
+            if isinstance(res, tuple):
+                self.raw_preview_pil_images, self.preview_engine_name = res
+            else:
+                self.raw_preview_pil_images = res
+                self.preview_engine_name = "Renderer"
             self.current_slide_idx = 0
             self._update_preview_display()
 
@@ -561,7 +586,7 @@ class PPTXJahatApp(tk.Tk):
             self.visual_latest_idx = 0
             self._update_visual_display()
 
-            self.gen_console.log(f"Successfully rendered {len(self.raw_preview_pil_images)} slides into previewer and visual inspector.", "success")
+            self.gen_console.log(f"Successfully rendered {len(self.raw_preview_pil_images)} slides via {self.preview_engine_name}.", "success")
             if hasattr(self, "_refresh_manager_lists"):
                 self._refresh_manager_lists()
         except Exception as e:
@@ -595,12 +620,26 @@ class PPTXJahatApp(tk.Tk):
         if not self.raw_preview_pil_images:
             self.preview_label.config(image="", text="No preview available.")
             self.slide_counter_var.set("0 / 0")
+            self.preview_engine_badge_var.set("")
+            self.lbl_preview_engine.config(bg=Theme.BG_SURFACE, highlightthickness=0)
             self.btn_prev_slide.set_state("disabled")
             self.btn_next_slide.set_state("disabled")
             return
 
         total = len(self.raw_preview_pil_images)
         self.slide_counter_var.set(f"Slide {self.current_slide_idx + 1} of {total}")
+        
+        # Engine badge indicator
+        if self.preview_engine_name:
+            if "PowerPoint" in self.preview_engine_name:
+                self.preview_engine_badge_var.set("⚡ Native PowerPoint")
+                self.lbl_preview_engine.config(bg="#1e3a29", fg="#4ade80", highlightbackground="#22c55e", highlightthickness=1)
+            else:
+                self.preview_engine_badge_var.set("🎨 Pure PIL Engine")
+                self.lbl_preview_engine.config(bg=Theme.BADGE_BG_RED, fg=Theme.BADGE_TEXT_RED, highlightbackground=Theme.BADGE_BORDER_RED, highlightthickness=1)
+        else:
+            self.preview_engine_badge_var.set("")
+            self.lbl_preview_engine.config(bg=Theme.BG_SURFACE, highlightthickness=0)
         
         # Calculate fit within preview container
         box_w = max(100, self.preview_display_box.winfo_width() - 20)
@@ -1053,14 +1092,32 @@ class PPTXJahatApp(tk.Tk):
         self.mgr_btn_prev_slide.pack(side=tk.LEFT, padx=4)
 
         self.mgr_slide_counter_var = tk.StringVar(value="No preview loaded")
+        self.mgr_preview_engine_badge_var = tk.StringVar(value="")
+
+        mgr_center_info_box = tk.Frame(mgr_nav_toolbar, bg=Theme.BG_SURFACE)
+        mgr_center_info_box.pack(side=tk.LEFT, expand=True)
+
         lbl_mgr_counter = tk.Label(
-            mgr_nav_toolbar,
+            mgr_center_info_box,
             textvariable=self.mgr_slide_counter_var,
             bg=Theme.BG_SURFACE,
             fg=Theme.TEXT_RED,
             font=Theme.FONT_TITLE
         )
-        lbl_mgr_counter.pack(side=tk.LEFT, expand=True)
+        lbl_mgr_counter.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.lbl_mgr_preview_engine = tk.Label(
+            mgr_center_info_box,
+            textvariable=self.mgr_preview_engine_badge_var,
+            bg=Theme.BADGE_BG_RED,
+            fg=Theme.BADGE_TEXT_RED,
+            font=Theme.FONT_CAPTION,
+            padx=6,
+            pady=1,
+            highlightbackground=Theme.BADGE_BORDER_RED,
+            highlightthickness=1
+        )
+        self.lbl_mgr_preview_engine.pack(side=tk.LEFT)
 
         self.mgr_btn_next_slide = StyledActionBtn(
             mgr_nav_toolbar,
@@ -1165,20 +1222,28 @@ class PPTXJahatApp(tk.Tk):
 
     def _load_mgr_previews_async(self, file_path: str):
         self.mgr_slide_counter_var.set("Loading previews...")
+        self.mgr_preview_engine_badge_var.set("")
+        self.lbl_mgr_preview_engine.config(bg=Theme.BG_SURFACE, highlightthickness=0)
         self.mgr_preview_label.config(image="", text="Rendering slide previews...")
 
         def worker():
             try:
-                imgs = render_pptx_file_previews(file_path, target_width_px=750)
-                self.after(50, lambda: self._apply_mgr_previews(imgs))
-            except Exception as e:
+                res = render_pptx_file_previews(file_path, target_width_px=750, return_engine_info=True)
+                if isinstance(res, tuple):
+                    imgs, engine_name = res
+                else:
+                    imgs, engine_name = res, "Renderer"
+                self.after(50, lambda: self._apply_mgr_previews(imgs, engine_name))
+            except Exception as ex:
+                err_msg = str(ex)
                 self.after(50, lambda: self.mgr_slide_counter_var.set("Preview Error"))
-                self.after(50, lambda: self.mgr_preview_label.config(text=f"Could not render preview: {str(e)}"))
+                self.after(50, lambda msg=err_msg: self.mgr_preview_label.config(text=f"Could not render preview: {msg}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_mgr_previews(self, imgs: List[Image.Image]):
+    def _apply_mgr_previews(self, imgs: List[Image.Image], engine_name: str = ""):
         self.mgr_preview_pil_images = imgs
+        self.mgr_preview_engine_name = engine_name
         self.mgr_current_slide_idx = 0
         self._update_mgr_preview_display()
 
@@ -1190,12 +1255,26 @@ class PPTXJahatApp(tk.Tk):
         if not self.mgr_preview_pil_images:
             self.mgr_preview_label.config(image="", text="No slide preview available.")
             self.mgr_slide_counter_var.set("0 / 0")
+            self.mgr_preview_engine_badge_var.set("")
+            self.lbl_mgr_preview_engine.config(bg=Theme.BG_SURFACE, highlightthickness=0)
             self.mgr_btn_prev_slide.set_state("disabled")
             self.mgr_btn_next_slide.set_state("disabled")
             return
 
         total = len(self.mgr_preview_pil_images)
         self.mgr_slide_counter_var.set(f"Slide {self.mgr_current_slide_idx + 1} of {total}")
+
+        # Engine badge indicator
+        if self.mgr_preview_engine_name:
+            if "PowerPoint" in self.mgr_preview_engine_name:
+                self.mgr_preview_engine_badge_var.set("⚡ Native PowerPoint")
+                self.lbl_mgr_preview_engine.config(bg="#1e3a29", fg="#4ade80", highlightbackground="#22c55e", highlightthickness=1)
+            else:
+                self.mgr_preview_engine_badge_var.set("🎨 Pure PIL Engine")
+                self.lbl_mgr_preview_engine.config(bg=Theme.BADGE_BG_RED, fg=Theme.BADGE_TEXT_RED, highlightbackground=Theme.BADGE_BORDER_RED, highlightthickness=1)
+        else:
+            self.mgr_preview_engine_badge_var.set("")
+            self.lbl_mgr_preview_engine.config(bg=Theme.BG_SURFACE, highlightthickness=0)
 
         box_w = max(100, self.mgr_preview_display_box.winfo_width() - 20)
         box_h = max(100, self.mgr_preview_display_box.winfo_height() - 20)

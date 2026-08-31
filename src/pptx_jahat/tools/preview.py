@@ -31,7 +31,7 @@ import logging
 import base64
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Optional, Tuple, Any, Dict
+from typing import List, Optional, Tuple, Any, Dict, Union
 
 from pptx import Presentation
 from PIL import Image, ImageDraw, ImageChops
@@ -122,9 +122,14 @@ from pptx_jahat.tools.renderers.media_resolver import (
     rasterize_emf_wmf,
     paint_media_poster,
 )
+from pptx_jahat.config import Config
 from pptx_jahat.tools.cache.render_cache import (
     RenderCache,
     render_pptx_parallel,
+)
+from pptx_jahat.tools.renderers.com_renderer import (
+    is_powerpoint_com_available,
+    export_pptx_slides_com,
 )
 
 log = logging.getLogger("pptx_preview")
@@ -1102,8 +1107,53 @@ def render_slide(slide: Any, prs: Presentation, width: int = 1280,
 
 
 def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int]] = None,
-                output_dir: Optional[str] = None) -> List[Image.Image]:
-    """Renders a .pptx file/stream/Presentation instance to a list of PIL images, optionally saving PNG files."""
+                output_dir: Optional[str] = None, use_com: bool = True,
+                return_engine_info: bool = False) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
+    """
+    Renders a .pptx file/stream/Presentation instance to a list of PIL images, optionally saving PNG files.
+    When a valid file path is provided and COM is available, uses PowerPoint COM automation for 100% native fidelity.
+    If PURE_PIL_ACTIVE is False, PowerPoint COM is strictly required; failures will raise an exception.
+    If PURE_PIL_ACTIVE is True, falls back gracefully to the pure-Python SlideRenderer engine if COM is unavailable or fails.
+
+    If return_engine_info is True, returns (images, engine_name) where engine_name is "Native PowerPoint" or "Pure PIL".
+    """
+    engine_name = "Pure PIL"
+    com_error_occurred = None
+
+    # 1. Attempt PowerPoint COM rendering if source is a file on disk
+    if use_com and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
+        file_path = str(source)
+        if os.path.isfile(file_path):
+            if is_powerpoint_com_available():
+                try:
+                    log.info("Rendering PPTX via PowerPoint COM automation: %s", file_path)
+                    imgs = export_pptx_slides_com(
+                        file_path,
+                        output_dir=output_dir,
+                        width=width,
+                        slide_numbers=slide_numbers,
+                    )
+                    return (imgs, "Native PowerPoint") if return_engine_info else imgs
+                except Exception as com_err:
+                    com_error_occurred = com_err
+                    log.warning("COM rendering failed for %s: %s", file_path, com_err)
+            else:
+                com_error_occurred = RuntimeError("PowerPoint COM is not available on this system.")
+        else:
+            com_error_occurred = FileNotFoundError(f"PPTX file not found: {file_path}")
+
+    # Check if pure PIL fallback is permitted
+    if not Config.PURE_PIL_ACTIVE:
+        if com_error_occurred:
+            raise RuntimeError(
+                f"Native PowerPoint rendering failed and Pure PIL fallback is disabled (PURE_PIL_ACTIVE=False): {com_error_occurred}"
+            ) from com_error_occurred
+        else:
+            raise RuntimeError(
+                "Native PowerPoint rendering failed (source is not a file on disk or COM unavailable) and Pure PIL fallback is disabled (PURE_PIL_ACTIVE=False)."
+            )
+
+    # 2. Pure-Python SlideRenderer fallback
     prs = source if hasattr(source, "slides") else Presentation(source)
     fonts = FontResolver()
     cache: Dict[int, Theme] = {}
@@ -1119,12 +1169,14 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
             out_p = Path(output_dir)
             out_p.mkdir(parents=True, exist_ok=True)
             img.save(out_p / f"slide_{i:03d}.png")
-    return images
+
+    return (images, engine_name) if return_engine_info else images
 
 
-def render_pptx_file_previews(source: Any, target_width_px: int = 650) -> List[Image.Image]:
+def render_pptx_file_previews(source: Any, target_width_px: int = 650, use_com: bool = True,
+                              return_engine_info: bool = False) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
     """Public wrapper used by GUI and QA verification pipelines."""
-    return render_pptx(source, width=target_width_px)
+    return render_pptx(source, width=target_width_px, use_com=use_com, return_engine_info=return_engine_info)
 
 
 def render_pptx_slide_to_image(slide: Any,
@@ -1139,7 +1191,11 @@ def render_pptx_slide_to_image(slide: Any,
     """
     Renders a high-fidelity 2D preview of a PPTX slide. Accepts either a
     Theme object (preferred) or a legacy palette dict. Returns an RGB PIL Image.
+    If PURE_PIL_ACTIVE is False and slide is from a presentation without COM export, raises error.
     """
+    if not Config.PURE_PIL_ACTIVE:
+        raise RuntimeError("Pure PIL slide rendering is disabled (PURE_PIL_ACTIVE=False). Use file-based render_pptx with native PowerPoint COM.")
+
     if theme is None:
         theme = Theme(palette) if palette else Theme()
 

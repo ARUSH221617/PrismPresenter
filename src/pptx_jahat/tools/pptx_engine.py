@@ -278,6 +278,16 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
     slide_h = prs.slide_height
     slides_summary = []
     
+    # Pre-render slide screenshots in batch via COM if requested and available
+    batch_screenshots: Dict[int, str] = {}
+    if include_screenshots:
+        try:
+            rendered_images = render_pptx_file_previews(str(path), target_width_px=screenshot_width)
+            for idx, img in enumerate(rendered_images):
+                batch_screenshots[idx] = image_to_base64_jpeg(img, quality=80)
+        except Exception:
+            pass
+
     for slide_idx, slide in enumerate(prs.slides):
         slide_entry = {
             "template_file": path.name,
@@ -289,11 +299,14 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
         }
         
         if include_screenshots:
-            try:
-                img = render_pptx_slide_to_image(slide, slide_w, slide_h, target_width_px=screenshot_width)
-                slide_entry["screenshot_base64"] = image_to_base64_jpeg(img, quality=80)
-            except Exception:
-                slide_entry["screenshot_base64"] = None
+            if slide_idx in batch_screenshots:
+                slide_entry["screenshot_base64"] = batch_screenshots[slide_idx]
+            else:
+                try:
+                    img = render_pptx_slide_to_image(slide, slide_w, slide_h, target_width_px=screenshot_width)
+                    slide_entry["screenshot_base64"] = image_to_base64_jpeg(img, quality=80)
+                except Exception:
+                    slide_entry["screenshot_base64"] = None
         
         for shape_idx, shape in enumerate(slide.shapes):
             shape_type_name = str(shape.shape_type).replace("MSO_SHAPE_TYPE.", "")

@@ -782,7 +782,7 @@ def verify_and_auto_heal_pptx(
         else:
             log(f"[Verification Loop - Fix 1] Package repair applied, but remaining issues: {issues}")
 
-    # Attempt 2: AI Agent Diagnostic & Self-Correction Rebuild
+    # Attempt 2: AI Agent Diagnostic & Self-Correction Rebuild with Visual Feedback
     if doc_structure and template_inventory:
         log("[Verification Loop - AI Agent] Invoking AI Agent to diagnose integrity errors and regenerate slide mapping...")
         try:
@@ -803,11 +803,29 @@ Document Outline:
 Please analyze the issues and output a corrected, safe slide replacement plan adhering to standard schema.
 Ensure no conflicting shape removals or malformed tables are generated.
 """
+            # Collect generated slide screenshots to provide visual feedback to AI
+            user_msg_parts: List[Dict[str, Any]] = [
+                {"type": "text", "text": ai_repair_prompt}
+            ]
+            try:
+                gen_screenshots = render_pptx_file_previews(p, target_width_px=450, use_com=True)
+                for idx, img in enumerate(gen_screenshots[:10]):
+                    b64 = image_to_base64_jpeg(img, quality=80)
+                    user_msg_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": b64
+                        }
+                    })
+                log(f"[Verification Loop - AI Agent] Attached {len(gen_screenshots[:10])} native visual slide screenshots to diagnostic prompt.")
+            except Exception as ss_err:
+                log(f"[Verification Loop - AI Agent Warning] Could not attach screenshots: {ss_err}")
+
             response = client.chat.completions.create(
                 model=Config.NINEROUTER_CHAT_MODEL,
                 messages=[
                     {"role": "system", "content": "You are a PowerPoint Diagnostic & Repair Agent. Fix presentation generation errors and output clean valid JSON."},
-                    {"role": "user", "content": ai_repair_prompt}
+                    {"role": "user", "content": user_msg_parts}
                 ],
                 temperature=0.1
             )

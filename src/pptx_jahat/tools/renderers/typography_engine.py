@@ -234,7 +234,8 @@ def parse_run_style(rPr: Optional[ET.Element], colors: Dict[str, RGB],
         sh = rPr.find(f".//{q(NS_A, 'outerShdw')}")
         if sh is not None:
             scol = resolve_element_color(sh, colors) or (0, 0, 0, 128)
-            dist = float(sh.attrib.get("dist", 25400)) / 12700.0 * scale_y
+            # dist is in EMU; convert directly: EMU * scale_y = pixels
+            dist = float(sh.attrib.get("dist", 25400)) * scale_y
             ang = math.radians(float(sh.attrib.get("dir", 3240000)) / 60000.0)
             shadow = {"color": scol, "dx": dist * math.cos(ang), "dy": dist * math.sin(ang)}
 
@@ -246,15 +247,20 @@ def parse_run_style(rPr: Optional[ET.Element], colors: Dict[str, RGB],
         ln = rPr.find(q(NS_A, "ln"))
         if ln is not None:
             lcol = resolve_element_color(ln, colors) or (0, 0, 0, 255)
-            lw = max(1, int(round(float(ln.attrib.get("w", 12700)) / 12700.0 * scale_y)))
+            # ln w is in EMU; convert directly to pixels
+            lw = max(1, int(round(float(ln.attrib.get("w", 12700)) * scale_y)))
             outline = (lcol, lw)
 
         hl = rPr.find(q(NS_A, "highlight"))
         if hl is not None:
             highlight = resolve_element_color(hl, colors)
 
-    font_obj, faux_bold = fonts.get_font(typeface, int(round(sz * scale_y)), bold, italic)
-    return RunStyle(font_obj, int(round(sz * scale_y)), color, underline, faux_bold,
+    # Convert point size -> pixels. sz is in points; scale_y is EMU->px ratio;
+    # 12700 EMU per point, so px = sz_pt * 12700 * scale_y.
+    pt_to_px = 12700.0 * scale_y
+    size_px = max(6, int(round(sz * pt_to_px)))
+    font_obj, faux_bold = fonts.get_font(typeface, size_px, bold, italic)
+    return RunStyle(font_obj, size_px, color, underline, faux_bold,
                     shadow, glow, outline, highlight, strike)
 
 

@@ -161,24 +161,18 @@ def paint_gradient(img: Image.Image, box: Tuple[float, float, float, float],
 
     grad_full = grad.resize((bw, bh), Image.Resampling.BILINEAR)
 
-    # Apply shape silhouette mask
+    # Apply shape silhouette mask.
+    # IMPORTANT: use alpha_composite (not Image.paste) so the gradient's own
+    # per-pixel alpha (from stop alpha values, interpolated by interp_stops)
+    # is preserved. paste(src, box, mask) would REPLACE destination pixels
+    # and silently discard the source's alpha channel.
     if silhouette_fn is not None:
         mask = Image.new("L", (bw, bh), 0)
-        mdraw = ImageDraw.Draw(mask)
-        # Shift coordinates to local box origin
-        def local_draw(d):
-            silhouette_fn(d)
-        silhouette_fn(mdraw)
-        
-        # Check if silhouette mask was drawn at global coordinates or local
-        # If mask is empty, try painting directly onto local bbox
-        bbox = mask.getbbox()
-        if not bbox:
-            mdraw.rectangle([0, 0, bw, bh], fill=255)
-            
-        img.paste(grad_full, (int(x0), int(y0)), mask)
-    else:
-        img.paste(grad_full, (int(x0), int(y0)), grad_full)
+        silhouette_fn(ImageDraw.Draw(mask))
+        # Multiply the silhouette mask with the gradient's own alpha so that
+        # both the shape outline AND the gradient transparency are respected.
+        grad_full.putalpha(ImageChops.multiply(grad_full.split()[3], mask))
+    img.alpha_composite(grad_full, (int(x0), int(y0)))
 
 
 def paint_3d_bevel(img: Image.Image, box: Tuple[float, float, float, float],

@@ -278,12 +278,28 @@ def get_connector_ops(prst: Optional[str], box: Tuple[float, float, float, float
 def render_custom_geom(img: Image.Image, draw: ImageDraw.ImageDraw, custGeom: ET.Element,
                        box: Tuple[float, float, float, float], fill: Optional[RGBA],
                        stroke: Optional[RGBA], lw: int) -> None:
+    """Legacy entry: builds polygon ops and paints fill + stroke in one pass.
+    Prefer `cust_geom_to_ops` + the standard fill/effect pipeline in `_render_sp`."""
+    ops = cust_geom_to_ops(custGeom, box)
+    if not ops:
+        return
+    if fill and fill[3] > 0:
+        fill_ops(draw, ops, fill)
+    if stroke and stroke[3] > 0 and lw > 0:
+        stroke_ops(draw, ops, stroke, lw, close=False)
+
+
+def cust_geom_to_ops(custGeom: ET.Element, box: Tuple[float, float, float, float]) -> List[Tuple[str, Any]]:
+    """Converts a <a:custGeom> pathLst into the same op-list format used by presets.
+    Each <a:path> becomes one ('poly', [points...]) op. Bezier curves are flattened
+    to polylines via cubic/quad sampling."""
     pathLst = custGeom.find(q(NS_A, "pathLst"))
     if pathLst is None:
-        return
+        return []
     x0, y0, x1, y1 = box
     bw = x1 - x0
     bh = y1 - y0
+    ops: List[Tuple[str, Any]] = []
 
     for path_node in pathLst.findall(q(NS_A, "path")):
         try:
@@ -331,11 +347,9 @@ def render_custom_geom(img: Image.Image, draw: ImageDraw.ImageDraw, custGeom: ET
                 if poly_pts:
                     poly_pts.append(poly_pts[0])
 
-        if len(poly_pts) >= 3:
-            if fill and fill[3] > 0:
-                draw.polygon(poly_pts, fill=fill)
-            if stroke and stroke[3] > 0 and lw > 0:
-                draw.line(poly_pts, fill=stroke, width=lw)
+        if len(poly_pts) >= 2:
+            ops.append(("poly", poly_pts))
+    return ops
 
 
 # ---------------------------------------------------------------------------

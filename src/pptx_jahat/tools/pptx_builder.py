@@ -301,7 +301,8 @@ def generate_slide_replacements_with_ai(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
+        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        timeout=120.0
     )
 
     system_prompt = (
@@ -602,7 +603,9 @@ def build_pptx_with_agent(
         log("[Step 4 Fallback] Generating presentation using multi-slide assembly...")
         
         # 1. Title Slide
-        title_slide = clone_slide_across_presentations(base_src_prs, target_prs, 0)
+        first_tpl = template_inventory[0]["template_file"]
+        base_prs = get_source_prs(first_tpl)
+        title_slide = clone_slide_across_presentations(base_prs, target_prs, 0)
         for shape in title_slide.shapes:
             if shape.has_text_frame and shape.text_frame.text.strip():
                 _safe_update_text_frame(shape.text_frame, parsed_doc.get("document_title", "Presentation"))
@@ -785,7 +788,8 @@ def verify_and_auto_heal_pptx(
         try:
             client = OpenAI(
                 api_key=Config.NINEROUTER_KEY or "dummy_key",
-                base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
+                base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+                timeout=120.0
             )
             
             ai_repair_prompt = f"""

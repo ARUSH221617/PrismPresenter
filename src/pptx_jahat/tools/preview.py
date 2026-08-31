@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Any, Dict
 
 from pptx import Presentation
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops
 
 # Sub-engine imports
 from pptx_jahat.tools.renderers.color_resolver import (
@@ -64,6 +64,7 @@ from pptx_jahat.tools.renderers.geometry_engine import (
     get_preset_ops as _prst_ops,
     get_connector_ops as _connector_ops,
     render_custom_geom as _render_custom_geom,
+    cust_geom_to_ops as _cust_geom_to_ops,
     rotate_ops as _rotate_ops,
     stroke_ops as _stroke_ops,
     fill_ops as _fill_ops,
@@ -235,19 +236,32 @@ def _parse_fill(spPr: Optional[ET.Element], colors: Dict[str, RGB]) -> Tuple[Opt
         return "blip", rid, bf.find(_q(NS_A, "srcRect"))
     pf = spPr.find(_q(NS_A, "pattFill"))
     if pf is not None:
-        c = resolve_element_color(pf, colors) or (240, 240, 240, 255)
-        return "solid", c, None
+        prst = pf.attrib.get("prst", "solid")
+        # Resolve fg and bg colors separately; each may carry its own alpha.
+        fg = _resolve_pattern_color(pf.find(_q(NS_A, "fgClr")), colors) or (240, 240, 240, 255)
+        bg = _resolve_pattern_color(pf.find(_q(NS_A, "bgClr")), colors) or (255, 255, 255, 0)
+        return "patt", (prst, fg, bg), None
     return None, None, None
 
 
-def _parse_line(spPr: Optional[ET.Element], colors: Dict[str, RGB]) -> Tuple[Optional[RGBA], float, bool, Optional[Tuple[int, ...]]]:
+def _resolve_pattern_color(parent: Optional[ET.Element], colors: Dict[str, RGB]) -> Optional[RGBA]:
+    """Resolves the color (with alpha) of a <a:fgClr>/<a:bgClr> element inside <a:pattFill>."""
+    if parent is None:
+        return None
+    # <a:fgClr> directly contains <a:srgbClr>/<a:schemeClr>/etc.
+    return resolve_element_color(parent, colors)
+
+
+def _parse_line(spPr: Optional[ET.Element], colors: Dict[str, RGB]) -> Tuple[Optional[RGBA], float, bool, Optional[Tuple[int, ...]], Optional[Dict[str, str]], Optional[Dict[str, str]]]:
+    """Returns (color, width_pt, dashed, dash_pat, head_end, tail_end).
+    head_end / tail_end are dicts like {'type':'arrow','w':'med','len':'med'} or None."""
     if spPr is None:
-        return None, 1.0, False, None
+        return None, 1.0, False, None, None, None
     ln = spPr.find(_q(NS_A, "ln"))
     if ln is None:
-        return None, 1.0, False, None
+        return None, 1.0, False, None, None, None
     if ln.find(_q(NS_A, "noFill")) is not None:
-        return (0, 0, 0, 0), 0.0, False, None
+        return (0, 0, 0, 0), 0.0, False, None, None, None
     c = resolve_element_color(ln, colors) or (0, 0, 0, 255)
     w_emu = float(ln.attrib.get("w", 12700))
     w_pt = w_emu / 12700.0
@@ -255,7 +269,88 @@ def _parse_line(spPr: Optional[ET.Element], colors: Dict[str, RGB]) -> Tuple[Opt
     dash_val = prstDash.attrib.get("val", "solid") if prstDash is not None else "solid"
     dashed = dash_val not in ("solid", "")
     dash_pat = _DASH_PATTERNS.get(dash_val)
-    return c, w_pt, dashed, dash_pat
+    head_end = _parse_line_end(ln.find(_q(NS_A, "headEnd")))
+    tail_end = _parse_line_end(ln.find(_q(NS_A, "tailEnd")))
+    return c, w_pt, dashed, dash_pat, head_end, tail_end
+
+
+def _parse_line_end(elem: Optional[ET.Element]) -> Optional[Dict[str, str]]:
+    """Parses <a:headEnd>/<a:tailEnd> into {'type','w','len'}; returns None if no marker."""
+    if elem is None:
+        return None
+    t = elem.attrib.get("type", "none")
+    if t in (None, "", "none"):
+        return None
+    return {
+        "type": t,
+        "w": elem.attrib.get("w", "med"),
+        "len": elem.attrib.get("len", "med"),
+    }
+
+
+def _line_end_scale(end_info: Optional[Dict[str, str]], lw: int) -> Tuple[float, float]:
+    """Returns (length, width) in pixels for a line-end marker.
+    DrawingML spec: sm ≈ 1× line width, med ≈ 2×, lg ≈ 3× (approximate)."""
+    if not end_info:
+        return 0.0, 0.0
+    mult = {"sm": 1.5, "med": 2.5, "lg": 3.5}.get(end_info.get("len", "med"), 2.5)
+    w_mult = {"sm": 1.5, "med": 2.5, "lg": 3.5}.get(end_info.get("w", "med"), 2.5)
+    return max(lw * mult, 4.0), max(lw * w_mult, 4.0)
+
+
+def _paint_line_end(draw: ImageDraw.ImageDraw, point: Tuple[float, float],
+                    direction: Tuple[float, float], end_info: Optional[Dict[str, str]],
+                    color: RGBA, lw: int, is_head: bool = False) -> None:
+    """Draws an arrowhead / oval / triangle / diamond / stealth marker at `point`.
+    `direction` is the unit vector of the line's outgoing direction at that end.
+    For tailEnd, direction points away from the line (outward).
+    For headEnd, direction points toward the line (inward); we flip it for drawing."""
+    if not end_info or color[3] == 0:
+        return
+    # For headEnd the marker is drawn at the start point pointing INTO the line,
+    # so the marker tip is on the line. We treat `direction` as the line's tangent
+    # direction at that point and reverse it for head markers so the marker
+    # "exits" away from the line endpoint (matching PowerPoint).
+    if is_head:
+        direction = (-direction[0], -direction[1])
+    length, width = _line_end_scale(end_info, lw)
+    ttype = end_info.get("type", "none")
+    px, py = point
+    dx, dy = direction
+    # The marker tip is at `point`; the base is `length` behind it.
+    base_x = px - dx * length
+    base_y = py - dy * length
+    # Perpendicular vector (rotated 90°) for marker width.
+    perp_x = -dy
+    perp_y = dx
+    half_w = width / 2.0
+    base_left = (base_x + perp_x * half_w, base_y + perp_y * half_w)
+    base_right = (base_x - perp_x * half_w, base_y - perp_y * half_w)
+
+    if ttype == "oval":
+        r = width / 2.0
+        cx = px - dx * (length / 2.0)
+        cy = py - dy * (length / 2.0)
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+    elif ttype == "diamond":
+        # Rhombus: tip at base_x+dx*length/2, two side points, tail at base_x.
+        mid_x = (px + base_x) / 2.0
+        mid_y = (py + base_y) / 2.0
+        left = (mid_x + perp_x * half_w, mid_y + perp_y * half_w)
+        right = (mid_x - perp_x * half_w, mid_y - perp_y * half_w)
+        draw.polygon([point, left, (base_x, base_y), right], fill=color)
+    elif ttype == "stealth":
+        # Stealth = arrow with a notch. Tip at `point`, base at base_left/base_right,
+        # plus a notch point partway back (e.g. 60% of length).
+        notch_x = px - dx * (length * 0.6)
+        notch_y = py - dy * (length * 0.6)
+        draw.polygon([point, base_left, (notch_x, notch_y), base_right], fill=color)
+    elif ttype == "triangle" or ttype == "arrow":
+        # Simple triangle: tip at `point`, base at base_left/base_right.
+        draw.polygon([point, base_left, base_right], fill=color)
+    else:
+        # Unknown — draw nothing rather than a wrong marker.
+        pass
 
 
 def _box_from_xfrm(xfrm: ET.Element, T: Any) -> Tuple[Optional[Tuple[float, float, float, float]], float]:
@@ -309,13 +404,132 @@ def _paint_blip(img: Image.Image, box: Tuple[float, float, float, float],
         pic = Image.open(io.BytesIO(blob)).convert("RGBA").resize((bw, bh), Image.Resampling.LANCZOS)
         if silhouette is not None:
             mask = Image.new("L", (bw, bh), 0)
-            mdraw = ImageDraw.Draw(mask)
-            silhouette(mdraw)
-            img.paste(pic, (int(x0), int(y0)), mask)
-        else:
-            img.paste(pic, (int(x0), int(y0)), pic)
+            silhouette(ImageDraw.Draw(mask))
+            # Preserve picture's own alpha by multiplying with the silhouette mask,
+            # then composite (paste would discard the source alpha channel).
+            pic.putalpha(ImageChops.multiply(pic.split()[3], mask))
+        img.alpha_composite(pic, (int(x0), int(y0)))
     except Exception as e:
         log.debug(f"Failed to paint blip: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Pattern fill rendering
+# ---------------------------------------------------------------------------
+# Pattern tile size (px). Patterns repeat at this period.
+_PATT_TILE = 16
+
+def _patt_tile_mask(prst: str) -> Optional[Image.Image]:
+    """Builds an 'L' mode tile (0..255) for the given preset pattern name.
+    255 = foreground, 0 = background. Returns None for unknown patterns
+    (caller should fall back to solid foreground)."""
+    t = _PATT_TILE
+    m = Image.new("L", (t, t), 0)
+    d = ImageDraw.Draw(m)
+    half = t // 2
+    if prst in ("solid",):
+        d.rectangle([0, 0, t, t], fill=255)
+    elif prst in ("ltHorz", "horz"):
+        for y in range(0, t, 4):
+            d.line([(0, y), (t, y)], fill=255, width=1)
+    elif prst in ("ltVert", "vert"):
+        for x in range(0, t, 4):
+            d.line([(x, 0), (x, t)], fill=255, width=1)
+    elif prst in ("ltUpDiag", "upDiag", "dashUpDiag"):
+        for k in range(-t, 2 * t, 4):
+            d.line([(k, 0), (k + t, t)], fill=255, width=1)
+    elif prst in ("ltDnDiag", "dnDiag", "dashDnDiag"):
+        for k in range(-t, 2 * t, 4):
+            d.line([(k, t), (k + t, 0)], fill=255, width=1)
+    elif prst in ("diagCross",):
+        for k in range(-t, 2 * t, 4):
+            d.line([(k, 0), (k + t, t)], fill=255, width=1)
+            d.line([(k, t), (k + t, 0)], fill=255, width=1)
+    elif prst in ("cross",):
+        for y in range(0, t, 4):
+            d.line([(0, y), (t, y)], fill=255, width=1)
+        for x in range(0, t, 4):
+            d.line([(x, 0), (x, t)], fill=255, width=1)
+    elif prst in ("dkHorz",):
+        d.rectangle([0, 0, t, t], fill=255)
+        for y in range(0, t, 4):
+            d.line([(0, y), (t, y)], fill=0, width=1)
+    elif prst in ("dkVert",):
+        d.rectangle([0, 0, t, t], fill=255)
+        for x in range(0, t, 4):
+            d.line([(x, 0), (x, t)], fill=0, width=1)
+    elif prst in ("dkUpDiag",):
+        d.rectangle([0, 0, t, t], fill=255)
+        for k in range(-t, 2 * t, 4):
+            d.line([(k, 0), (k + t, t)], fill=0, width=1)
+    elif prst in ("dkDnDiag",):
+        d.rectangle([0, 0, t, t], fill=255)
+        for k in range(-t, 2 * t, 4):
+            d.line([(k, t), (k + t, 0)], fill=0, width=1)
+    elif prst in ("pct10", "pct5"):
+        # sparse dot grid
+        for y in range(0, t, 6):
+            for x in range(0, t, 6):
+                d.point((x, y), fill=255)
+    elif prst in ("pct20", "pct25"):
+        for y in range(0, t, 4):
+            for x in range(0, t, 4):
+                d.point((x, y), fill=255)
+    elif prst in ("pct50",):
+        d.rectangle([0, 0, half, half], fill=255)
+        d.rectangle([half, half, t, t], fill=255)
+    elif prst in ("pct75", "pct80"):
+        d.rectangle([0, 0, t, t], fill=255)
+        d.rectangle([0, 0, half, half], fill=0)
+        d.rectangle([half, half, t, t], fill=0)
+    elif prst in ("trellis",):
+        for k in range(-t, 2 * t, 6):
+            d.line([(k, 0), (k + t, t)], fill=255, width=1)
+            d.line([(k, t), (k + t, 0)], fill=255, width=1)
+    elif prst in ("dotGrid", "smGrid"):
+        for y in range(0, t, 4):
+            for x in range(0, t, 4):
+                d.point((x, y), fill=255)
+    elif prst in ("smChecker",):
+        d.rectangle([0, 0, half, half], fill=255)
+        d.rectangle([half, half, t, t], fill=255)
+    else:
+        # Unknown pattern — fall back to solid fg so the shape is still visible.
+        d.rectangle([0, 0, t, t], fill=255)
+    return m
+
+
+def _paint_pattern(img: Image.Image, box: Tuple[float, float, float, float],
+                   fill_data: Any, silhouette: Any) -> None:
+    """Renders a DrawingML preset pattern (pattFill) clipped to the shape silhouette."""
+    if not fill_data:
+        return
+    prst, fg, bg = fill_data
+    x0, y0, x1, y1 = box
+    bw = int(math.ceil(x1 - x0))
+    bh = int(math.ceil(y1 - y0))
+    if bw <= 0 or bh <= 0:
+        return
+
+    tile = _patt_tile_mask(prst)
+    if tile is None:
+        # Unknown pattern: paint solid foreground as a safe fallback.
+        layer = Image.new("RGBA", (bw, bh), fg)
+    else:
+        # Build a tile of the correct size, then repeat to fill (bw, bh).
+        fg_layer = Image.new("RGBA", (_PATT_TILE, _PATT_TILE), fg)
+        bg_layer = Image.new("RGBA", (_PATT_TILE, _PATT_TILE), bg)
+        tile_rgba = Image.composite(fg_layer, bg_layer, tile)
+        layer = Image.new("RGBA", (bw, bh))
+        for y in range(0, bh, _PATT_TILE):
+            for x in range(0, bw, _PATT_TILE):
+                layer.paste(tile_rgba, (x, y))
+
+    if silhouette is not None:
+        mask = Image.new("L", (bw, bh), 0)
+        silhouette(ImageDraw.Draw(mask))
+        layer.putalpha(ImageChops.multiply(layer.split()[3], mask))
+    img.alpha_composite(layer, (int(x0), int(y0)))
 
 
 def _paint_picture(img: Image.Image, box: Tuple[float, float, float, float],
@@ -413,13 +627,15 @@ class SlideRenderer:
     def _render_master_or_layout_children(self, parent: ET.Element, part: Any, T: Any) -> None:
         """Renders only non-placeholder decorative background graphics from master/layout."""
         for child in parent:
-            # Skip placeholders (title, body, date, footer, slide num)
+            # Skip placeholders (title, body, date, footer, slide num).
+            # NOTE: <p:ph> is nested inside <p:nvPr> (a grandchild of <p:nvSpPr>),
+            # so a direct `find` returns None — must use the descendant XPath `.//`.
             nv = child.find(_q(NS_P, "nvSpPr"))
             if nv is None:
                 nv = child.find(_q(NS_P, "nvPicPr"))
             if nv is None:
                 nv = child.find(_q(NS_P, "nvCxnSpPr"))
-            if nv is not None and nv.find(_q(NS_P, "ph")) is not None:
+            if nv is not None and nv.find(f".//{_q(NS_P, 'ph')}") is not None:
                 continue
 
             tag = _local(child.tag)
@@ -585,7 +801,8 @@ class SlideRenderer:
                 continue
             for cand in spTree.iter(_q(NS_P, "sp")):
                 nv = cand.find(_q(NS_P, "nvSpPr"))
-                cph = nv.find(_q(NS_P, "ph")) if nv is not None else None
+                # <p:ph> is nested inside <p:nvPr>; use descendant XPath.
+                cph = nv.find(f".//{_q(NS_P, 'ph')}") if nv is not None else None
                 if cph is None:
                     continue
                 ctype = cph.attrib.get("type", "body") or "body"
@@ -602,7 +819,7 @@ class SlideRenderer:
         colors = self.theme.colors
         fmt = self.theme.fmt_scheme
         fill_kind, fill_data, fill_extra = _parse_fill(spPr, colors)
-        line_col, line_w, dashed, dash_pat = _parse_line(spPr, colors)
+        line_col, line_w, dashed, dash_pat, head_end, tail_end = _parse_line(spPr, colors)
 
         if fill_kind is None:
             for ph_spPr, _, _ in chain:
@@ -614,9 +831,11 @@ class SlideRenderer:
         if line_col is None:
             for ph_spPr, _, _ in chain:
                 if ph_spPr is not None:
-                    lc, lw, d, dp = _parse_line(ph_spPr, colors)
+                    lc, lw, d, dp, he, te = _parse_line(ph_spPr, colors)
                     if lc is not None:
                         line_col, line_w, dashed, dash_pat = lc, lw, d, dp
+                        head_end = head_end or he
+                        tail_end = tail_end or te
                         break
 
         # Theme style refs
@@ -634,7 +853,7 @@ class SlideRenderer:
             if res and res[0] == "solid":
                 line_col = res[1]
 
-        return (fill_kind, fill_data, fill_extra), line_col, line_w, dashed, dash_pat
+        return (fill_kind, fill_data, fill_extra), line_col, line_w, dashed, dash_pat, head_end, tail_end
 
     def _render_sp(self, sp: ET.Element, part: Any, T: Any) -> None:
         if _is_hidden(sp):
@@ -648,10 +867,11 @@ class SlideRenderer:
             return
 
         nv = sp.find(_q(NS_P, "nvSpPr"))
-        ph = nv.find(_q(NS_P, "ph")) if nv is not None else None
+        # <p:ph> is nested inside <p:nvPr> under <p:nvSpPr> — use descendant XPath.
+        ph = nv.find(f".//{_q(NS_P, 'ph')}") if nv is not None else None
         chain = self._placeholder_chain(ph) if ph is not None else []
 
-        fill_info, line_col, line_w, dashed, dash_pat = self._resolve_fill_line(sp, spPr, chain)
+        fill_info, line_col, line_w, dashed, dash_pat, _head_end, _tail_end = self._resolve_fill_line(sp, spPr, chain)
         fill_kind, fill_data, fill_extra = fill_info
 
         prstGeom = spPr.find(_q(NS_A, "prstGeom")) if spPr is not None else None
@@ -660,15 +880,22 @@ class SlideRenderer:
         adj = _parse_adj(prstGeom)
 
         effects = _parse_effect_lst(spPr, self.theme.colors, self.scale)
-        ops = _prst_ops(prst, box, adj)
+        # Build ops: preset shapes use _prst_ops; custGeom paths are converted to ops
+        # so they go through the SAME fill/effect pipeline (gradient, pattern, blip,
+        # shadow, glow, 3D bevel, reflection) instead of being limited to solid fill.
+        if custGeom is not None:
+            ops = _cust_geom_to_ops(custGeom, box)
+        else:
+            ops = _prst_ops(prst, box, adj)
         if rot_deg:
             cx, cy = (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
             ops = _rotate_ops(ops, cx, cy, rot_deg)
 
         lw = max(1, int(round(line_w * 12700 * self.scale))) if line_col and line_col[3] > 0 else 0
 
-        # Render custom geometry
-        if custGeom is not None:
+        # Render custom geometry — legacy code path kept for backward compatibility,
+        # but only used when ops extraction failed.
+        if custGeom is not None and not ops:
             fill_c = fill_data if fill_kind == "solid" else None
             _render_custom_geom(self.img, ImageDraw.Draw(self.img, "RGBA"), custGeom, box, fill_c, line_col, lw)
         else:
@@ -686,6 +913,8 @@ class SlideRenderer:
                 ang = fill_extra[0] if isinstance(fill_extra, tuple) else (fill_extra or 0.0)
                 info = fill_extra[1] if isinstance(fill_extra, tuple) else None
                 _paint_gradient(self.img, box, fill_data, ang, _make_silhouette(ops, origin=(box[0], box[1])), info)
+            elif fill_kind == "patt" and fill_data:
+                _paint_pattern(self.img, box, fill_data, _make_silhouette(ops, origin=(box[0], box[1])))
             elif fill_kind == "blip":
                 blob = _blob_for_part(part, fill_data)
                 if blob:
@@ -769,7 +998,7 @@ class SlideRenderer:
         prst = prstGeom.attrib.get("prst", "line") if prstGeom is not None else "line"
         ops = _connector_ops(prst, box, flip_h, flip_v)
 
-        _, line_col, line_w, dashed, dash_pat = self._resolve_fill_line(cxn, spPr, [])
+        _, line_col, line_w, dashed, dash_pat, head_end, tail_end = self._resolve_fill_line(cxn, spPr, [])
         if not isinstance(line_col, tuple):
             line_col = (89, 89, 89, 255)
         lw = max(1, int(round(line_w * 12700 * self.scale)))
@@ -778,6 +1007,34 @@ class SlideRenderer:
             _paint_shadow(self.img, ops, effects["outerShdw"])
         draw = ImageDraw.Draw(self.img, "RGBA")
         _stroke_ops(draw, ops, line_col, lw, dashed, close=False, dash_pat=dash_pat)
+
+        # Arrowhead / endpoint markers (headEnd / tailEnd).
+        # Extract the line's first and last points + tangent direction from `ops`.
+        line_pts: List[Tuple[float, float]] = []
+        for kind, data in ops:
+            if kind == "poly" and len(data) >= 2:
+                line_pts.extend(data)
+        if line_pts:
+            start = line_pts[0]
+            end = line_pts[-1]
+            # Tangent at start = direction from start to the next point (outward from start).
+            if len(line_pts) >= 2:
+                sx, sy = start
+                nx, ny = line_pts[1]
+                d = math.hypot(nx - sx, ny - sy) or 1.0
+                start_dir = ((nx - sx) / d, (ny - sy) / d)
+                # Tangent at end = direction from previous point to end (outward from end).
+                px, py = line_pts[-2]
+                ex, ey = end
+                d2 = math.hypot(ex - px, ey - py) or 1.0
+                end_dir = ((ex - px) / d2, (ey - py) / d2)
+            else:
+                start_dir = (1.0, 0.0)
+                end_dir = (1.0, 0.0)
+            if head_end:
+                _paint_line_end(draw, start, start_dir, head_end, line_col, lw, is_head=True)
+            if tail_end:
+                _paint_line_end(draw, end, end_dir, tail_end, line_col, lw, is_head=False)
 
     def _render_graphicframe(self, gf: ET.Element, part: Any, T: Any) -> None:
         if _is_hidden(gf):

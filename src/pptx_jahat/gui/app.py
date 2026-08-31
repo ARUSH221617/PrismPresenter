@@ -614,6 +614,15 @@ class PPTXJahatApp(tk.Tk):
         new_h = max(1, int(img_h * scale))
 
         resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        # The preview is RGBA; if it has transparent pixels (e.g. from gradients
+        # with alpha, noFill backgrounds, or PNG master images), the dark Tk
+        # frame (#0b0c10) bleeds through and makes the slide look like a wireframe.
+        # Composite onto a solid white background so the preview always looks like
+        # the final rendered slide as it would appear in PowerPoint.
+        if resized.mode == "RGBA":
+            bg = Image.new("RGBA", resized.size, (255, 255, 255, 255))
+            bg.alpha_composite(resized)
+            resized = bg.convert("RGB")
         self._current_tk_img = ImageTk.PhotoImage(resized)
         
         self.preview_label.config(image=self._current_tk_img, text="")
@@ -653,6 +662,10 @@ class PPTXJahatApp(tk.Tk):
         new_h = max(1, int(img_h * scale))
 
         resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        if resized.mode == "RGBA":
+            bg = Image.new("RGBA", resized.size, (255, 255, 255, 255))
+            bg.alpha_composite(resized)
+            resized = bg.convert("RGB")
         self._visual_current_tk_img = ImageTk.PhotoImage(resized)
 
         self.visual_label.config(image=self._visual_current_tk_img, text="")
@@ -696,6 +709,10 @@ class PPTXJahatApp(tk.Tk):
         new_h = max(1, int(img_h * scale))
 
         resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        if resized.mode == "RGBA":
+            bg = Image.new("RGBA", resized.size, (255, 255, 255, 255))
+            bg.alpha_composite(resized)
+            resized = bg.convert("RGB")
         self._ai_test_current_tk_img = ImageTk.PhotoImage(resized)
 
         self.ai_test_label.config(image=self._ai_test_current_tk_img, text="")
@@ -1191,6 +1208,10 @@ class PPTXJahatApp(tk.Tk):
         new_h = max(1, int(img_h * scale))
 
         resized = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        if resized.mode == "RGBA":
+            bg = Image.new("RGBA", resized.size, (255, 255, 255, 255))
+            bg.alpha_composite(resized)
+            resized = bg.convert("RGB")
         self._mgr_current_tk_img = ImageTk.PhotoImage(resized)
 
         self.mgr_preview_label.config(image=self._mgr_current_tk_img, text="")

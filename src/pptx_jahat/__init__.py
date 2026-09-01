@@ -16,8 +16,32 @@ def main() -> None:
             except (KeyboardInterrupt, EOFError):
                 break
     else:
-        from pptx_jahat.gui.app import run_gui
-        run_gui()
+        import os
+        import threading
+        import webbrowser
+        import time
+        from pptx_jahat.web.app import create_app
+
+        port = int(os.getenv("PORT", 5000))
+        host = os.getenv("HOST", "127.0.0.1")
+        url = f"http://{host}:{port}"
+
+        def open_browser():
+            time.sleep(1.2)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+
+        threading.Thread(target=open_browser, daemon=True).start()
+
+        print(f"\n=======================================================")
+        print(f"  ⚡ PPTX JAHAT WEB GUI RUNNING AT: {url}")
+        print(f"  Press Ctrl+C to stop server")
+        print(f"=======================================================\n")
+
+        app = create_app()
+        app.run(host=host, port=port, debug=False)
 
 if __name__ == "__main__":
     main()

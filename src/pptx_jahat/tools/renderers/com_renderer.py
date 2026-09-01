@@ -729,14 +729,16 @@ def _try_export_slide(
         label = f"Slide.Export(width={attempt_width}, height={attempt_height})"
 
         try:
+            # Ensure absolute Windows path for PowerPoint Export method
+            abs_target_png = str(Path(target_png).resolve())
             if attempt_width is not None and attempt_height is not None:
-                slide.Export(target_png, "PNG", attempt_width, attempt_height)
+                slide.Export(abs_target_png, "PNG", attempt_width, attempt_height)
             elif attempt_width is not None:
-                slide.Export(target_png, "PNG", attempt_width)
+                slide.Export(abs_target_png, "PNG", attempt_width)
             else:
-                slide.Export(target_png, "PNG")
+                slide.Export(abs_target_png, "PNG")
 
-            if _wait_for_nonempty_file(target_png, timeout=15.0):
+            if _wait_for_nonempty_file(abs_target_png, timeout=15.0):
                 return label, []
 
             errors.append(
@@ -903,8 +905,8 @@ def export_pptx_slides_com(
     reuse_running: bool = False,
     strict_slide_numbers: bool = True,
     allow_default_scale_fallback: bool = True,
-    allow_shape_range_fallback: bool = False,
-    allow_alternate_filter_fallback: bool = False,
+    allow_shape_range_fallback: bool = True,
+    allow_alternate_filter_fallback: bool = True,
     force_visible: bool = False,
     open_with_window: Optional[bool] = None,
     use_short_path: bool = False,

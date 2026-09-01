@@ -21,6 +21,8 @@ dependencies = [
     "numpy>=1.26.0",
     "pywin32>=312",
     "comtypes>=1.4.16",
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
 ]
 
 [project.scripts]

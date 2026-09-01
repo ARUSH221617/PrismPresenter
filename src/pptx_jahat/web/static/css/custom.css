@@ -1,0 +1,51 @@
+:root {
+  --color-primary: #e50914;
+  --color-primary-hover: #b80710;
+  --color-surface: #14161c;
+  --color-surface-card: #1a1d26;
+  --color-border: #272a36;
+  --color-bg-darkest: #0b0c10;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b0c10;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #272a36;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f4457;
+}
+
+/* Monospace console styling */
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Pulse badge animation */
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom red accent glow */
+.glow-crimson {
+  box-shadow: 0 0 20px rgba(229, 9, 20, 0.25);
+}
+
+.glow-crimson-sm {
+  box-shadow: 0 0 10px rgba(229, 9, 20, 0.18);
+}

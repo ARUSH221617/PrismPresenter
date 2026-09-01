@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PPTX JAHAT — AI Presentation Generation Suite</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fef2f2',
+              100: '#fee2e2',
+              500: '#ef4444',
+              600: '#e50914',
+              700: '#b80710',
+              800: '#991b1b',
+              900: '#7f1d1d',
+              950: '#450a0a',
+            },
+            dark: {
+              canvas: '#0b0c10',
+              card: '#14161f',
+              surface: '#1b1e2b',
+              border: '#272b3c',
+              muted: '#6b7280',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+<body class="bg-[#0b0c10] text-gray-100 min-h-screen flex flex-col font-sans antialiased selection:bg-red-900 selection:text-white">
+
+  <!-- TOP HEADER -->
+  <header class="border-b border-[#272b3c] bg-[#14161f]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3.5">
+      <div class="bg-red-600 text-white font-black px-2.5 py-1 rounded-md text-xs tracking-wider shadow-sm flex items-center gap-1.5">
+        <i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i> PPTX
+      </div>
+      <div>
+        <div class="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+          JAHAT PRESENTATION AGENT
+          <span class="text-[10px] bg-red-950/80 text-red-400 border border-red-800/60 px-2 py-0.5 rounded font-mono font-medium">WEB GUI</span>
+        </div>
+        <div class="text-[11px] text-gray-400">Autonomous Slide Synthesizer • Dynamic Templates • 9Router Engine</div>
+      </div>
+    </div>
+
+    <!-- Right status badges -->
+    <div class="flex items-center gap-2.5">
+      <div id="system-status-badge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-950/60 border border-red-800/70 text-red-300 flex items-center gap-1.5 shadow-sm">
+        <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse-slow"></span>
+        <span id="system-status-text">SYSTEM READY</span>
+      </div>
+      <div id="model-badge" class="px-3 py-1 rounded-full text-xs font-mono bg-[#1b1e2b] border border-[#272b3c] text-gray-300">
+        MODEL: Loading...
+      </div>
+    </div>
+  </header>
+
+  <!-- TAB NAVIGATION BAR -->
+  <div class="border-b border-[#272b3c] bg-[#0e1017] px-6">
+    <nav class="flex space-x-1" aria-label="Tabs">
+      <button onclick="switchTab('generator')" id="tab-btn-generator" class="tab-btn active px-4 py-2.5 text-xs font-semibold border-b-2 border-red-600 text-white flex items-center gap-2 transition">
+        <i data-lucide="sparkles" class="w-4 h-4 text-red-500"></i> Slide Generator & Live Preview
+      </button>
+      <button onclick="switchTab('templates')" id="tab-btn-templates" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
+        <i data-lucide="scan-search" class="w-4 h-4 text-gray-400"></i> Template Intelligence & Analyzer
+      </button>
+      <button onclick="switchTab('manager')" id="tab-btn-manager" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
+        <i data-lucide="folder-kanban" class="w-4 h-4 text-gray-400"></i> Deck & Template Manager
+      </button>
+      <button onclick="switchTab('components')" id="tab-btn-components" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
+        <i data-lucide="boxes" class="w-4 h-4 text-gray-400"></i> Component Catalog
+      </button>
+      <button onclick="switchTab('agent')" id="tab-btn-agent" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
+        <i data-lucide="bot" class="w-4 h-4 text-gray-400"></i> Autonomous AI Terminal
+      </button>
+      <button onclick="switchTab('settings')" id="tab-btn-settings" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
+        <i data-lucide="settings" class="w-4 h-4 text-gray-400"></i> Engine Settings (.env)
+      </button>
+    </nav>
+  </div>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="flex-1 p-6 overflow-auto">
+
+    <!-- ============================================================== -->
+    <!-- TAB 1: SLIDE GENERATOR & LIVE PREVIEW -->
+    <!-- ============================================================== -->
+    <div id="tab-content-generator" class="tab-content space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- LEFT COLUMN: Generator Controls & Execution Logs -->
+        <div class="lg:col-span-5 space-y-5">
+          <!-- Card: Input Parameters -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+            
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+                  <i data-lucide="file-plus" class="w-4 h-4 text-red-500"></i> SLIDE SYNTHESIZER
+                </h2>
+                <p class="text-xs text-gray-400">Transform Word Docx into Professional PPTX</p>
+              </div>
+            </div>
+
+            <!-- Form -->
+            <div class="space-y-4 text-xs">
+              <!-- Upload Word Document -->
+              <div>
+                <label class="block font-medium text-gray-300 mb-1.5">Word Document (.docx):</label>
+                <div class="flex gap-2">
+                  <input type="text" id="gen-docx-path" placeholder="Select or upload .docx..." class="flex-1 bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono">
+                  <label class="cursor-pointer bg-[#272b3c] hover:bg-[#34394e] text-white px-3.5 py-2 rounded-lg font-medium transition flex items-center gap-1.5">
+                    <i data-lucide="upload" class="w-3.5 h-3.5"></i> Browse
+                    <input type="file" id="gen-docx-file-input" accept=".docx" class="hidden" onchange="handleDocxUpload(event)">
+                  </label>
+                </div>
+                <p id="upload-status" class="text-[11px] text-gray-400 mt-1 hidden"></p>
+              </div>
+
+              <!-- Base Template Selection -->
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="block font-medium text-gray-300">Base Template Style:</label>
+                  <button onclick="loadGeneratorTemplates()" class="text-gray-400 hover:text-white text-[11px] flex items-center gap-1">
+                    <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
+                  </button>
+                </div>
+                <select id="gen-template-select" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500">
+                  <option value="">All Templates (Global AI Matching)</option>
+                </select>
+              </div>
+
+              <!-- Target Output Path -->
+              <div>
+                <label class="block font-medium text-gray-300 mb-1.5">Target Output (.pptx):</label>
+                <input type="text" id="gen-output-path" placeholder="Auto-generated destination..." class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono">
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="pt-2 flex flex-wrap gap-2.5">
+                <button id="btn-generate-pptx" onclick="startPresentationGeneration()" class="bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-semibold px-4 py-2.5 rounded-lg flex items-center gap-2 shadow transition">
+                  <i data-lucide="zap" class="w-4 h-4"></i> Generate Presentation
+                </button>
+                <button id="btn-open-ppt" onclick="openCurrentInPowerpoint()" disabled class="disabled:opacity-50 disabled:cursor-not-allowed bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 px-3.5 py-2.5 rounded-lg font-medium border border-[#272b3c] transition flex items-center gap-1.5">
+                  <i data-lucide="external-link" class="w-4 h-4 text-red-400"></i> Open PPT
+                </button>
+                <button id="btn-download-pptx" onclick="downloadCurrentPptx()" disabled class="disabled:opacity-50 disabled:cursor-not-allowed bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 px-3.5 py-2.5 rounded-lg font-medium border border-[#272b3c] transition flex items-center gap-1.5">
+                  <i data-lucide="download" class="w-4 h-4 text-green-400"></i> Download
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card: Live Execution Log Stream -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg flex flex-col h-[380px]">
+            <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-2">
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-4 h-4 text-red-500"></i> Generation Execution Stream
+              </span>
+              <button onclick="clearGenLog()" class="text-[11px] text-gray-400 hover:text-gray-200">Clear</button>
+            </div>
+            <div id="gen-console-logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-[#0b0c10] rounded-lg border border-[#1b1e2b] text-gray-300">
+              <div class="text-gray-500 italic">Ready for presentation generation pipeline...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Visual Deck & AI Inspector (Multi-SubTab) -->
+        <div class="lg:col-span-7">
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[620px] flex flex-col">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+            <div class="flex flex-wrap items-center justify-between pb-3 border-b border-[#272b3c] gap-3">
+              <div>
+                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+                  <i data-lucide="layout" class="w-4 h-4 text-red-500"></i> VISUAL DECK & AI INSPECTOR
+                </h2>
+                <p class="text-xs text-gray-400">Live Generated Slides, High-Res Visuals & AI Multimodal Payloads</p>
+              </div>
+
+              <!-- Sub-tabs inside Inspector -->
+              <div class="bg-[#1b1e2b] p-1 rounded-lg border border-[#272b3c] flex space-x-1 text-xs">
+                <button onclick="switchGenSubTab('preview')" id="subtab-btn-preview" class="gen-subtab-btn active px-3 py-1 rounded-md font-medium text-white bg-red-600 shadow-sm transition">
+                  Live Deck Preview
+                </button>
+                <button onclick="switchGenSubTab('visual')" id="subtab-btn-visual" class="gen-subtab-btn px-3 py-1 rounded-md font-medium text-gray-400 hover:text-white transition">
+                  Visual Screenshots
+                </button>
+                <button onclick="switchGenSubTab('ai_test')" id="subtab-btn-ai_test" class="gen-subtab-btn px-3 py-1 rounded-md font-medium text-gray-400 hover:text-white transition">
+                  AI Test Snapshots
+                </button>
+              </div>
+            </div>
+
+            <!-- Subtab 1: Interactive Live Deck Preview -->
+            <div id="gen-subtab-preview" class="gen-subtab-content flex-1 flex flex-col pt-4">
+              <!-- Navigation toolbar -->
+              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
+                <button id="gen-prev-btn" onclick="navGenSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  ◀ Prev Slide
+                </button>
+                <div class="flex items-center gap-3">
+                  <span id="gen-slide-counter" class="text-xs font-bold text-red-400">No slides loaded</span>
+                  <span id="gen-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300"></span>
+                </div>
+                <button id="gen-next-btn" onclick="navGenSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  Next Slide ▶
+                </button>
+              </div>
+
+              <!-- Slide Canvas Viewer Container -->
+              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px] relative overflow-hidden">
+                <div id="gen-slide-placeholder" class="text-center text-gray-500 text-xs">
+                  <i data-lucide="presentation" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
+                  Generated slides will render here automatically.
+                </div>
+                <div id="gen-web-vector-container" class="hidden max-h-[480px] max-w-full overflow-hidden rounded-md shadow-2xl border border-[#1b1e2b] bg-white flex items-center justify-center"></div>
+                <img id="gen-slide-img" src="" alt="Slide Preview" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+              </div>
+            </div>
+
+            <!-- Subtab 2: Visual Screenshots -->
+            <div id="gen-subtab-visual" class="gen-subtab-content hidden flex-1 flex flex-col pt-4">
+              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
+                <button id="visual-prev-btn" onclick="navVisualSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  ◀ Prev Image
+                </button>
+                <span id="visual-slide-counter" class="text-xs font-bold text-red-400">No visual screenshot loaded</span>
+                <button id="visual-next-btn" onclick="navVisualSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  Next Image ▶
+                </button>
+              </div>
+              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px]">
+                <div id="visual-slide-placeholder" class="text-center text-gray-500 text-xs">
+                  <i data-lucide="image" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
+                  High-res visual screenshots will render here.
+                </div>
+                <img id="visual-slide-img" src="" alt="Visual Screenshot" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+              </div>
+            </div>
+
+            <!-- Subtab 3: AI Test Snapshots -->
+            <div id="gen-subtab-ai_test" class="gen-subtab-content hidden flex-1 flex flex-col pt-4">
+              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
+                <button id="ai-test-prev-btn" onclick="navAiTestSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  ◀ Prev Snapshot
+                </button>
+                <span id="ai-test-slide-counter" class="text-xs font-bold text-red-400">No AI payload images</span>
+                <button id="ai-test-next-btn" onclick="navAiTestSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  Next Snapshot ▶
+                </button>
+              </div>
+              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px]">
+                <div id="ai-test-slide-placeholder" class="text-center text-gray-500 text-xs">
+                  <i data-lucide="eye" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
+                  Visual payloads sent to Vision AI Agent will appear here.
+                </div>
+                <img id="ai-test-slide-img" src="" alt="AI Test Snapshot" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b]">
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 2: TEMPLATE INTELLIGENCE & ANALYZER -->
+    <!-- ============================================================== -->
+    <div id="tab-content-templates" class="tab-content hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left: Template Table & Archetypes & Live Slide Preview -->
+        <div class="lg:col-span-6 space-y-5">
+          <!-- Top Control Card -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+            
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+                  <i data-lucide="sparkle" class="w-4 h-4 text-red-500"></i> TEMPLATE REPOSITORY & AI ANALYSIS
+                </h2>
+                <p class="text-xs text-gray-400">Analyze PPTX designs with AI Agent & save style notes to data/NOTE.md</p>
+              </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex flex-wrap gap-2.5 text-xs">
+              <button id="btn-analyze-sel" onclick="analyzeSelectedTemplate()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i> Analyze Selected
+              </button>
+              <button id="btn-analyze-all" onclick="analyzeAllTemplatesBatch()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] font-medium px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+                <i data-lucide="rocket" class="w-3.5 h-3.5 text-red-400"></i> Batch Analyze All
+              </button>
+              <button onclick="loadTemplatesList()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] font-medium px-3 py-2 rounded-lg flex items-center gap-1 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+              </button>
+            </div>
+
+            <!-- Progress Bar -->
+            <div id="analyze-prog-container" class="mt-4 pt-3 border-t border-[#272b3c] hidden">
+              <div class="flex justify-between text-xs text-gray-400 mb-1 font-mono">
+                <span id="analyze-prog-status">Analyzing templates...</span>
+                <span id="analyze-prog-pct">0%</span>
+              </div>
+              <div class="w-full bg-[#1b1e2b] rounded-full h-2 overflow-hidden border border-[#272b3c]">
+                <div id="analyze-prog-bar" class="bg-red-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Templates Table Card -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
+            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
+              <span class="text-xs font-bold text-gray-300">AVAILABLE PPTX TEMPLATES (data/*.pptx)</span>
+              <span id="tpl-count-badge" class="text-[11px] font-mono text-red-400 font-bold">0 Templates</span>
+            </div>
+
+            <div class="overflow-x-auto max-h-[220px] overflow-y-auto rounded-lg border border-[#272b3c]">
+              <table class="w-full text-left text-xs text-gray-300">
+                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
+                  <tr>
+                    <th class="py-2 px-3">Template Name</th>
+                    <th class="py-2 px-3 text-center">Slides</th>
+                    <th class="py-2 px-3 text-center">Status</th>
+                    <th class="py-2 px-3">Style / Purpose</th>
+                  </tr>
+                </thead>
+                <tbody id="templates-table-body" class="divide-y divide-[#272b3c] font-sans">
+                  <tr>
+                    <td colspan="4" class="py-4 text-center text-gray-500 italic">Loading templates...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Bottom: Split Archetype Details & Slide Preview -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Metadata details -->
+            <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[260px] flex flex-col">
+              <span class="text-xs font-bold text-gray-300 pb-2 border-b border-[#272b3c] mb-2 flex items-center gap-1.5">
+                <i data-lucide="info" class="w-3.5 h-3.5 text-red-400"></i> Template Metadata
+              </span>
+              <div id="tpl-detail-meta" class="flex-1 overflow-y-auto text-xs space-y-2 text-gray-300 font-sans p-1">
+                <p class="text-gray-500 italic">Select a template above to inspect structure.</p>
+              </div>
+            </div>
+
+            <!-- Slide preview -->
+            <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[260px] flex flex-col">
+              <div class="flex items-center justify-between pb-2 border-b border-[#272b3c] mb-2">
+                <span class="text-xs font-bold text-gray-300">Slide Preview</span>
+                <div class="flex items-center gap-1">
+                  <button onclick="navTplSlide(-1)" id="tpl-prev-btn" class="text-gray-400 hover:text-white px-1 py-0.5 text-xs">◀</button>
+                  <span id="tpl-slide-counter" class="text-[11px] font-mono text-red-400">0 / 0</span>
+                  <button onclick="navTplSlide(1)" id="tpl-next-btn" class="text-gray-400 hover:text-white px-1 py-0.5 text-xs">▶</button>
+                </div>
+              </div>
+              <div class="flex-1 bg-[#0b0c10] rounded-lg border border-[#272b3c] flex items-center justify-center p-2 overflow-hidden">
+                <img id="tpl-slide-img" src="" alt="Template Slide" class="hidden max-h-full max-w-full object-contain rounded bg-white">
+                <span id="tpl-slide-placeholder" class="text-[11px] text-gray-500">No preview</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: NOTE.md Markdown Editor & AI Execution Log -->
+        <div class="lg:col-span-6 space-y-5">
+          <!-- NOTE.md Editor Card -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative flex flex-col h-[400px]">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+            <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-3">
+              <div>
+                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+                  <i data-lucide="book-open" class="w-4 h-4 text-red-500"></i> TEMPLATE INTELLIGENCE NOTES (data/NOTE.md)
+                </h2>
+                <p class="text-[11px] text-gray-400">AI Knowledge Base: Purpose, Content Brief, Visual Ideas & Styles</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="saveNoteMd()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1.5 rounded text-xs flex items-center gap-1 transition">
+                  <i data-lucide="save" class="w-3.5 h-3.5"></i> Save NOTE.md
+                </button>
+                <button onclick="loadNoteMd()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-2.5 py-1.5 rounded text-xs transition">
+                  Reload
+                </button>
+              </div>
+            </div>
+
+            <textarea id="note-md-editor" class="flex-1 w-full bg-[#0b0c10] border border-[#272b3c] rounded-lg p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-red-500 resize-none" placeholder="Loading template intelligence notes..."></textarea>
+          </div>
+
+          <!-- Analysis Execution Console -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[240px] flex flex-col">
+            <div class="flex items-center justify-between pb-2 border-b border-[#272b3c] mb-2">
+              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-4 h-4 text-red-500"></i> AI Template Analyzer Execution & Reasoning Log
+              </span>
+              <button onclick="clearAnalyzeLog()" class="text-[11px] text-gray-400 hover:text-gray-200">Clear</button>
+            </div>
+            <div id="analyze-console-logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-[#0b0c10] rounded-lg border border-[#1b1e2b] text-gray-300">
+              <div class="text-gray-500 italic">Ready for template intelligence analysis...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 3: DECK & TEMPLATE MANAGER -->
+    <!-- ============================================================== -->
+    <div id="tab-content-manager" class="tab-content hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left Column: Dual File Treeview -->
+        <div class="lg:col-span-6 space-y-5">
+          <!-- Top Control Card -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+            
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+                  <i data-lucide="folder-kanban" class="w-4 h-4 text-red-500"></i> PRESENTATION & TEMPLATE MANAGER
+                </h2>
+                <p class="text-xs text-gray-400">Manage generated decks (data/output) and reference styles (data/*.pptx)</p>
+              </div>
+            </div>
+
+            <!-- Toolbar buttons -->
+            <div class="flex flex-wrap gap-2.5 text-xs">
+              <label class="cursor-pointer bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+                <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import Reference PPTX
+                <input type="file" accept=".pptx" class="hidden" onchange="handleTemplateImport(event)">
+              </label>
+              <button onclick="loadManagerDecks()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh All
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 1: Generated Presentations -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
+            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
+              <span class="text-xs font-bold text-gray-300">GENERATED PRESENTATIONS (data/output)</span>
+              <span id="mgr-gen-count" class="text-[11px] font-mono text-red-400">0 decks</span>
+            </div>
+            <div class="overflow-y-auto max-h-[190px] rounded-lg border border-[#272b3c]">
+              <table class="w-full text-left text-xs text-gray-300">
+                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
+                  <tr>
+                    <th class="py-2 px-3">Deck Name</th>
+                    <th class="py-2 px-3 text-center">Size</th>
+                    <th class="py-2 px-3 text-center">Modified</th>
+                  </tr>
+                </thead>
+                <tbody id="mgr-gen-table-body" class="divide-y divide-[#272b3c]">
+                  <tr><td colspan="3" class="py-3 text-center text-gray-500 italic">No generated decks found.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Section 2: Reference Templates -->
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
+            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
+              <span class="text-xs font-bold text-gray-300">REFERENCE TEMPLATES (data/*.pptx)</span>
+              <span id="mgr-ref-count" class="text-[11px] font-mono text-red-400">0 templates</span>
+            </div>
+            <div class="overflow-y-auto max-h-[190px] rounded-lg border border-[#272b3c]">
+              <table class="w-full text-left text-xs text-gray-300">
+                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
+                  <tr>
+                    <th class="py-2 px-3">Template Name</th>
+                    <th class="py-2 px-3 text-center">Size</th>
+                    <th class="py-2 px-3 text-center">Modified</th>
+                  </tr>
+                </thead>
+                <tbody id="mgr-ref-table-body" class="divide-y divide-[#272b3c]">
+                  <tr><td colspan="3" class="py-3 text-center text-gray-500 italic">No reference templates found.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Selected File Inspector & Actions -->
+        <div class="lg:col-span-6 space-y-5">
+          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[580px] flex flex-col">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+            <!-- Selected File Details Banner -->
+            <div class="bg-[#1b1e2b] p-3.5 rounded-lg border border-[#272b3c] mb-4">
+              <div id="mgr-sel-name" class="text-sm font-bold text-white truncate">Select a deck or template from the left list</div>
+              <div id="mgr-sel-details" class="text-[11px] text-gray-400 mt-1 font-mono truncate">Path: None | Size: -- | Type: --</div>
+            </div>
+
+            <!-- Actions Toolbar -->
+            <div class="flex flex-wrap gap-2 mb-4 text-xs">
+              <button id="mgr-btn-open" onclick="mgrOpenPpt()" disabled class="disabled:opacity-40 bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+                <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open PPT
+              </button>
+              <button id="mgr-btn-download" onclick="mgrDownload()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+                <i data-lucide="download" class="w-3.5 h-3.5 text-green-400"></i> Download
+              </button>
+              <button id="mgr-btn-verify" onclick="mgrVerifyAndFix()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-yellow-400"></i> Verify & Fix
+              </button>
+              <button id="mgr-btn-duplicate" onclick="mgrDuplicate()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Duplicate
+              </button>
+              <button id="mgr-btn-rename" onclick="mgrPromptRename()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+                <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Rename
+              </button>
+              <button id="mgr-btn-delete" onclick="mgrDelete()" disabled class="disabled:opacity-40 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800 px-3 py-1.5 rounded flex items-center gap-1.5 transition ml-auto">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Delete
+              </button>
+            </div>
+
+            <!-- Slide Inspector Carousel -->
+            <div class="flex-1 flex flex-col bg-[#0b0c10] rounded-xl border border-[#272b3c] p-4">
+              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
+                <button id="mgr-prev-btn" onclick="navMgrSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  ◀ Prev
+                </button>
+                <div class="flex items-center gap-3">
+                  <span id="mgr-slide-counter" class="text-xs font-bold text-red-400">No slides loaded</span>
+                  <span id="mgr-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300"></span>
+                </div>
+                <button id="mgr-next-btn" onclick="navMgrSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
+                  Next ▶
+                </button>
+              </div>
+
+              <div class="flex-1 flex items-center justify-center min-h-[350px]">
+                <div id="mgr-slide-placeholder" class="text-center text-gray-500 text-xs">
+                  <i data-lucide="layout-grid" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
+                  Select a presentation or template to inspect slide layouts.
+                </div>
+                <img id="mgr-slide-img" src="" alt="Slide Preview" class="hidden max-h-[380px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 4: COMPONENT CATALOG -->
+    <!-- ============================================================== -->
+    <div id="tab-content-components" class="tab-content hidden space-y-6">
+      <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[600px] flex flex-col">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+        <div class="flex items-center justify-between pb-4 border-b border-[#272b3c] mb-4">
+          <div>
+            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+              <i data-lucide="boxes" class="w-4 h-4 text-red-500"></i> TEMPLATE REPOSITORY & COMPONENT CATALOG
+            </h2>
+            <p class="text-xs text-gray-400">Inspect extracted shapes, layout containers, and design primitives</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span id="comp-count-badge" class="text-xs font-bold font-mono text-red-400 bg-[#1b1e2b] px-3 py-1 rounded-full border border-[#272b3c]">Components: Loading...</span>
+            <button onclick="runComponentsExtraction()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition">
+              <i data-lucide="scan" class="w-3.5 h-3.5"></i> Scan & Extract Templates
+            </button>
+            <button onclick="loadComponentsCatalog()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded-lg text-xs transition">
+              Reload JSON
+            </button>
+          </div>
+        </div>
+
+        <textarea id="components-json-viewer" readonly class="flex-1 w-full bg-[#0b0c10] border border-[#272b3c] rounded-lg p-4 font-mono text-xs text-gray-300 focus:outline-none resize-none" placeholder="Loading components catalog..."></textarea>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 5: AUTONOMOUS AI TERMINAL -->
+    <!-- ============================================================== -->
+    <div id="tab-content-agent" class="tab-content hidden space-y-6">
+      <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[640px] flex flex-col">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+        <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-3">
+          <div>
+            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+              <i data-lucide="bot" class="w-4 h-4 text-red-500"></i> AUTONOMOUS AGENT WORKSPACE
+            </h2>
+            <p class="text-xs text-gray-400">Execute multi-step presentation queries, tool automation, and web research</p>
+          </div>
+          <button onclick="clearAgentLogs()" class="text-xs text-gray-400 hover:text-white">Clear Log</button>
+        </div>
+
+        <!-- Terminal Log Box -->
+        <div id="agent-console-logs" class="flex-1 overflow-y-auto font-mono text-xs space-y-2 p-4 bg-[#0b0c10] rounded-xl border border-[#272b3c] text-gray-300 mb-4">
+          <div class="text-gray-500 italic">Agent workspace ready. Enter an instruction prompt below...</div>
+        </div>
+
+        <!-- Input Bar -->
+        <div class="flex gap-2">
+          <input type="text" id="agent-prompt-input" placeholder="Ask AI Agent to inspect templates, build slides, or search web..." class="flex-1 bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-4 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono" onkeydown="if(event.key === 'Enter') sendAgentPrompt()">
+          <button id="btn-agent-send" onclick="sendAgentPrompt()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-lg text-xs flex items-center gap-1.5 shadow transition">
+            <i data-lucide="send" class="w-3.5 h-3.5"></i> Execute
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 6: ENGINE SETTINGS (.env) -->
+    <!-- ============================================================== -->
+    <div id="tab-content-settings" class="tab-content hidden space-y-6">
+      <div class="max-w-3xl bg-[#14161f] border border-[#272b3c] rounded-xl p-6 shadow-lg relative">
+        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
+
+        <div class="flex items-center justify-between pb-4 border-b border-[#272b3c] mb-5">
+          <div>
+            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+              <i data-lucide="sliders" class="w-4 h-4 text-red-500"></i> 9ROUTER & API CONFIGURATION
+            </h2>
+            <p class="text-xs text-gray-400">Configure environment endpoints, model routing, and API credentials</p>
+          </div>
+        </div>
+
+        <div class="space-y-4 text-xs">
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_URL:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">9Router Base Gateway URL (e.g. http://localhost:20128)</p>
+            <input type="text" id="cfg-url" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_KEY:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">API Key for 9Router or OpenAI-compatible backend</p>
+            <input type="password" id="cfg-key" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_CHAT_MODEL:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">Primary Chat / Reasoning Model</p>
+            <input type="text" id="cfg-chat-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_SEARCH_MODEL:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">Search Provider / Model (tavily, exa, brave-search)</p>
+            <input type="text" id="cfg-search-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_FETCH_MODEL:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">Web Reader / Scraper Provider (jina-reader, firecrawl, exa)</p>
+            <input type="text" id="cfg-fetch-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div>
+            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_IMAGE_MODEL:</label>
+            <p class="text-[11px] text-gray-400 mb-1.5">Slide Image Generation Model</p>
+            <input type="text" id="cfg-image-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+          </div>
+
+          <div class="pt-4 border-t border-[#272b3c]">
+            <button onclick="saveConfigSettings()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-lg text-xs flex items-center gap-1.5 shadow transition">
+              <i data-lucide="save" class="w-4 h-4"></i> Save Configuration (.env) & Reload Engine
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- BOTTOM STATUS BAR -->
+  <footer class="border-t border-[#272b3c] bg-[#14161f] px-6 py-2.5 flex items-center justify-between text-xs text-gray-400 font-mono">
+    <div id="footer-status">Idle • Ready for presentation generation</div>
+    <div class="text-[11px] text-gray-500">PPTX Jahat • Flask Web Edition</div>
+  </footer>
+
+  <script src="/static/js/pptx-web-renderer.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

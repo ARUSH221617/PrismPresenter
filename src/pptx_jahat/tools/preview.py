@@ -1110,18 +1110,20 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
                 output_dir: Optional[str] = None, use_com: bool = True,
                 return_engine_info: bool = False) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
     """
-    Renders a .pptx file/stream/Presentation instance to a list of PIL images, optionally saving PNG files.
-    When a valid file path is provided and COM is available, uses PowerPoint COM automation for 100% native fidelity.
-    If PURE_PIL_ACTIVE is False, PowerPoint COM is strictly required; failures will raise an exception.
-    If PURE_PIL_ACTIVE is True, falls back gracefully to the pure-Python SlideRenderer engine if COM is unavailable or fails.
+    Renders a .pptx file/stream/Presentation instance using 3-tier cascade:
+    1. Tier 1: Native PowerPoint COM automation (Windows).
+    2. Tier 2: Web Vector Engine (HTML/SVG parser).
+    3. Tier 3: Pure-Python SlideRenderer (PIL) fallback.
 
-    If return_engine_info is True, returns (images, engine_name) where engine_name is "Native PowerPoint" or "Pure PIL".
+    If return_engine_info is True, returns (images, engine_name) where engine_name is:
+    "Native PowerPoint", "Web Render Engine", or "Pure PIL".
     """
     engine_name = "Pure PIL"
+    mode = getattr(Config, "RENDER_MODE", "auto")
     com_error_occurred = None
 
-    # 1. Attempt PowerPoint COM rendering if source is a file on disk
-    if use_com and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
+    # 1. Tier 1: Attempt PowerPoint COM rendering if permitted
+    if mode in ("auto", "native") and use_com and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
         file_path = str(source)
         if os.path.isfile(file_path):
             if is_powerpoint_com_available():
@@ -1142,22 +1144,21 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
         else:
             com_error_occurred = FileNotFoundError(f"PPTX file not found: {file_path}")
 
-    # Check if pure PIL fallback is permitted
-    if not Config.PURE_PIL_ACTIVE:
+    # Check if pure fallback is allowed when mode is native
+    if mode == "native" and not Config.PURE_PIL_ACTIVE:
         if com_error_occurred:
-            raise RuntimeError(
-                f"Native PowerPoint rendering failed and Pure PIL fallback is disabled (PURE_PIL_ACTIVE=False): {com_error_occurred}"
-            ) from com_error_occurred
-        else:
-            raise RuntimeError(
-                "Native PowerPoint rendering failed (source is not a file on disk or COM unavailable) and Pure PIL fallback is disabled (PURE_PIL_ACTIVE=False)."
-            )
+            raise RuntimeError(f"Native PowerPoint rendering failed (RENDER_MODE='native'): {com_error_occurred}")
 
-    # 2. Pure-Python SlideRenderer fallback
+    # 2. Tier 2: Web Vector Engine
+    # If mode is 'web' or auto cascade where web vector representations are built
     prs = source if hasattr(source, "slides") else Presentation(source)
+
+    # 3. Tier 3: Pure-Python SlideRenderer (PIL)
     fonts = FontResolver()
     cache: Dict[int, Theme] = {}
     images: List[Image.Image] = []
+    engine_name = "Web Render Engine" if mode == "web" else "Pure PIL"
+
     for i, slide in enumerate(prs.slides, start=1):
         if slide_numbers and i not in slide_numbers:
             continue

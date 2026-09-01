@@ -15,6 +15,11 @@ from pptx_jahat.tools.pptx_builder import (
     verify_and_auto_heal_pptx
 )
 from pptx_jahat.tools.image_gen import generate_image
+from pptx_jahat.tools.template_analyzer import (
+    analyze_template,
+    analyze_all_templates,
+    load_notes
+)
 
 TOOLS_DEFINITIONS = [
     {
@@ -198,6 +203,42 @@ TOOLS_DEFINITIONS = [
                 "required": ["file_path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_pptx_template",
+            "description": "Analyze a PPTX template file with AI, producing purpose, brief, ideas, style, and slide archetypes, and saving notes to data/NOTE.md",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pptx_path": {"type": "string", "description": "Path or filename of the PPTX template in data folder"}
+                },
+                "required": ["pptx_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_all_templates",
+            "description": "Scan and analyze all PPTX templates in data folder sequentially with AI and generate/update data/NOTE.md",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_template_notes",
+            "description": "Read all template design and intelligence notes from data/NOTE.md",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
     }
 ]
 
@@ -219,6 +260,9 @@ TOOL_HANDLERS: Dict[str, Callable] = {
         "file_path": str(file_path),
         "status": "Verified OK" if verify_and_auto_heal_pptx(file_path)[0] else "Repairs applied"
     }),
+    "analyze_pptx_template": lambda pptx_path: json.dumps(analyze_template(pptx_path), indent=2),
+    "analyze_all_templates": lambda: analyze_all_templates(),
+    "get_template_notes": lambda: load_notes(),
 }
 
 class AIAgent:

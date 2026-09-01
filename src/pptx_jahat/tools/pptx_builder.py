@@ -21,6 +21,7 @@ from pptx_jahat.tools.docx_parser import parse_docx
 from pptx_jahat.tools.pptx_engine import inspect_template_slides, inspect_all_templates
 from pptx_jahat.tools.image_gen import generate_image
 from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg
+from pptx_jahat.tools.template_analyzer import load_notes
 from openai import OpenAI
 
 def _set_paragraph_rtl_and_fonts(paragraph: Any, font_name: Optional[str] = "Vazirmatn") -> None:
@@ -307,18 +308,30 @@ def generate_slide_replacements_with_ai(
 
     system_prompt = (
         "You are an expert Presentation Art Director and Content Producer. "
-        "You receive visual screenshots, shape slots, and archetype tags of candidate presentation slides across multiple templates, "
+        "You receive Template Intelligence & Design Notes (analyzing template purposes, ideas, content briefs, and styles like friendly, corporate, modern tech), "
+        "visual screenshots, shape slots, and archetype tags of candidate presentation slides across multiple templates, "
         "along with a parsed Word document. "
         "Your task is to:\n"
-        "1. Select the best visual slide archetype from the available templates for each section/topic in the document (title_cover, table_matrix, metrics_stats, multi_column, process_timeline, content_bullets, conclusion_quote).\n"
-        "2. Chunk and adapt long document text into punchy, high-impact slide text (concise headers, 3-4 bullet points max, 10-12 words per bullet).\n"
-        "3. Match adapted content into the chosen slide's shape slots (shape_index).\n"
-        "4. Generate detailed speaker notes for each slide to retain comprehensive background details from the document.\n"
-        "5. Identify any unnecessary or overflowing shape indices to delete (shapes_to_remove).\n"
-        "6. If a slot contains a table, supply updated 2D table_data.\n"
-        "7. If a slide contains picture/graphic placeholders, you can provide an image_prompt for contextual AI image generation.\n"
+        "1. Step 1 (Template Selection): Choose the best Template(s) by matching the document's domain, purpose, and style with the Template Intelligence Notes.\n"
+        "2. Step 2 (Slide Selection): Select the best visual slide archetype from the selected templates for each section/topic in the document (title_cover, table_matrix, metrics_stats, multi_column, process_timeline, content_bullets, conclusion_quote).\n"
+        "3. Chunk and adapt long document text into punchy, high-impact slide text (concise headers, 3-4 bullet points max, 10-12 words per bullet).\n"
+        "4. Match adapted content into the chosen slide's shape slots (shape_index).\n"
+        "5. Generate detailed speaker notes for each slide to retain comprehensive background details from the document.\n"
+        "6. Identify any unnecessary or overflowing shape indices to delete (shapes_to_remove).\n"
+        "7. If a slot contains a table, supply updated 2D table_data.\n"
+        "8. If a slide contains picture/graphic placeholders, you can provide an image_prompt for contextual AI image generation.\n"
         "Strictly return valid JSON adhering to the specified schema."
     )
+
+    # Load Template Intelligence Notes from data/NOTE.md if available
+    template_notes = load_notes()
+    notes_prompt_block = ""
+    if template_notes and template_notes.strip():
+        notes_prompt_block = f"""
+Step 0 - Template Intelligence & Style Notes (from data/NOTE.md):
+Use these analyzed notes to guide Step 1 (Best Template Selection by style, purpose, feel) and Step 2 (Best Slide Selection):
+{template_notes}
+"""
 
     # Prepare slot descriptions (without heavy base64 strings in the JSON text prompt)
     inventory_summary = []
@@ -349,6 +362,8 @@ def generate_slide_replacements_with_ai(
         {
             "type": "text",
             "text": f"""
+{notes_prompt_block}
+
 Step 1 - Available Slide Blueprints, Archetypes & Slots:
 {json.dumps(inventory_summary, ensure_ascii=False, indent=2)}
 

@@ -14,6 +14,14 @@ from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
 from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
 from pptx_jahat.tools.preview import render_pptx_file_previews
+from pptx_jahat.tools.template_analyzer import (
+    analyze_template,
+    analyze_all_templates,
+    load_notes,
+    save_notes,
+    get_analyzed_templates,
+    NOTE_FILE
+)
 from pptx_jahat.agent import AIAgent
 from pptx_jahat.gui.components import (
     Theme,
@@ -63,6 +71,12 @@ class PPTXJahatApp(tk.Tk):
 
         self.ai_test_pil_images: List[Dict[str, Any]] = []
         self.ai_test_idx: int = 0
+
+        # Template Analyzer State (NEW)
+        self.analyze_selected_file_path: Optional[str] = None
+        self.analyze_preview_pil_images: List[Image.Image] = []
+        self.analyze_preview_engine_name: str = ""
+        self.analyze_current_slide_idx: int = 0
 
         # Manager state
         self.mgr_selected_file_path: Optional[str] = None
@@ -151,7 +165,12 @@ class PPTXJahatApp(tk.Tk):
         self.notebook.add(self.tab_generator, text="  ⚡ Slide Generator & Live Preview  ")
         self._setup_generator_tab()
 
-        # Tab 2: Deck & Template Manager (NEW)
+        # Tab 2: Template Intelligence & AI Analyzer (NEW)
+        self.tab_analyze = tk.Frame(self.notebook, bg=Theme.BG_MAIN, padx=10, pady=10)
+        self.notebook.add(self.tab_analyze, text="  🔍 Template Intelligence & Analyze  ")
+        self._setup_analyze_tab()
+
+        # Tab 3: Deck & Template Manager
         self.tab_manager = tk.Frame(self.notebook, bg=Theme.BG_MAIN, padx=10, pady=10)
         self.notebook.add(self.tab_manager, text="  🗂️ Deck & Template Manager  ")
         self._setup_manager_tab()
@@ -245,6 +264,13 @@ class PPTXJahatApp(tk.Tk):
         self.template_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
         btn_refresh = ttk.Button(r2, text="Refresh", style="Secondary.TButton", command=self._refresh_templates)
         btn_refresh.pack(side=tk.LEFT)
+        btn_jump_analyze = ttk.Button(
+            r2,
+            text="🔍 Intelligence Notes",
+            style="Secondary.TButton",
+            command=lambda: self.notebook.select(self.tab_analyze)
+        )
+        btn_jump_analyze.pack(side=tk.LEFT, padx=(4, 0))
 
         # Row 3: Output PPTX Destination
         r3 = tk.Frame(gen_card.body, bg=Theme.BG_SURFACE)
@@ -822,7 +848,649 @@ class PPTXJahatApp(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     # -------------------------------------------------------------
-    # TAB 2: Deck & Template Manager (Manage generated PPTX & Reference Templates)
+    # TAB 2: Template Intelligence & AI Analyzer (Analyze templates -> NOTE.md)
+    # -------------------------------------------------------------
+    def _setup_analyze_tab(self):
+        paned = tk.PanedWindow(
+            self.tab_analyze,
+            orient=tk.HORIZONTAL,
+            bg=Theme.BG_DARKEST,
+            bd=0,
+            sashwidth=4,
+            sashrelief="flat"
+        )
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # --- LEFT PANEL: Template List & Live Archetype/Slide Inspector ---
+        left_container = tk.Frame(paned, bg=Theme.BG_MAIN, padx=5, pady=5)
+        paned.add(left_container, minsize=500, stretch="always")
+
+        # Top Control Card for Template Analysis
+        top_ctrl_card = ModernCard(
+            left_container,
+            title="TEMPLATE REPOSITORY & AI ANALYSIS",
+            subtitle="Analyze PPTX designs with AI Agent & save style notes to data/NOTE.md",
+            show_accent_stripe=True,
+            accent_color=Theme.RED_PRIMARY
+        )
+        top_ctrl_card.pack(fill=tk.X, pady=(0, 8))
+
+        btn_bar = tk.Frame(top_ctrl_card.body, bg=Theme.BG_SURFACE)
+        btn_bar.pack(fill=tk.X, pady=2)
+
+        self.btn_analyze_sel = StyledActionBtn(
+            btn_bar,
+            text="⚡ Analyze Selected Template",
+            command=self._analyze_selected_template,
+            is_primary=True,
+            padx=10,
+            pady=5
+        )
+        self.btn_analyze_sel.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.btn_analyze_all = StyledActionBtn(
+            btn_bar,
+            text="🚀 Analyze All Templates (Batch)",
+            command=self._analyze_all_templates_batch,
+            is_primary=False,
+            padx=10,
+            pady=5
+        )
+        self.btn_analyze_all.pack(side=tk.LEFT, padx=4)
+
+        StyledActionBtn(
+            btn_bar,
+            text="🔄 Refresh List",
+            command=self._refresh_analyze_templates_list,
+            is_primary=False,
+            padx=10,
+            pady=5
+        ).pack(side=tk.RIGHT)
+
+        # Progress bar frame
+        prog_frame = tk.Frame(top_ctrl_card.body, bg=Theme.BG_SURFACE)
+        prog_frame.pack(fill=tk.X, pady=(6, 0))
+
+        self.analyze_progress_var = tk.DoubleVar(value=0.0)
+        self.analyze_progress_bar = ttk.Progressbar(
+            prog_frame,
+            variable=self.analyze_progress_var,
+            maximum=100,
+            mode="determinate"
+        )
+        self.analyze_progress_bar.pack(fill=tk.X, side=tk.TOP, pady=(0, 2))
+
+        self.analyze_progress_status_var = tk.StringVar(value="Ready to analyze templates")
+        lbl_prog_status = tk.Label(
+            prog_frame,
+            textvariable=self.analyze_progress_status_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_MUTED,
+            font=Theme.FONT_CAPTION,
+            anchor="w"
+        )
+        lbl_prog_status.pack(fill=tk.X, side=tk.LEFT)
+
+        # Templates Treeview Card
+        tree_card = ModernCard(
+            left_container,
+            title="AVAILABLE PPTX TEMPLATES (data/*.pptx)",
+            subtitle="Select a template to view archetype metadata, slide preview, or run AI analysis",
+            accent_color=Theme.RED_PRIMARY
+        )
+        tree_card.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        tree_frame = tk.Frame(tree_card.body, bg=Theme.BG_DARKEST)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("slides", "status", "style", "purpose")
+        self.tree_analyze_templates = ttk.Treeview(
+            tree_frame,
+            columns=cols,
+            show="tree headings",
+            selectmode="browse",
+            height=6
+        )
+        self.tree_analyze_templates.heading("#0", text="Template Name", anchor="w")
+        self.tree_analyze_templates.heading("slides", text="Slides", anchor="center")
+        self.tree_analyze_templates.heading("status", text="NOTE.md Status", anchor="center")
+        self.tree_analyze_templates.heading("style", text="Style / Mood", anchor="w")
+        self.tree_analyze_templates.heading("purpose", text="Target Purpose", anchor="w")
+
+        self.tree_analyze_templates.column("#0", width=120, minwidth=100)
+        self.tree_analyze_templates.column("slides", width=60, minwidth=50, anchor="center")
+        self.tree_analyze_templates.column("status", width=110, minwidth=90, anchor="center")
+        self.tree_analyze_templates.column("style", width=110, minwidth=80)
+        self.tree_analyze_templates.column("purpose", width=140, minwidth=100)
+
+        # Configure tag colors
+        self.tree_analyze_templates.tag_configure("analyzed", foreground=Theme.TEXT_SUCCESS)
+        self.tree_analyze_templates.tag_configure("pending", foreground=Theme.TEXT_MUTED)
+
+        sb_tree_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_analyze_templates.yview)
+        self.tree_analyze_templates.configure(yscrollcommand=sb_tree_y.set)
+        sb_tree_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_analyze_templates.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.tree_analyze_templates.bind("<<TreeviewSelect>>", self._on_analyze_tree_selected)
+
+        # Bottom Sub-frame: Selected Template Metadata + Live Slide Preview
+        bottom_box = tk.Frame(left_container, bg=Theme.BG_MAIN)
+        bottom_box.pack(fill=tk.BOTH, expand=True)
+
+        # Metadata Card
+        self.analyze_meta_card = ModernCard(
+            bottom_box,
+            title="TEMPLATE DETAILS & ARCHETYPES",
+            subtitle="Select a template above to inspect structure",
+            accent_color=Theme.RED_PRIMARY
+        )
+        self.analyze_meta_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+
+        self.analyze_meta_text = tk.Text(
+            self.analyze_meta_card.body,
+            bg=Theme.BG_DARKEST,
+            fg=Theme.TEXT_MAIN,
+            font=Theme.FONT_CAPTION,
+            wrap=tk.WORD,
+            height=8,
+            bd=0,
+            padx=6,
+            pady=6
+        )
+        self.analyze_meta_text.pack(fill=tk.BOTH, expand=True)
+        self.analyze_meta_text.config(state="disabled")
+
+        # Slide Visual Preview Card
+        self.analyze_preview_card = ModernCard(
+            bottom_box,
+            title="SLIDE VISUAL PREVIEW",
+            subtitle="Rendered template slide preview",
+            accent_color=Theme.RED_PRIMARY
+        )
+        self.analyze_preview_card.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(4, 0))
+
+        # Preview navigation toolbar
+        prev_nav_bar = tk.Frame(self.analyze_preview_card.body, bg=Theme.BG_SURFACE)
+        prev_nav_bar.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+
+        self.btn_analyze_prev = StyledActionBtn(
+            prev_nav_bar,
+            text="◀ Prev",
+            command=self._analyze_prev_slide,
+            is_primary=False,
+            padx=6,
+            pady=2
+        )
+        self.btn_analyze_prev.pack(side=tk.LEFT)
+
+        self.analyze_slide_counter_var = tk.StringVar(value="0 / 0")
+        lbl_slide_cnt = tk.Label(
+            prev_nav_bar,
+            textvariable=self.analyze_slide_counter_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_WHITE,
+            font=Theme.FONT_BODY_BOLD
+        )
+        lbl_slide_cnt.pack(side=tk.LEFT, padx=6)
+
+        self.btn_analyze_next = StyledActionBtn(
+            prev_nav_bar,
+            text="Next ▶",
+            command=self._analyze_next_slide,
+            is_primary=False,
+            padx=6,
+            pady=2
+        )
+        self.btn_analyze_next.pack(side=tk.LEFT)
+
+        StyledActionBtn(
+            prev_nav_bar,
+            text="📊 Open PPT",
+            command=self._analyze_open_selected_in_ppt,
+            is_primary=False,
+            padx=6,
+            pady=2
+        ).pack(side=tk.RIGHT)
+
+        self.analyze_preview_display_box = tk.Frame(self.analyze_preview_card.body, bg=Theme.BG_DARKEST)
+        self.analyze_preview_display_box.pack(fill=tk.BOTH, expand=True)
+
+        self.analyze_preview_label = tk.Label(
+            self.analyze_preview_display_box,
+            text="Select a template to view slides",
+            bg=Theme.BG_DARKEST,
+            fg=Theme.TEXT_MUTED,
+            font=Theme.FONT_BODY
+        )
+        self.analyze_preview_label.pack(fill=tk.BOTH, expand=True)
+        self.analyze_preview_display_box.bind("<Configure>", lambda e: self._on_analyze_preview_resize())
+
+        # --- RIGHT PANEL: Rich Markdown Notes (data/NOTE.md) & Live Execution Console ---
+        right_container = tk.Frame(paned, bg=Theme.BG_MAIN, padx=5, pady=5)
+        paned.add(right_container, minsize=520, stretch="always")
+
+        notes_card = ModernCard(
+            right_container,
+            title="TEMPLATE INTELLIGENCE NOTES (data/NOTE.md)",
+            subtitle="AI knowledge base: Purpose, Content Brief, Visual Ideas, Style & Archetype matching",
+            show_accent_stripe=True,
+            accent_color=Theme.RED_PRIMARY
+        )
+        notes_card.pack(fill=tk.BOTH, expand=True)
+
+        # Top Action Toolbar for Notes
+        notes_toolbar = tk.Frame(notes_card.body, bg=Theme.BG_SURFACE)
+        notes_toolbar.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
+
+        StyledActionBtn(
+            notes_toolbar,
+            text="💾 Save NOTE.md",
+            command=self._save_analyze_notes,
+            is_primary=True,
+            padx=10,
+            pady=4
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        StyledActionBtn(
+            notes_toolbar,
+            text="🔄 Reload from Disk",
+            command=self._reload_analyze_notes,
+            is_primary=False,
+            padx=10,
+            pady=4
+        ).pack(side=tk.LEFT, padx=4)
+
+        StyledActionBtn(
+            notes_toolbar,
+            text="📋 Copy Notes",
+            command=self._copy_analyze_notes,
+            is_primary=False,
+            padx=10,
+            pady=4
+        ).pack(side=tk.LEFT, padx=4)
+
+        StyledActionBtn(
+            notes_toolbar,
+            text="📁 Open Folder",
+            command=lambda: self._reveal_in_explorer(str(DATA_DIR)),
+            is_primary=False,
+            padx=10,
+            pady=4
+        ).pack(side=tk.LEFT, padx=4)
+
+        self.notes_status_var = tk.StringVar(value="File: data/NOTE.md")
+        lbl_notes_status = tk.Label(
+            notes_toolbar,
+            textvariable=self.notes_status_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_RED,
+            font=Theme.FONT_TITLE
+        )
+        lbl_notes_status.pack(side=tk.RIGHT, padx=6)
+
+        # Split pane between Notes Editor & Console Terminal
+        right_split = tk.PanedWindow(
+            notes_card.body,
+            orient=tk.VERTICAL,
+            bg=Theme.BG_DARKEST,
+            bd=0,
+            sashwidth=4,
+            sashrelief="flat"
+        )
+        right_split.pack(fill=tk.BOTH, expand=True)
+
+        # Upper: Notes Editor Frame
+        editor_frame = tk.Frame(right_split, bg=Theme.BG_DARKEST, highlightbackground=Theme.BORDER_DARK, highlightthickness=1)
+        right_split.add(editor_frame, minsize=240, stretch="always")
+
+        self.notes_text = tk.Text(
+            editor_frame,
+            bg=Theme.BG_DARKEST,
+            fg=Theme.TEXT_MAIN,
+            insertbackground=Theme.RED_PRIMARY,
+            selectbackground=Theme.RED_MUTED,
+            selectforeground=Theme.TEXT_WHITE,
+            font=("Segoe UI", 10),
+            wrap=tk.WORD,
+            bd=0,
+            padx=10,
+            pady=10
+        )
+        sb_notes_y = ttk.Scrollbar(editor_frame, orient=tk.VERTICAL, command=self.notes_text.yview)
+        self.notes_text.configure(yscrollcommand=sb_notes_y.set)
+
+        sb_notes_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.notes_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Configure syntax highlight tags for Markdown
+        self.notes_text.tag_config("h1", foreground=Theme.RED_PRIMARY, font=("Segoe UI", 13, "bold"))
+        self.notes_text.tag_config("h2", foreground=Theme.RED_GLOW, font=("Segoe UI", 11, "bold"))
+        self.notes_text.tag_config("h3", foreground="#facc15", font=("Segoe UI", 10, "bold"))
+        self.notes_text.tag_config("keyword", foreground="#38bdf8", font=("Segoe UI", 10, "bold"))
+        self.notes_text.tag_config("bullet", foreground=Theme.TEXT_WHITE)
+        self.notes_text.tag_config("quote", foreground=Theme.TEXT_MUTED, font=("Segoe UI", 9, "italic"))
+
+        # Lower: Execution Console Log
+        self.analyze_console = ConsoleLogWidget(right_split, title="AI Template Analyzer Execution & Reasoning Log", height=8)
+        right_split.add(self.analyze_console, minsize=140, stretch="always")
+
+        # Initial data load
+        self._refresh_analyze_templates_list()
+
+    def _refresh_analyze_templates_list(self):
+        """Scans data/*.pptx templates and updates Treeview and NOTE.md editor."""
+        for item in self.tree_analyze_templates.get_children():
+            self.tree_analyze_templates.delete(item)
+
+        pptx_files = sorted(list(DATA_DIR.glob("*.pptx")))
+        templates = [f for f in pptx_files if not f.name.endswith("_generated.pptx")]
+        analyzed_map = get_analyzed_templates()
+
+        analyzed_count = 0
+        first_item_id = None
+
+        for tpl in templates:
+            try:
+                prs = Presentation(str(tpl))
+                slide_count = len(prs.slides)
+            except Exception:
+                slide_count = "?"
+
+            is_analyzed = tpl.name in analyzed_map
+            if is_analyzed:
+                analyzed_count += 1
+                status_str = "✓ Analyzed"
+                tag = "analyzed"
+                style_str = analyzed_map[tpl.name].get("style", "Custom")[:22]
+                purpose_str = analyzed_map[tpl.name].get("purpose", "Ready")[:30]
+            else:
+                status_str = "○ Pending"
+                tag = "pending"
+                style_str = "Not analyzed"
+                purpose_str = "Run AI Analyzer"
+
+            item_id = self.tree_analyze_templates.insert(
+                "",
+                tk.END,
+                text=tpl.name,
+                values=(f"{slide_count} slides", status_str, style_str, purpose_str),
+                tags=(tag,)
+            )
+            if not first_item_id:
+                first_item_id = item_id
+
+        # Reload NOTE.md into editor
+        self._reload_analyze_notes()
+        self.notes_status_var.set(f"data/NOTE.md • {analyzed_count}/{len(templates)} Templates Analyzed")
+        self.analyze_progress_status_var.set(f"Ready • {analyzed_count}/{len(templates)} templates documented in NOTE.md")
+
+        if first_item_id and not self.analyze_selected_file_path:
+            self.tree_analyze_templates.selection_set(first_item_id)
+            self._on_analyze_tree_selected()
+
+    def _on_analyze_tree_selected(self, event=None):
+        """Handles template selection in treeview and updates metadata & previews."""
+        sel = self.tree_analyze_templates.selection()
+        if not sel:
+            return
+
+        tpl_name = self.tree_analyze_templates.item(sel[0], "text")
+        tpl_path = DATA_DIR / tpl_name
+        if not tpl_path.exists():
+            return
+
+        self.analyze_selected_file_path = str(tpl_path)
+
+        # Update metadata card
+        analyzed_map = get_analyzed_templates()
+        info = analyzed_map.get(tpl_name)
+
+        try:
+            prs = Presentation(str(tpl_path))
+            slide_w_in = round(prs.slide_width / 914400, 2)
+            slide_h_in = round(prs.slide_height / 914400, 2)
+            dim_str = f"{slide_w_in}\" x {slide_h_in}\""
+            total_slides = len(prs.slides)
+        except Exception:
+            dim_str = "Unknown"
+            total_slides = "?"
+
+        self.analyze_meta_text.config(state="normal")
+        self.analyze_meta_text.delete("1.0", tk.END)
+        self.analyze_meta_text.insert(tk.END, f"Template: {tpl_name}\n", "header")
+        self.analyze_meta_text.insert(tk.END, f"Slides: {total_slides}  |  Dimensions: {dim_str}\n\n")
+
+        if info:
+            self.analyze_meta_text.insert(tk.END, f"🎯 Purpose: {info.get('purpose')}\n")
+            self.analyze_meta_text.insert(tk.END, f"🎨 Style / Feel: {info.get('style')}\n")
+            self.analyze_meta_text.insert(tk.END, f"📝 Brief: {info.get('brief')}\n")
+        else:
+            self.analyze_meta_text.insert(tk.END, "Status: ○ Not yet analyzed by AI Agent.\nClick '⚡ Analyze Selected Template' to generate design notes.")
+
+        self.analyze_meta_text.config(state="disabled")
+
+        # Load slide previews
+        self._load_analyze_previews_async(str(tpl_path))
+
+    def _load_analyze_previews_async(self, pptx_path: str):
+        """Loads slide preview images for selected template asynchronously."""
+        def worker():
+            try:
+                res = render_pptx_file_previews(pptx_path, target_width_px=500, return_engine_info=True)
+                if isinstance(res, tuple):
+                    imgs, engine_name = res
+                else:
+                    imgs, engine_name = res, "Renderer"
+                self.after(0, lambda: self._apply_analyze_previews(imgs, engine_name))
+            except Exception as e:
+                self.after(0, lambda: self.analyze_console.log(f"Preview render notice: {e}", "dim"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_analyze_previews(self, images: List[Image.Image], engine_name: str):
+        self.analyze_preview_pil_images = images
+        self.analyze_preview_engine_name = engine_name
+        self.analyze_current_slide_idx = 0
+        self._update_analyze_preview_display()
+
+    def _on_analyze_preview_resize(self):
+        if self.analyze_preview_pil_images and self.analyze_current_slide_idx < len(self.analyze_preview_pil_images):
+            self._update_analyze_preview_display()
+
+    def _update_analyze_preview_display(self):
+        if not self.analyze_preview_pil_images:
+            self.analyze_preview_label.config(image="", text="No preview available.")
+            self.analyze_slide_counter_var.set("0 / 0")
+            self.btn_analyze_prev.set_state("disabled")
+            self.btn_analyze_next.set_state("disabled")
+            return
+
+        total = len(self.analyze_preview_pil_images)
+        self.analyze_slide_counter_var.set(f"{self.analyze_current_slide_idx + 1} / {total}")
+        self.btn_analyze_prev.set_state("normal" if self.analyze_current_slide_idx > 0 else "disabled")
+        self.btn_analyze_next.set_state("normal" if self.analyze_current_slide_idx < total - 1 else "disabled")
+
+        box_w = max(80, self.analyze_preview_display_box.winfo_width() - 12)
+        box_h = max(80, self.analyze_preview_display_box.winfo_height() - 12)
+
+        raw_img = self.analyze_preview_pil_images[self.analyze_current_slide_idx]
+        img_w, img_h = raw_img.size
+
+        scale = min(box_w / max(img_w, 1), box_h / max(img_h, 1))
+        new_w = max(1, int(img_w * scale))
+        new_h = max(1, int(img_h * scale))
+
+        try:
+            resized_img = raw_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            self._analyze_curr_tk_img = ImageTk.PhotoImage(resized_img)
+            self.analyze_preview_label.config(image=self._analyze_curr_tk_img, text="")
+        except Exception:
+            pass
+
+    def _analyze_prev_slide(self):
+        if self.analyze_current_slide_idx > 0:
+            self.analyze_current_slide_idx -= 1
+            self._update_analyze_preview_display()
+
+    def _analyze_next_slide(self):
+        if self.analyze_preview_pil_images and self.analyze_current_slide_idx < len(self.analyze_preview_pil_images) - 1:
+            self.analyze_current_slide_idx += 1
+            self._update_analyze_preview_display()
+
+    def _analyze_open_selected_in_ppt(self):
+        if self.analyze_selected_file_path and Path(self.analyze_selected_file_path).exists():
+            self._launch_file(self.analyze_selected_file_path)
+        else:
+            messagebox.showwarning("Warning", "No template file selected.")
+
+    def _analyze_selected_template(self):
+        """Runs AI template analysis on the currently selected template."""
+        if not self.analyze_selected_file_path:
+            messagebox.showwarning("Warning", "Please select a template from the list first.")
+            return
+
+        tpl_path = Path(self.analyze_selected_file_path)
+        self.btn_analyze_sel.set_state("disabled")
+        self.btn_analyze_all.set_state("disabled")
+        self.analyze_progress_status_var.set(f"Analyzing {tpl_path.name} with 9Router AI Agent...")
+        self.analyze_progress_var.set(25.0)
+
+        def log_cb(msg: str):
+            self.after(0, lambda: self.analyze_console.log(msg))
+
+        def worker():
+            try:
+                log_cb(f"\n=======================================================")
+                log_cb(f"[*] Starting AI Template Analysis: {tpl_path.name}")
+                log_cb(f"[*] Using Model: {Config.NINEROUTER_CHAT_MODEL}")
+                log_cb(f"=======================================================")
+                
+                result = analyze_template(tpl_path, log_cb=log_cb, save_to_file=True)
+                
+                log_cb(f"\n[✓] Analysis complete for {tpl_path.name}.")
+                log_cb(f"    Purpose: {result.get('purpose')}")
+                log_cb(f"    Style: {result.get('style')}")
+                log_cb(f"[✓] Saved intelligence note to {NOTE_FILE}.")
+
+                self.after(0, lambda: self.analyze_progress_var.set(100.0))
+                self.after(0, lambda: self.analyze_progress_status_var.set(f"Analyzed {tpl_path.name} successfully."))
+                self.after(0, self._refresh_analyze_templates_list)
+            except Exception as e:
+                log_cb(f"\n[!] Error during template analysis: {e}")
+                self.after(0, lambda: messagebox.showerror("Analysis Error", str(e)))
+            finally:
+                self.after(0, lambda: self.btn_analyze_sel.set_state("normal"))
+                self.after(0, lambda: self.btn_analyze_all.set_state("normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _analyze_all_templates_batch(self):
+        """Sequentially analyzes all templates in data/ and updates NOTE.md."""
+        pptx_files = sorted(list(DATA_DIR.glob("*.pptx")))
+        templates = [f for f in pptx_files if not f.name.endswith("_generated.pptx")]
+
+        if not templates:
+            messagebox.showwarning("Warning", "No PPTX templates found in data folder.")
+            return
+
+        if not messagebox.askyesno(
+            "Batch Template Analysis",
+            f"Analyze all {len(templates)} templates with 9Router AI Agent?\nThis will generate comprehensive design notes in data/NOTE.md."
+        ):
+            return
+
+        self.btn_analyze_sel.set_state("disabled")
+        self.btn_analyze_all.set_state("disabled")
+        self.analyze_progress_var.set(0.0)
+
+        def log_cb(msg: str):
+            self.after(0, lambda: self.analyze_console.log(msg))
+
+        def progress_cb(current: int, total: int, current_name: str):
+            pct = (current / total) * 100.0
+            self.after(0, lambda: self.analyze_progress_var.set(pct))
+            self.after(0, lambda: self.analyze_progress_status_var.set(f"Analyzing [{current}/{total}]: {current_name}"))
+
+        def worker():
+            try:
+                log_cb(f"\n=======================================================")
+                log_cb(f"[*] Starting Batch Template Analysis ({len(templates)} templates)")
+                log_cb(f"[*] Output destination: {NOTE_FILE}")
+                log_cb(f"=======================================================")
+
+                analyze_all_templates(DATA_DIR, progress_cb=progress_cb, log_cb=log_cb)
+
+                self.after(0, lambda: self.analyze_progress_var.set(100.0))
+                self.after(0, lambda: self.analyze_progress_status_var.set(f"Completed analysis of all {len(templates)} templates."))
+                self.after(0, self._refresh_analyze_templates_list)
+                self.after(0, lambda: messagebox.showinfo("Success", f"All {len(templates)} templates successfully analyzed!\nNotes saved to: {NOTE_FILE}"))
+            except Exception as e:
+                log_cb(f"\n[!] Batch analysis error: {e}")
+                self.after(0, lambda: messagebox.showerror("Batch Error", str(e)))
+            finally:
+                self.after(0, lambda: self.btn_analyze_sel.set_state("normal"))
+                self.after(0, lambda: self.btn_analyze_all.set_state("normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _save_analyze_notes(self):
+        """Saves manual edits made to NOTE.md in the text editor."""
+        content = self.notes_text.get("1.0", tk.END).strip()
+        save_notes(content, NOTE_FILE)
+        self._highlight_notes_syntax()
+        self.analyze_console.log(f"[✓] Manually saved changes to {NOTE_FILE}.", "success")
+        messagebox.showinfo("Saved", f"Template Intelligence Notes successfully saved to:\n{NOTE_FILE}")
+        self._refresh_analyze_templates_list()
+
+    def _reload_analyze_notes(self):
+        """Reloads NOTE.md content from disk into the text editor."""
+        content = load_notes(NOTE_FILE)
+        self.notes_text.delete("1.0", tk.END)
+        if content:
+            self.notes_text.insert(tk.END, content)
+            self._highlight_notes_syntax()
+        else:
+            self.notes_text.insert(
+                tk.END,
+                "# PPTX Jahat — Template Intelligence & Design Notes\n\n"
+                "No template notes found yet.\n\n"
+                "Click '⚡ Analyze Selected Template' or '🚀 Analyze All Templates (Batch)' above to generate AI notes for your PPTX templates!"
+            )
+
+    def _copy_analyze_notes(self):
+        """Copies editor content to clipboard."""
+        content = self.notes_text.get("1.0", tk.END).strip()
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        self.analyze_console.log("[✓] Notes copied to clipboard.", "info")
+
+    def _highlight_notes_syntax(self):
+        """Applies syntax highlighting tags to markdown content."""
+        # Remove existing tags
+        for tag in ["h1", "h2", "h3", "keyword", "quote"]:
+            self.notes_text.tag_remove(tag, "1.0", tk.END)
+
+        lines = self.notes_text.get("1.0", tk.END).split("\n")
+        for line_idx, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                self.notes_text.tag_add("h1", f"{line_idx}.0", f"{line_idx}.end")
+            elif stripped.startswith("## "):
+                self.notes_text.tag_add("h2", f"{line_idx}.0", f"{line_idx}.end")
+            elif stripped.startswith("### "):
+                self.notes_text.tag_add("h3", f"{line_idx}.0", f"{line_idx}.end")
+            elif stripped.startswith("> "):
+                self.notes_text.tag_add("quote", f"{line_idx}.0", f"{line_idx}.end")
+            
+            # Highlight key section keywords
+            for kw in ["🎯 Purpose", "🎨 Style", "💡 Core Concept", "📝 Content Brief", "📊 Slide Inventory", "🤖 AI Selection", "When to Choose"]:
+                if kw in line:
+                    col_start = line.find(kw)
+                    col_end = col_start + len(kw)
+                    self.notes_text.tag_add("keyword", f"{line_idx}.{col_start}", f"{line_idx}.{col_end}")
+
+    # -------------------------------------------------------------
+    # TAB 3: Deck & Template Manager (Manage generated PPTX & Reference Templates)
     # -------------------------------------------------------------
     def _setup_manager_tab(self):
         paned = tk.PanedWindow(

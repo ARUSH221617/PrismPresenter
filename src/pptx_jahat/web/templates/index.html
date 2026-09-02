@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PPTX JAHAT — AI Presentation Generation Suite</title>
+  <!-- Favicon and Icons -->
+  <link rel="icon" type="image/png" href="/static/images/logo-icon-transparent.png">
+  <link rel="shortcut icon" href="/static/images/logo-icon-transparent.png">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -41,15 +44,13 @@
 <body class="bg-[#0b0c10] text-gray-100 min-h-screen flex flex-col font-sans antialiased selection:bg-red-900 selection:text-white">
 
   <!-- TOP HEADER -->
-  <header class="border-b border-[#272b3c] bg-[#14161f]/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+  <header class="border-b border-[#272b3c] bg-[#14161f]/80 backdrop-blur sticky top-0 z-50 px-6 py-3 flex items-center justify-between">
     <div class="flex items-center space-x-3.5">
-      <div class="bg-red-600 text-white font-black px-2.5 py-1 rounded-md text-xs tracking-wider shadow-sm flex items-center gap-1.5">
-        <i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i> PPTX
-      </div>
+      <img src="/static/images/logo-icon-transparent.png" alt="PPTX Jahat Logo" class="w-9 h-9 object-contain drop-shadow-[0_0_8px_rgba(229,9,20,0.5)]">
       <div>
         <div class="text-sm font-bold tracking-tight text-white flex items-center gap-2">
-          JAHAT PRESENTATION AGENT
-          <span class="text-[10px] bg-red-950/80 text-red-400 border border-red-800/60 px-2 py-0.5 rounded font-mono font-medium">WEB GUI</span>
+          PPTX JAHAT
+          <span class="text-[10px] bg-red-950/80 text-red-400 border border-red-800/60 px-2 py-0.5 rounded font-mono font-medium">v0.3 WEB</span>
         </div>
         <div class="text-[11px] text-gray-400">Autonomous Slide Synthesizer • Dynamic Templates • 9Router Engine</div>
       </div>
@@ -691,8 +692,14 @@
 
   <!-- BOTTOM STATUS BAR -->
   <footer class="border-t border-[#272b3c] bg-[#14161f] px-6 py-2.5 flex items-center justify-between text-xs text-gray-400 font-mono">
-    <div id="footer-status">Idle • Ready for presentation generation</div>
-    <div class="text-[11px] text-gray-500">PPTX Jahat • Flask Web Edition</div>
+    <div class="flex items-center gap-2">
+      <img src="/static/images/logo-icon-transparent.png" alt="Logo" class="w-4 h-4 object-contain">
+      <span id="footer-status">Idle • Ready for presentation generation</span>
+    </div>
+    <div class="flex items-center gap-3 text-[11px] text-gray-500">
+      <img src="/static/images/logo-transparent.png" alt="PPTX Jahat" class="h-3.5 object-contain opacity-60 hover:opacity-100 transition">
+      <span>PPTX Jahat v0.3</span>
+    </div>
   </footer>
 
   <script src="/static/js/pptx-web-renderer.js"></script>

@@ -13,7 +13,7 @@ def client():
 def test_index_page(client):
     res = client.get("/")
     assert res.status_code == 200
-    assert b"JAHAT PRESENTATION AGENT" in res.data
+    assert b"PPTX JAHAT" in res.data
     assert b"Slide Generator" in res.data
 
 def test_templates_api(client):

@@ -1,83 +1,111 @@
-# Product Requirements Document (PRD) — v0.2
+# Product Requirements Document (PRD) — v0.3
 
 **Project Name:** PPTX Jahat  
-**Version:** 0.2  
+**Version:** 0.3  
 **Status:** Implemented (Verified Architecture)  
 **Author:** AI Agent / Product Engineering  
-**Date:** 2026-08-30  
+**Date:** 2026-09-02  
 
 ---
 
 ## 1. Executive Summary
-**PPTX Jahat (v0.2)** is an AI-powered presentation generation system powered exclusively by **9Router**. In this version, the document-to-presentation pipeline adopts a **4-step exact template cloning and in-place AI text infill methodology**. Instead of recreating slide shapes from scratch, the AI Agent reads the user-selected base PowerPoint template, parses the input Word document (`.docx`), reasons over both to author fitted slide content, and clones the exact original template slides—mutating only the text frames and table data while preserving all master styles, layout geometry, colors, fonts, and animations.
+**PPTX Jahat (v0.3)** is a modern, web-powered AI presentation generation suite powered exclusively by **9Router**. In this version, the entire user interface has been migrated from legacy desktop Tkinter to a responsive **Flask Web Single-Page Application (SPA)** styled with **Tailwind CSS**, a dark crimson theme, and real-time **Server-Sent Events (SSE)**. 
+
+Furthermore, presentation previewing has been upgraded to a **3-tier cascade rendering engine** (`Native PowerPoint COM -> Web Vector Engine -> Pure-Python PIL Fallback`), providing high-fidelity visual previewing, client-side vector DOM slide inspection, and reliable automated rendering for AI multimodal vision agent verification.
 
 ---
 
 ## 2. Problem Statement & Motivation
-- **Preserving Presentation Visual Quality:** Abstract programmatic generation often misses intricate design flourishes, custom borders, master layouts, and subtle brand accents present in designer-crafted PowerPoint templates.
-- **Exact Layout Cloning with Intelligent Text Fitting:** Users want their new presentations to look identical to professional template decks (`data/*.pptx`), with only the text replaced by high-value content extracted from their Word documents.
+- **Modern Interactive Interface:** The previous desktop GUI was platform-constrained and limited in real-time responsiveness. A browser-based SPA enables richer layout previewing, drag-and-drop document uploads, instant slide navigation, and cross-device accessibility.
+- **Robust Multi-Tier Slide Rendering:** Pure-Python raster rendering can encounter font or complex shape fidelity limitations, while COM automation requires Windows and PowerPoint. A 3-tier cascade (`Native PowerPoint -> Web Render Engine -> Pure PIL`) ensures maximum visual fidelity with automatic fallback.
+- **Template Intelligence & Knowledge Base:** Users need deep design archetyping for template selection, documented in a structured markdown knowledge base (`data/NOTE.md`), with single and batch AI analysis capabilities.
 
 ---
 
-## 3. Core 4-Step Pipeline (v0.2)
+## 3. Core Architecture & Pipeline (v0.3)
 
 ```
-[Selected Base PPTX]                  [Uploaded Word .docx]
-        │                                       │
-        ▼ (Step 1)                              ▼ (Step 2)
-[Inspect PPTX Slides & Shapes]         [Parse Sections & Content]
-        │                                       │
-        └───────────────────┬───────────────────┘
-                            │
-                            ▼
-       +─────────────────────────────────────────+
-       │   Step 3: 9Router AI Agent Reasoning    │
-       │  - Maps doc sections to slide slots     │
-       │  - Writes fitted text per shape/card    │
-       +─────────────────────────────────────────+
-                            │
-                            ▼
-       +─────────────────────────────────────────+
-       │   Step 4: Exact Template Slide Cloning  │
-       │  - Clones base PPTX presentation        │
-       │  - In-place text update (safe font/RTL) │
-       │  - Preserves 100% of shapes & design    │
-       +─────────────────────────────────────────+
-                            │
-                            ▼
-               [Output Generated PPTX Deck]
+[Uploaded Word .docx]               [Selected Template / data/*.pptx]
+        │                                           │
+        ▼ (Step 1: Document Parsing)                ▼ (Step 2: Template & Archetype Analysis)
+[Parse Sections & Content]                 [Inspect Slots, Archetypes & NOTE.md]
+        │                                           │
+        └─────────────────────┬─────────────────────┘
+                              │
+                              ▼
+        +───────────────────────────────────────────+
+        │    Step 3: 9Router AI Agent Reasoning     │
+        │   - Multimodal Vision slide inspection    │
+        │   - Maps doc sections to slide slots      │
+        │   - Dynamic multi-template slide matching │
+        +───────────────────────────────────────────+
+                              │
+                              ▼
+        +───────────────────────────────────────────+
+        │   Step 4: Slide Cloning & In-Place Infill │
+        │   - Cross-presentation slide cloning      │
+        │   - Safe text frame & font preservation   │
+        │   - Persian/Arabic RTL alignment support  │
+        +───────────────────────────────────────────+
+                              │
+                              ▼
+        +───────────────────────────────────────────+
+        │   Step 5: 3-Tier Cascade Preview Engine   │
+        │   Tier 1: Native PowerPoint COM           │
+        │   Tier 2: Web Vector Engine (HTML/SVG/DOM)│
+        │   Tier 3: Pure-Python PIL SlideRenderer   │
+        +───────────────────────────────────────────+
+                              │
+                              ▼
+        [Output Generated PPTX & Web Live Preview]
 ```
-
-### Detailed Steps:
-1. **Step 1 — Read & Inspect Base PPTX:** AI Agent inspects the user-selected PPTX template (`data/*.pptx`), mapping each slide, text box, title, card, and table into a structured slot inventory (`inspect_template_slides`).
-2. **Step 2 — Read & Parse Word Document:** AI Agent reads the input `.docx` file, parsing titles, headings, problem statements, paragraphs, bullets, and tables (`parse_docx`).
-3. **Step 3 — AI Content Generation & Slot Mapping:** The 9Router LLM (`Config.NINEROUTER_CHAT_MODEL`) reasons over the template slot inventory and document outline to draft customized, high-impact replacement texts for each slide and shape index.
-4. **Step 4 — In-Place Slide Mutation:** The engine clones the base presentation and applies text replacements in-place (`_safe_update_text_frame`), preserving original font families, font sizes, colors, and formatting while supporting RTL/Persian alignment.
 
 ---
 
-## 4. Key Features & Architecture Summary
+## 4. Key Features & Components (v0.3)
 
-### 4.1 9Router-Only AI Foundation
-- All LLM reasoning, chat, and tool loops are routed exclusively through `9Router` (`NINEROUTER_URL`, `NINEROUTER_KEY`, `NINEROUTER_CHAT_MODEL`).
-- Default model: `ag/gemini-3.7-flash-high`.
-- Integrated web search (`/v1/search`) and fetch (`/v1/web/fetch`).
-- Integrated image generation (`/v1/images/generations` binary endpoint).
+### 4.1 Flask Web Single-Page Application (SPA)
+- **Framework & Styling:** Flask backend, Tailwind CSS, shadcn-styled dark crimson aesthetic (`#0b0c10` canvas, `#e50914` crimson accents).
+- **Auto-Browser Launch:** Automatically launches default browser at `http://127.0.0.1:5000` on startup (`pptx-jahat`).
+- **Interactive CLI:** Maintained via `pptx-jahat --cli`.
+- **Server-Sent Events (SSE):** Real-time streaming for generation execution logs, template analysis progress, and AI terminal reasoning steps.
 
-### 4.2 PPTX Extraction & Component Library
-- Automatically extracts shape metadata and saves `data/components/components.json`.
-- Catalogs template layout types, shapes, dimensions, and visual assets.
+### 4.2 Five Core Web Management Views
+1. **Slide Synthesizer & Live Inspector:**
+   - Word `.docx` file upload and template style selector.
+   - Live SSE execution stream log terminal.
+   - Interactive slide viewer with 3 sub-views:
+     - *Live Deck Preview*: Interactive slide carousel with engine indicator badge.
+     - *Visual Screenshots*: High-res slide visual snapshots.
+     - *AI Test Snapshots*: Multimodal visual payloads sent to 9Router Vision Agent.
+   - One-click "Open in PowerPoint" host launcher and direct file download.
+2. **Template Intelligence & AI Analyzer:**
+   - Repository grid displaying all `data/*.pptx` templates with slide counts and analysis status tags (`Analyzed` vs `Pending`).
+   - Single-template and batch template AI analysis pipelines.
+   - In-app Markdown editor for `data/NOTE.md` with Save and Reload actions.
+3. **Deck & Template Manager:**
+   - Dual-table management for Generated Decks (`data/output/`) and Reference Templates (`data/`).
+   - Actions: Verify & Auto-Heal PPTX integrity, Duplicate, Rename, Delete, Download, and Launch in PowerPoint.
+   - Slide preview carousel with active engine badge.
+4. **Component Catalog:**
+   - Extracted shapes, layout containers, and design primitives viewer (`data/components/components.json`).
+   - Template re-scan and component extraction trigger.
+5. **Autonomous AI Terminal & Engine Settings:**
+   - Autonomous multi-step agent chat terminal with streaming tool-calling pipeline.
+   - `.env` configuration manager for 9Router URL, API keys, and model parameters.
 
-### 4.3 Tkinter GUI & CLI
-- **Tab 1: Docx to PPTX Generator & In-App Preview:**
-  - File browser for `.docx` and template selector from `data/`.
-  - **"Open in PowerPoint" Button:** Instantly launches the generated presentation in Microsoft PowerPoint.
-  - **In-App Slide Preview Box:** Direct 2D interactive canvas slide viewer with Next/Previous slide navigation right within the desktop application.
-  - Live 4-step progress and AI agent execution logs.
-- **Tab 2: Templates & Components:** Live inspection and reload of extracted template assets.
-- **Tab 3: Autonomous AI Agent:** Interactive terminal with direct tool invocation.
-- **Tab 4: Settings (.env):** In-app configuration for 9Router endpoints and model parameters.
-- **CLI Mode:** Available via `python -m pptx_jahat --cli`.
+### 4.3 3-Tier Cascade Slide Rendering Engine
+- **Tier 1 (Native PowerPoint COM):** Automated PowerPoint slide export on Windows hosts for exact native vector fidelity.
+- **Tier 2 (Web Render Engine):**
+  - Python vector engine (`PPTXWebRenderer`) converting slide elements, tables, RTL typography, and shapes into standards-compliant HTML5/SVG vector DOM structures.
+  - Client-side JS parser/renderer (`pptx-web-renderer.js`) for direct interactive browser DOM slide visualization.
+- **Tier 3 (Pure-Python PIL Fallback):** Robust `SlideRenderer` geometry and font engine for headless environments without COM or browser engine.
+- **Configurable Mode:** `Config.RENDER_MODE = auto | native | web | pil`.
+
+### 4.4 9Router AI Foundation
+- Unified routing for all reasoning, chat, vision, search, and image generation via `9Router`.
+- Default reasoning model: `ag/gemini-3.7-flash-high`.
+- Integrated web search (`/v1/search`), web scraper/fetch (`/v1/web/fetch`), and image generation (`/v1/images/generations`).
 
 ---
 
@@ -86,24 +114,26 @@
 | Parameter | Specification |
 |---|---|
 | Runtime | Python 3.11+ / uv |
-| Primary AI Gateway | 9Router (`/v1/chat/completions`, `/v1/search`, `/v1/web/fetch`, `/v1/images/generations`) |
-| Presentation Engine | `python-pptx` (Exact Slide Cloning & In-Place Mutation) |
+| Web Server | Flask 3.1+, Flask-CORS |
+| Frontend UI | Tailwind CSS, Lucide Icons, Vanilla JS SPA, SSE Streaming |
+| AI Gateway | 9Router (`/v1/chat/completions`, `/v1/search`, `/v1/web/fetch`, `/v1/images/generations`) |
+| Presentation Engine | `python-pptx` (Cross-Presentation Slide Cloning & In-Place Mutation) |
 | Document Engine | `python-docx` |
-| Image Engine | `Pillow (PIL)` |
-| UI Framework | Tkinter (`ttk` clam theme) |
+| Rendering Engine | 3-Tier Cascade: Native PowerPoint COM -> Web Vector Engine -> Pure PIL |
+| Configuration | Dynamic `.env` management via `Config.reload()` |
 
 ---
 
-## 6. Verification & Test Results (v0.2)
-- [x] Step 1 inspects template shape slots accurately.
-- [x] Step 2 extracts Word document outline.
-- [x] Step 3 9Router LLM generates complete slide text mappings.
-- [x] Step 4 in-place text frame replacement clones exact template presentation without visual drift.
-- [x] Full test execution verified via `uv run python test_suite.py`.
+## 6. Verification & Test Suite (v0.3)
+- [x] Web endpoints and REST APIs verified (`tests/test_web_app.py`).
+- [x] Web vector slide rendering verified (`tests/test_web_renderer.py`).
+- [x] 3-tier cascade render priority verified (`Native PowerPoint -> Web -> PIL`).
+- [x] Real-time SSE streaming for generation, analyzer, and agent chat validated.
+- [x] PPTX integrity verification and auto-healing validated.
+- [x] CLI fallback mode (`--cli`) operational.
 
 ---
 
-## 7. Future Roadmap (v0.3+)
-- **v0.3:** Dynamic slide count expansion (duplicating middle content slide layouts when Word doc has more sections than template).
-- **v0.4:** Native chart data replacement (mutating embedded Excel/PPTX charts directly from Word tables).
-- **v0.5:** Slide thumbnail visual preview within Tkinter UI.
+## 7. Future Roadmap (v0.4+)
+- **v0.4:** Native chart data mutation (updating embedded Excel charts and series directly from Word tables).
+- **v0.5:** Drag-and-drop slide reordering and custom component composition in Web UI.

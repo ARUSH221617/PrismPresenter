@@ -21,6 +21,50 @@
 
 ---
 
+## 📸 Studio Interface Preview
+
+### 1. Slide Generator & Synthesis Studio
+Upload Word documents, select reference templates, stream real-time AI generation logs, and preview slide decks.
+
+![PrismPresenter Slide Generator](assets/images/screenshot_synthesizer.png)
+
+---
+
+### 2. Template Intelligence & Style Inspector
+Scan reference presentation templates, inspect AI-classified slide archetypes, and manage `NOTE.md` design rules.
+
+![PrismPresenter Template Intelligence](assets/images/screenshot_templates.png)
+
+---
+
+### 3. Deck & Template Manager
+Inspect, verify XML package integrity, repair, duplicate, download, and launch presentations.
+
+![PrismPresenter Deck Manager](assets/images/screenshot_manager.png)
+
+---
+
+### 4. Visual Component Primitives Catalog
+Search and browse extracted shapes, KPI cards, metric callouts, and extracted visual assets with an interactive JSON schema inspector.
+
+![PrismPresenter Component Catalog](assets/images/screenshot_components.png)
+
+---
+
+### 5. Google Gemini-Style Autonomous AI Terminal
+Multi-turn agent chat with active tool filters (Web Search, Live Scraper, PPTX Generator, Template Memory) and collapsible reasoning trace drawers.
+
+![PrismPresenter AI Terminal](assets/images/screenshot_terminal.png)
+
+---
+
+### 6. Help & Architecture Pipeline
+Built-in workflow guide, brand motion reveal, pipeline breakdown, and author contact.
+
+![PrismPresenter Help View](assets/images/screenshot_help.png)
+
+---
+
 ## ✨ Key Features
 
 - **Document Ingestion**: Parses raw `.docx` files into structured semantic sections, hierarchy trees, metrics, and tables.
@@ -136,21 +180,20 @@ python -m pptx_jahat --cli
 
 | View / Tab | Description |
 | :--- | :--- |
-| **Synthesizer** | Upload Word docx, select template, stream real-time AI synthesis logs, and preview generated slides. |
-| **Deck Studio** | Interactive slide deck previewer, high-resolution rendering, and fullscreen lightbox presentation mode. |
+| **Generator** | Upload Word docx, select template, stream real-time AI synthesis logs, and preview generated slides. |
 | **Templates** | Manage template knowledge base, inspect template archetype classifications, and edit `NOTE.md`. |
-| **Decks** | Inspect, verify, repair, rename, duplicate, and download generated presentations and templates. |
+| **Manager** | Inspect, verify, repair, rename, duplicate, and download generated presentations and templates. |
 | **Components** | Explore extracted visual primitives, headers, callouts, cards, and image assets with JSON schema viewer. |
-| **AI Agent** | Gemini-style chat terminal with tool toggles (Search, Scrape, PPTX Gen, NOTE.md) and live execution reasoning drawer. |
+| **AI Terminal** | Gemini-style chat terminal with tool toggles (Search, Scrape, PPTX Gen, NOTE.md) and live execution reasoning drawer. |
 | **Settings** | Configure 9Router endpoints, model targets, and rendering modes directly from UI. |
-| **Help & Guide** | Brand reveal video, end-to-end architecture breakdown, and author contact. |
+| **Help** | Brand reveal video, end-to-end architecture breakdown, and author contact. |
 
 ---
 
 ## ⌨️ Keyboard Shortcuts
 
 - `1` - `7`: Switch between studio tabs
-- `F`: Toggle Fullscreen Slide Lightbox in Deck Studio
+- `F`: Toggle Fullscreen Slide Lightbox in Preview
 - `Left` / `Right` Arrow Keys: Navigate slides in preview mode
 - `Ctrl` + `Enter`: Send message in AI Agent terminal
 

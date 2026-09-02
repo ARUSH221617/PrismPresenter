@@ -3,7 +3,7 @@ import sys
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "--cli":
         from pptx_jahat.agent import AIAgent
-        print("PPTX Jahat AI Agent Interactive CLI. (Type 'exit' to quit)")
+        print("PrismPresenter AI Agent Interactive CLI. (Type 'exit' to quit)")
         agent = AIAgent()
         while True:
             try:
@@ -36,7 +36,7 @@ def main() -> None:
         threading.Thread(target=open_browser, daemon=True).start()
 
         print(f"\n=======================================================")
-        print(f"  ⚡ PPTX JAHAT WEB GUI RUNNING AT: {url}")
+        print(f"  ⚡ PRISMPRESENTER WEB GUI RUNNING AT: {url}")
         print(f"  Press Ctrl+C to stop server")
         print(f"=======================================================\n")
 

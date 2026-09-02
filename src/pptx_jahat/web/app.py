@@ -59,6 +59,14 @@ def create_app() -> Flask:
     def index():
         return render_template("index.html")
 
+    @app.route("/assets/videos/<filename>")
+    def serve_asset_video(filename: str):
+        assets_video_dir = Path(__file__).resolve().parent.parent.parent.parent / "assets" / "videos"
+        target = assets_video_dir / filename
+        if not target.exists():
+            return jsonify({"error": "Video not found"}), 404
+        return send_file(target, mimetype="video/mp4")
+
     # -------------------------------------------------------------
     # 1. GENERATOR ENDPOINTS
     # -------------------------------------------------------------
@@ -584,6 +592,13 @@ def create_app() -> Flask:
     # -------------------------------------------------------------
     # 4. COMPONENTS CATALOG ENDPOINTS
     # -------------------------------------------------------------
+    @app.route("/api/components/image/<filename>", methods=["GET"])
+    def get_component_image(filename: str):
+        target = IMAGES_DIR / filename
+        if not target.exists():
+            return jsonify({"error": "Image not found"}), 404
+        return send_file(target)
+
     @app.route("/api/components/catalog", methods=["GET"])
     def get_components_data():
         catalog = get_components_catalog()
@@ -615,6 +630,8 @@ def create_app() -> Flask:
     def run_agent_chat():
         data = request.get_json() or {}
         prompt = data.get("prompt", "").strip()
+        enable_search = bool(data.get("enable_search", True))
+        enable_pptx_tools = bool(data.get("enable_pptx_tools", True))
 
         if not prompt:
             return jsonify({"success": False, "error": "Prompt cannot be empty."}), 400
@@ -631,7 +648,10 @@ def create_app() -> Flask:
             }
 
         def worker():
-            agent = AIAgent()
+            agent = AIAgent(
+                enable_search=enable_search,
+                enable_pptx_tools=enable_pptx_tools
+            )
 
             def log_callback(msg: str):
                 event_queue.put({"event": "log", "data": {"message": msg, "time": time.strftime("%H:%M:%S")}})

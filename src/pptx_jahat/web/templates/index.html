@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PPTX JAHAT — AI Presentation Generation Suite</title>
-  <!-- Favicon and Icons -->
+  <title>PrismPresenter — Autonomous Presentation Studio</title>
   <link rel="icon" type="image/png" href="/static/images/logo-icon-transparent.png">
   <link rel="shortcut icon" href="/static/images/logo-icon-transparent.png">
+
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -14,262 +14,396 @@
       darkMode: 'class',
       theme: {
         extend: {
+          fontFamily: {
+            sans: ['Geist', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
+          },
           colors: {
-            brand: {
-              50: '#fef2f2',
-              100: '#fee2e2',
-              500: '#ef4444',
-              600: '#e50914',
-              700: '#b80710',
-              800: '#991b1b',
-              900: '#7f1d1d',
-              950: '#450a0a',
+            border: 'hsl(var(--border))',
+            input: 'hsl(var(--input))',
+            ring: 'hsl(var(--ring))',
+            background: 'hsl(var(--background))',
+            foreground: 'hsl(var(--foreground))',
+            primary: {
+              DEFAULT: 'hsl(var(--primary))',
+              foreground: 'hsl(var(--primary-foreground))',
             },
-            dark: {
-              canvas: '#0b0c10',
-              card: '#14161f',
-              surface: '#1b1e2b',
-              border: '#272b3c',
-              muted: '#6b7280',
-            }
+            secondary: {
+              DEFAULT: 'hsl(var(--secondary))',
+              foreground: 'hsl(var(--secondary-foreground))',
+            },
+            destructive: {
+              DEFAULT: 'hsl(var(--destructive))',
+              foreground: 'hsl(var(--destructive-foreground))',
+            },
+            muted: {
+              DEFAULT: 'hsl(var(--muted))',
+              foreground: 'hsl(var(--muted-foreground))',
+            },
+            accent: {
+              DEFAULT: 'hsl(var(--accent))',
+              foreground: 'hsl(var(--accent-foreground))',
+            },
+            popover: {
+              DEFAULT: 'hsl(var(--popover))',
+              foreground: 'hsl(var(--popover-foreground))',
+            },
+            card: {
+              DEFAULT: 'hsl(var(--card))',
+              foreground: 'hsl(var(--card-foreground))',
+            },
+          },
+          borderRadius: {
+            lg: 'var(--radius)',
+            md: 'calc(var(--radius) - 2px)',
+            sm: 'calc(var(--radius) - 4px)',
           }
         }
       }
     }
   </script>
-  <!-- Lucide Icons CDN -->
+  <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Marked.js Markdown Parser CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="/static/css/custom.css">
 </head>
-<body class="bg-[#0b0c10] text-gray-100 min-h-screen flex flex-col font-sans antialiased selection:bg-red-900 selection:text-white">
+<body class="bg-background text-foreground min-h-screen flex flex-col font-sans antialiased selection:bg-primary selection:text-primary-foreground">
 
-  <!-- TOP HEADER -->
-  <header class="border-b border-[#272b3c] bg-[#14161f]/80 backdrop-blur sticky top-0 z-50 px-6 py-3 flex items-center justify-between">
-    <div class="flex items-center space-x-3.5">
-      <img src="/static/images/logo-icon-transparent.png" alt="PPTX Jahat Logo" class="w-9 h-9 object-contain drop-shadow-[0_0_8px_rgba(229,9,20,0.5)]">
-      <div>
-        <div class="text-sm font-bold tracking-tight text-white flex items-center gap-2">
-          PPTX JAHAT
-          <span class="text-[10px] bg-red-950/80 text-red-400 border border-red-800/60 px-2 py-0.5 rounded font-mono font-medium">v0.3 WEB</span>
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- LIGHTBOX / FULLSCREEN SLIDE DIALOG -->
+  <div id="slide-lightbox" class="hidden fixed inset-0 z-[9998] bg-black/90 backdrop-blur-md flex flex-col p-6">
+    <div class="flex items-center justify-between pb-4 border-b border-border">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-md bg-secondary border border-border flex items-center justify-center">
+          <i data-lucide="presentation" class="w-4 h-4 text-primary"></i>
         </div>
-        <div class="text-[11px] text-gray-400">Autonomous Slide Synthesizer • Dynamic Templates • 9Router Engine</div>
+        <div>
+          <h3 id="lightbox-title" class="text-sm font-semibold text-foreground">Slide Fullscreen Inspector</h3>
+          <p id="lightbox-subtitle" class="text-xs text-muted-foreground font-mono">Use Left/Right Arrow keys or Escape</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="navLightboxSlide(-1)" class="shadcn-btn shadcn-btn-outline h-8 w-8 p-0">
+          <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </button>
+        <span id="lightbox-counter" class="text-xs font-mono font-medium text-foreground px-2">1 / 1</span>
+        <button onclick="navLightboxSlide(1)" class="shadcn-btn shadcn-btn-outline h-8 w-8 p-0">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </button>
+        <button onclick="closeSlideLightbox()" class="shadcn-btn shadcn-btn-secondary h-8 w-8 p-0 ml-3">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
       </div>
     </div>
+    <div class="flex-1 flex items-center justify-center p-6 overflow-hidden">
+      <img id="lightbox-img" src="" alt="Fullscreen Slide" class="max-h-full max-w-full object-contain rounded-lg shadow-2xl border border-border bg-white">
+    </div>
+  </div>
 
-    <!-- Right status badges -->
-    <div class="flex items-center gap-2.5">
-      <div id="system-status-badge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-950/60 border border-red-800/70 text-red-300 flex items-center gap-1.5 shadow-sm">
-        <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse-slow"></span>
-        <span id="system-status-text">SYSTEM READY</span>
+  <!-- KEYBOARD SHORTCUTS DIALOG -->
+  <div id="shortcuts-modal" class="hidden fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="shadcn-card max-w-md w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3">
+        <div class="flex items-center gap-2">
+          <i data-lucide="keyboard" class="w-4 h-4 text-primary"></i>
+          <h3 class="shadcn-card-title">Keyboard Shortcuts</h3>
+        </div>
+        <button onclick="toggleShortcutsModal()" class="text-muted-foreground hover:text-foreground">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
       </div>
-      <div id="model-badge" class="px-3 py-1 rounded-full text-xs font-mono bg-[#1b1e2b] border border-[#272b3c] text-gray-300">
+      <div class="shadcn-card-content space-y-3 text-xs pt-3">
+        <div class="flex items-center justify-between py-1.5 border-b border-border/50">
+          <span class="text-muted-foreground">Previous / Next Slide</span>
+          <span class="flex gap-1">
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">◀</kbd>
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">▶</kbd>
+          </span>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-border/50">
+          <span class="text-muted-foreground">Fullscreen Inspector</span>
+          <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">F</kbd>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-border/50">
+          <span class="text-muted-foreground">Synthesize Presentation</span>
+          <span class="flex gap-1">
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">Ctrl</kbd>
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">Enter</kbd>
+          </span>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-border/50">
+          <span class="text-muted-foreground">Switch Views</span>
+          <span class="flex gap-1">
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">1</kbd>
+            <span class="text-muted-foreground">to</span>
+            <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">6</kbd>
+          </span>
+        </div>
+        <div class="flex items-center justify-between py-1.5">
+          <span class="text-muted-foreground">Close Modals / Overlays</span>
+          <kbd class="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-[11px] border border-border">Esc</kbd>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAVIGATION HEADER -->
+  <header class="border-b border-border bg-card/75 backdrop-blur sticky top-0 z-50 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('generator')">
+        <img src="/static/images/logo-icon-transparent.png" alt="PrismPresenter" class="w-7 h-7 object-contain">
+        <span class="text-sm font-semibold tracking-tight text-foreground hidden sm:inline">PRISMPRESENTER</span>
+      </div>
+      <span class="shadcn-badge shadcn-badge-outline font-mono">v0.3</span>
+    </div>
+
+    <!-- Header Center: Tabs Navigation (Responsive horizontal scrolling on mobile/tablet) -->
+    <div class="shadcn-tabs-list max-w-full overflow-x-auto order-3 lg:order-2 w-full lg:w-auto">
+      <button onclick="switchTab('generator')" id="tab-btn-generator" class="shadcn-tab-trigger active gap-1.5 sm:gap-2">
+        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i> <span>Generator</span>
+      </button>
+      <button onclick="switchTab('templates')" id="tab-btn-templates" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="scan-search" class="w-3.5 h-3.5"></i> <span>Templates</span>
+      </button>
+      <button onclick="switchTab('manager')" id="tab-btn-manager" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="folder-kanban" class="w-3.5 h-3.5"></i> <span>Manager</span>
+      </button>
+      <button onclick="switchTab('components')" id="tab-btn-components" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="boxes" class="w-3.5 h-3.5"></i> <span>Components</span>
+      </button>
+      <button onclick="switchTab('agent')" id="tab-btn-agent" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="bot" class="w-3.5 h-3.5"></i> <span>AI Terminal</span>
+      </button>
+      <button onclick="switchTab('settings')" id="tab-btn-settings" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="settings-2" class="w-3.5 h-3.5"></i> <span>Settings</span>
+      </button>
+      <button onclick="switchTab('help')" id="tab-btn-help" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
+        <i data-lucide="help-circle" class="w-3.5 h-3.5 text-sky-400"></i> <span>Help</span>
+      </button>
+    </div>
+
+    <!-- Header Right Badges -->
+    <div class="flex items-center gap-2 sm:gap-2.5 order-2 lg:order-3">
+      <!-- Dark / Light Mode Toggle Button -->
+      <button onclick="toggleThemeMode()" id="theme-toggle-btn" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5" title="Toggle Theme (Dark / Light)">
+        <i data-lucide="sun" id="theme-icon-sun" class="w-3.5 h-3.5 hidden text-amber-400"></i>
+        <i data-lucide="moon" id="theme-icon-moon" class="w-3.5 h-3.5 text-sky-300"></i>
+      </button>
+
+      <button onclick="toggleShortcutsModal()" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5 hidden md:inline-flex" title="Shortcuts">
+        <i data-lucide="command" class="w-3 h-3"></i>
+      </button>
+      <div id="system-status-badge" class="shadcn-badge shadcn-badge-secondary gap-1.5 py-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        <span id="system-status-text" class="text-[11px] font-medium font-mono">READY</span>
+      </div>
+      <div id="model-badge" class="shadcn-badge shadcn-badge-outline font-mono text-[11px] py-1 text-muted-foreground hidden sm:inline-flex">
         MODEL: Loading...
       </div>
     </div>
   </header>
 
-  <!-- TAB NAVIGATION BAR -->
-  <div class="border-b border-[#272b3c] bg-[#0e1017] px-6">
-    <nav class="flex space-x-1" aria-label="Tabs">
-      <button onclick="switchTab('generator')" id="tab-btn-generator" class="tab-btn active px-4 py-2.5 text-xs font-semibold border-b-2 border-red-600 text-white flex items-center gap-2 transition">
-        <i data-lucide="sparkles" class="w-4 h-4 text-red-500"></i> Slide Generator & Live Preview
-      </button>
-      <button onclick="switchTab('templates')" id="tab-btn-templates" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
-        <i data-lucide="scan-search" class="w-4 h-4 text-gray-400"></i> Template Intelligence & Analyzer
-      </button>
-      <button onclick="switchTab('manager')" id="tab-btn-manager" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
-        <i data-lucide="folder-kanban" class="w-4 h-4 text-gray-400"></i> Deck & Template Manager
-      </button>
-      <button onclick="switchTab('components')" id="tab-btn-components" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
-        <i data-lucide="boxes" class="w-4 h-4 text-gray-400"></i> Component Catalog
-      </button>
-      <button onclick="switchTab('agent')" id="tab-btn-agent" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
-        <i data-lucide="bot" class="w-4 h-4 text-gray-400"></i> Autonomous AI Terminal
-      </button>
-      <button onclick="switchTab('settings')" id="tab-btn-settings" class="tab-btn px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition">
-        <i data-lucide="settings" class="w-4 h-4 text-gray-400"></i> Engine Settings (.env)
-      </button>
-    </nav>
-  </div>
-
-  <!-- MAIN VIEWPORT CONTAINER -->
-  <main class="flex-1 p-6 overflow-auto">
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 p-6 overflow-auto max-w-[1720px] w-full mx-auto">
 
     <!-- ============================================================== -->
-    <!-- TAB 1: SLIDE GENERATOR & LIVE PREVIEW -->
+    <!-- TAB 1: SLIDE GENERATOR & STUDIO -->
     <!-- ============================================================== -->
     <div id="tab-content-generator" class="tab-content space-y-6">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        <!-- LEFT COLUMN: Generator Controls & Execution Logs -->
+
+        <!-- LEFT COLUMN: Generator Controls -->
         <div class="lg:col-span-5 space-y-5">
           <!-- Card: Input Parameters -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-            
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-                  <i data-lucide="file-plus" class="w-4 h-4 text-red-500"></i> SLIDE SYNTHESIZER
-                </h2>
-                <p class="text-xs text-gray-400">Transform Word Docx into Professional PPTX</p>
-              </div>
+          <div class="shadcn-card">
+            <div class="shadcn-card-header">
+              <h2 class="shadcn-card-title flex items-center gap-2">
+                <i data-lucide="wand-2" class="w-4 h-4 text-primary"></i> Presentation Synthesizer
+              </h2>
+              <p class="shadcn-card-description">Convert Word documents (.docx) into styled PowerPoint presentations.</p>
             </div>
 
-            <!-- Form -->
-            <div class="space-y-4 text-xs">
-              <!-- Upload Word Document -->
+            <div class="shadcn-card-content space-y-4 text-xs">
+              <!-- Upload Dropzone -->
               <div>
-                <label class="block font-medium text-gray-300 mb-1.5">Word Document (.docx):</label>
-                <div class="flex gap-2">
-                  <input type="text" id="gen-docx-path" placeholder="Select or upload .docx..." class="flex-1 bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono">
-                  <label class="cursor-pointer bg-[#272b3c] hover:bg-[#34394e] text-white px-3.5 py-2 rounded-lg font-medium transition flex items-center gap-1.5">
-                    <i data-lucide="upload" class="w-3.5 h-3.5"></i> Browse
-                    <input type="file" id="gen-docx-file-input" accept=".docx" class="hidden" onchange="handleDocxUpload(event)">
-                  </label>
+                <label class="block font-medium text-foreground mb-1.5">Source Document (.docx):</label>
+                <div id="docx-dropzone" class="border border-dashed border-border hover:border-primary/80 rounded-md p-4 text-center cursor-pointer transition bg-card/40 flex flex-col items-center justify-center group" onclick="document.getElementById('gen-docx-file-input').click()">
+                  <input type="file" id="gen-docx-file-input" accept=".docx" class="hidden" onchange="handleDocxUpload(event)">
+                  <div class="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center mb-1.5 group-hover:scale-105 transition">
+                    <i data-lucide="file-up" class="w-4 h-4 text-muted-foreground group-hover:text-foreground"></i>
+                  </div>
+                  <div class="font-medium text-foreground">Click to upload or drag & drop</div>
+                  <div class="text-[11px] text-muted-foreground mt-0.5">Accepts Microsoft Word (.docx) documents</div>
                 </div>
-                <p id="upload-status" class="text-[11px] text-gray-400 mt-1 hidden"></p>
+
+                <div class="mt-2 flex gap-2">
+                  <input type="text" id="gen-docx-path" placeholder="Path to .docx file..." class="shadcn-input font-mono">
+                  <button type="button" onclick="document.getElementById('gen-docx-file-input').click()" class="shadcn-btn shadcn-btn-secondary gap-1.5 flex-shrink-0">
+                    <i data-lucide="folder-open" class="w-3.5 h-3.5"></i> Browse
+                  </button>
+                </div>
+                <p id="upload-status" class="text-[11px] mt-1.5 hidden"></p>
               </div>
 
               <!-- Base Template Selection -->
               <div>
                 <div class="flex items-center justify-between mb-1.5">
-                  <label class="block font-medium text-gray-300">Base Template Style:</label>
-                  <button onclick="loadGeneratorTemplates()" class="text-gray-400 hover:text-white text-[11px] flex items-center gap-1">
+                  <label class="block font-medium text-foreground">Template Style:</label>
+                  <button onclick="loadGeneratorTemplates()" class="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1">
                     <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
                   </button>
                 </div>
-                <select id="gen-template-select" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500">
-                  <option value="">All Templates (Global AI Matching)</option>
+                <select id="gen-template-select" class="shadcn-input cursor-pointer">
+                  <option value="">✨ All Templates (Global AI Intelligent Matching)</option>
                 </select>
               </div>
 
-              <!-- Target Output Path -->
+              <!-- Output Path -->
               <div>
-                <label class="block font-medium text-gray-300 mb-1.5">Target Output (.pptx):</label>
-                <input type="text" id="gen-output-path" placeholder="Auto-generated destination..." class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono">
+                <label class="block font-medium text-foreground mb-1.5">Output PPTX Path:</label>
+                <input type="text" id="gen-output-path" placeholder="Auto-generated destination..." class="shadcn-input font-mono">
               </div>
 
-              <!-- Action Buttons -->
-              <div class="pt-2 flex flex-wrap gap-2.5">
-                <button id="btn-generate-pptx" onclick="startPresentationGeneration()" class="bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-semibold px-4 py-2.5 rounded-lg flex items-center gap-2 shadow transition">
+              <!-- Actions -->
+              <div class="pt-2 flex flex-wrap gap-2">
+                <button id="btn-generate-pptx" onclick="startPresentationGeneration()" class="shadcn-btn shadcn-btn-default flex-1 gap-2">
                   <i data-lucide="zap" class="w-4 h-4"></i> Generate Presentation
                 </button>
-                <button id="btn-open-ppt" onclick="openCurrentInPowerpoint()" disabled class="disabled:opacity-50 disabled:cursor-not-allowed bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 px-3.5 py-2.5 rounded-lg font-medium border border-[#272b3c] transition flex items-center gap-1.5">
-                  <i data-lucide="external-link" class="w-4 h-4 text-red-400"></i> Open PPT
+                <button id="btn-open-ppt" onclick="openCurrentInPowerpoint()" disabled class="shadcn-btn shadcn-btn-secondary gap-1.5">
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open PPT
                 </button>
-                <button id="btn-download-pptx" onclick="downloadCurrentPptx()" disabled class="disabled:opacity-50 disabled:cursor-not-allowed bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 px-3.5 py-2.5 rounded-lg font-medium border border-[#272b3c] transition flex items-center gap-1.5">
-                  <i data-lucide="download" class="w-4 h-4 text-green-400"></i> Download
+                <button id="btn-download-pptx" onclick="downloadCurrentPptx()" disabled class="shadcn-btn shadcn-btn-secondary gap-1.5">
+                  <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i> Download
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- Card: Live Execution Log Stream -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg flex flex-col h-[380px]">
-            <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-2">
-              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
-                <i data-lucide="terminal" class="w-4 h-4 text-red-500"></i> Generation Execution Stream
+          <!-- Card: Execution Log Console -->
+          <div class="shadcn-card flex flex-col h-[360px]">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3">
+              <span class="text-xs font-semibold text-foreground flex items-center gap-2">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-muted-foreground"></i> Execution Stream
               </span>
-              <button onclick="clearGenLog()" class="text-[11px] text-gray-400 hover:text-gray-200">Clear</button>
+              <div class="flex items-center gap-2">
+                <button onclick="copyGenLogsToClipboard()" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1">
+                  <i data-lucide="copy" class="w-3 h-3"></i> Copy
+                </button>
+                <button onclick="clearGenLog()" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px]">Clear</button>
+              </div>
             </div>
-            <div id="gen-console-logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-[#0b0c10] rounded-lg border border-[#1b1e2b] text-gray-300">
-              <div class="text-gray-500 italic">Ready for presentation generation pipeline...</div>
+            <div class="shadcn-card-content flex-1 p-3 pt-0 overflow-hidden">
+              <div id="gen-console-logs" class="h-full overflow-y-auto font-mono text-[11px] space-y-1 p-3 bg-background rounded-md border border-border text-foreground/90 select-text">
+                <div class="text-muted-foreground italic">Ready for presentation synthesis pipeline...</div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: Visual Deck & AI Inspector (Multi-SubTab) -->
+        <!-- RIGHT COLUMN: Slide Studio & Visual Inspector -->
         <div class="lg:col-span-7">
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[620px] flex flex-col">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
-            <div class="flex flex-wrap items-center justify-between pb-3 border-b border-[#272b3c] gap-3">
+          <div class="shadcn-card min-h-[640px] flex flex-col">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3">
               <div>
-                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-                  <i data-lucide="layout" class="w-4 h-4 text-red-500"></i> VISUAL DECK & AI INSPECTOR
+                <h2 class="shadcn-card-title flex items-center gap-2">
+                  <i data-lucide="layout" class="w-4 h-4 text-primary"></i> Deck Preview Studio
                 </h2>
-                <p class="text-xs text-gray-400">Live Generated Slides, High-Res Visuals & AI Multimodal Payloads</p>
+                <p class="shadcn-card-description">Live vector slides and high-resolution exports</p>
               </div>
 
-              <!-- Sub-tabs inside Inspector -->
-              <div class="bg-[#1b1e2b] p-1 rounded-lg border border-[#272b3c] flex space-x-1 text-xs">
-                <button onclick="switchGenSubTab('preview')" id="subtab-btn-preview" class="gen-subtab-btn active px-3 py-1 rounded-md font-medium text-white bg-red-600 shadow-sm transition">
-                  Live Deck Preview
+              <!-- Subtabs Navigation -->
+              <div class="shadcn-tabs-list h-8">
+                <button onclick="switchGenSubTab('preview')" id="subtab-btn-preview" class="shadcn-tab-trigger active text-xs h-6 px-2.5">
+                  Live Deck
                 </button>
-                <button onclick="switchGenSubTab('visual')" id="subtab-btn-visual" class="gen-subtab-btn px-3 py-1 rounded-md font-medium text-gray-400 hover:text-white transition">
-                  Visual Screenshots
+                <button onclick="switchGenSubTab('visual')" id="subtab-btn-visual" class="shadcn-tab-trigger text-xs h-6 px-2.5">
+                  Screenshots
                 </button>
-                <button onclick="switchGenSubTab('ai_test')" id="subtab-btn-ai_test" class="gen-subtab-btn px-3 py-1 rounded-md font-medium text-gray-400 hover:text-white transition">
-                  AI Test Snapshots
+                <button onclick="switchGenSubTab('ai_test')" id="subtab-btn-ai_test" class="shadcn-tab-trigger text-xs h-6 px-2.5">
+                  AI Payloads
                 </button>
               </div>
             </div>
 
             <!-- Subtab 1: Interactive Live Deck Preview -->
-            <div id="gen-subtab-preview" class="gen-subtab-content flex-1 flex flex-col pt-4">
-              <!-- Navigation toolbar -->
-              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
-                <button id="gen-prev-btn" onclick="navGenSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  ◀ Prev Slide
-                </button>
-                <div class="flex items-center gap-3">
-                  <span id="gen-slide-counter" class="text-xs font-bold text-red-400">No slides loaded</span>
-                  <span id="gen-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300"></span>
+            <div id="gen-subtab-preview" class="gen-subtab-content flex-1 flex flex-col p-6 pt-3">
+              <!-- Toolbar -->
+              <div class="flex items-center justify-between mb-3 bg-secondary/60 px-3 py-2 rounded-md border border-border">
+                <div class="flex items-center gap-2">
+                  <button id="gen-prev-btn" onclick="navGenSlide(-1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs gap-1">
+                    <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i> Prev
+                  </button>
+                  <button id="gen-next-btn" onclick="navGenSlide(1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs gap-1">
+                    Next <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                  </button>
                 </div>
-                <button id="gen-next-btn" onclick="navGenSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  Next Slide ▶
+
+                <div class="flex items-center gap-2.5">
+                  <span id="gen-slide-counter" class="text-xs font-mono font-medium text-foreground">No slides loaded</span>
+                  <span id="gen-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300"></span>
+                </div>
+
+                <button onclick="openCurrentSlideInLightbox()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0" title="Fullscreen (F)">
+                  <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
 
-              <!-- Slide Canvas Viewer Container -->
-              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px] relative overflow-hidden">
-                <div id="gen-slide-placeholder" class="text-center text-gray-500 text-xs">
-                  <i data-lucide="presentation" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
-                  Generated slides will render here automatically.
+              <!-- Main Canvas Area -->
+              <div class="flex-1 bg-background rounded-lg border border-border flex items-center justify-center p-4 min-h-[420px] relative overflow-hidden">
+                <div id="gen-slide-placeholder" class="text-center text-muted-foreground text-xs py-10">
+                  <i data-lucide="presentation" class="w-10 h-10 mx-auto mb-2 text-muted-foreground/60"></i>
+                  <div class="font-medium text-foreground">No slides loaded</div>
+                  <div class="text-[11px] text-muted-foreground mt-0.5">Generate a presentation to preview slide vector rendering</div>
                 </div>
-                <div id="gen-web-vector-container" class="hidden max-h-[480px] max-w-full overflow-hidden rounded-md shadow-2xl border border-[#1b1e2b] bg-white flex items-center justify-center"></div>
-                <img id="gen-slide-img" src="" alt="Slide Preview" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+
+                <div id="gen-web-vector-container" class="hidden max-h-[480px] max-w-full overflow-hidden rounded-md shadow-lg border border-border bg-white flex items-center justify-center"></div>
+                <img id="gen-slide-img" src="" alt="Slide Preview" class="hidden max-h-[480px] max-w-full rounded-md shadow-lg object-contain border border-border bg-white cursor-pointer" onclick="openCurrentSlideInLightbox()">
+              </div>
+
+              <!-- Slide Filmstrip Thumbnails -->
+              <div class="mt-4 pt-3 border-t border-border">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-medium text-muted-foreground">Slide Overview</span>
+                  <span id="gen-thumb-count" class="text-[11px] font-mono text-muted-foreground">0 slides</span>
+                </div>
+                <div id="gen-thumbnails-strip" class="flex gap-2 overflow-x-auto pb-2 min-h-[64px] items-center">
+                  <div class="text-[11px] text-muted-foreground italic px-1">Thumbnails will appear upon generation.</div>
+                </div>
               </div>
             </div>
 
             <!-- Subtab 2: Visual Screenshots -->
-            <div id="gen-subtab-visual" class="gen-subtab-content hidden flex-1 flex flex-col pt-4">
-              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
-                <button id="visual-prev-btn" onclick="navVisualSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  ◀ Prev Image
-                </button>
-                <span id="visual-slide-counter" class="text-xs font-bold text-red-400">No visual screenshot loaded</span>
-                <button id="visual-next-btn" onclick="navVisualSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  Next Image ▶
-                </button>
+            <div id="gen-subtab-visual" class="gen-subtab-content hidden flex-1 flex flex-col p-6 pt-3">
+              <div class="flex items-center justify-between mb-3 bg-secondary/60 px-3 py-2 rounded-md border border-border">
+                <button id="visual-prev-btn" onclick="navVisualSlide(-1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">◀ Prev</button>
+                <span id="visual-slide-counter" class="text-xs font-mono font-medium text-foreground">No screenshots loaded</span>
+                <button id="visual-next-btn" onclick="navVisualSlide(1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">Next ▶</button>
               </div>
-              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px]">
-                <div id="visual-slide-placeholder" class="text-center text-gray-500 text-xs">
-                  <i data-lucide="image" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
-                  High-res visual screenshots will render here.
+              <div class="flex-1 bg-background rounded-lg border border-border flex items-center justify-center p-4 min-h-[420px]">
+                <div id="visual-slide-placeholder" class="text-center text-muted-foreground text-xs">
+                  <i data-lucide="image" class="w-10 h-10 mx-auto mb-2 text-muted-foreground/60"></i>
+                  High-res visual screenshots render here.
                 </div>
-                <img id="visual-slide-img" src="" alt="Visual Screenshot" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+                <img id="visual-slide-img" src="" alt="Visual Screenshot" class="hidden max-h-[460px] max-w-full rounded-md shadow-lg object-contain border border-border bg-white">
               </div>
             </div>
 
             <!-- Subtab 3: AI Test Snapshots -->
-            <div id="gen-subtab-ai_test" class="gen-subtab-content hidden flex-1 flex flex-col pt-4">
-              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
-                <button id="ai-test-prev-btn" onclick="navAiTestSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  ◀ Prev Snapshot
-                </button>
-                <span id="ai-test-slide-counter" class="text-xs font-bold text-red-400">No AI payload images</span>
-                <button id="ai-test-next-btn" onclick="navAiTestSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  Next Snapshot ▶
-                </button>
+            <div id="gen-subtab-ai_test" class="gen-subtab-content hidden flex-1 flex flex-col p-6 pt-3">
+              <div class="flex items-center justify-between mb-3 bg-secondary/60 px-3 py-2 rounded-md border border-border">
+                <button id="ai-test-prev-btn" onclick="navAiTestSlide(-1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">◀ Prev</button>
+                <span id="ai-test-slide-counter" class="text-xs font-mono font-medium text-foreground">No AI payload images</span>
+                <button id="ai-test-next-btn" onclick="navAiTestSlide(1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">Next ▶</button>
               </div>
-              <div class="flex-1 bg-[#0b0c10] border border-[#272b3c] rounded-xl flex items-center justify-center p-4 min-h-[440px]">
-                <div id="ai-test-slide-placeholder" class="text-center text-gray-500 text-xs">
-                  <i data-lucide="eye" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
-                  Visual payloads sent to Vision AI Agent will appear here.
+              <div class="flex-1 bg-background rounded-lg border border-border flex items-center justify-center p-4 min-h-[420px]">
+                <div id="ai-test-slide-placeholder" class="text-center text-muted-foreground text-xs">
+                  <i data-lucide="eye" class="w-10 h-10 mx-auto mb-2 text-muted-foreground/60"></i>
+                  Visual payloads sent to Vision AI Agent appear here.
                 </div>
-                <img id="ai-test-slide-img" src="" alt="AI Test Snapshot" class="hidden max-h-[480px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b]">
+                <img id="ai-test-slide-img" src="" alt="AI Test Snapshot" class="hidden max-h-[460px] max-w-full rounded-md shadow-lg object-contain border border-border">
               </div>
             </div>
 
@@ -284,139 +418,138 @@
     <!-- ============================================================== -->
     <div id="tab-content-templates" class="tab-content hidden space-y-6">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        <!-- Left: Template Table & Archetypes & Live Slide Preview -->
+
+        <!-- Left: Templates Table & Preview -->
         <div class="lg:col-span-6 space-y-5">
-          <!-- Top Control Card -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-            
-            <div class="flex items-center justify-between mb-4">
+          <!-- Control Card -->
+          <div class="shadcn-card">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
               <div>
-                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-                  <i data-lucide="sparkle" class="w-4 h-4 text-red-500"></i> TEMPLATE REPOSITORY & AI ANALYSIS
+                <h2 class="shadcn-card-title flex items-center gap-2">
+                  <i data-lucide="sparkle" class="w-4 h-4 text-primary"></i> Template Repository & AI Analysis
                 </h2>
-                <p class="text-xs text-gray-400">Analyze PPTX designs with AI Agent & save style notes to data/NOTE.md</p>
+                <p class="shadcn-card-description">Analyze PPTX design archetypes & sync notes to data/NOTE.md</p>
               </div>
             </div>
-
-            <!-- Action buttons -->
-            <div class="flex flex-wrap gap-2.5 text-xs">
-              <button id="btn-analyze-sel" onclick="analyzeSelectedTemplate()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
-                <i data-lucide="zap" class="w-3.5 h-3.5"></i> Analyze Selected
-              </button>
-              <button id="btn-analyze-all" onclick="analyzeAllTemplatesBatch()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] font-medium px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
-                <i data-lucide="rocket" class="w-3.5 h-3.5 text-red-400"></i> Batch Analyze All
-              </button>
-              <button onclick="loadTemplatesList()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] font-medium px-3 py-2 rounded-lg flex items-center gap-1 transition">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
-              </button>
-            </div>
-
-            <!-- Progress Bar -->
-            <div id="analyze-prog-container" class="mt-4 pt-3 border-t border-[#272b3c] hidden">
-              <div class="flex justify-between text-xs text-gray-400 mb-1 font-mono">
-                <span id="analyze-prog-status">Analyzing templates...</span>
-                <span id="analyze-prog-pct">0%</span>
+            <div class="shadcn-card-content space-y-3">
+              <div class="flex flex-wrap gap-2 text-xs">
+                <button id="btn-analyze-sel" onclick="analyzeSelectedTemplate()" class="shadcn-btn shadcn-btn-default gap-1.5">
+                  <i data-lucide="zap" class="w-3.5 h-3.5"></i> Analyze Selected
+                </button>
+                <button id="btn-analyze-all" onclick="analyzeAllTemplatesBatch()" class="shadcn-btn shadcn-btn-secondary gap-1.5">
+                  <i data-lucide="rocket" class="w-3.5 h-3.5 text-primary"></i> Batch Analyze All
+                </button>
+                <button onclick="loadTemplatesList()" class="shadcn-btn shadcn-btn-outline gap-1.5">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+                </button>
               </div>
-              <div class="w-full bg-[#1b1e2b] rounded-full h-2 overflow-hidden border border-[#272b3c]">
-                <div id="analyze-prog-bar" class="bg-red-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
-              </div>
-            </div>
-          </div>
 
-          <!-- Templates Table Card -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
-            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
-              <span class="text-xs font-bold text-gray-300">AVAILABLE PPTX TEMPLATES (data/*.pptx)</span>
-              <span id="tpl-count-badge" class="text-[11px] font-mono text-red-400 font-bold">0 Templates</span>
-            </div>
-
-            <div class="overflow-x-auto max-h-[220px] overflow-y-auto rounded-lg border border-[#272b3c]">
-              <table class="w-full text-left text-xs text-gray-300">
-                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
-                  <tr>
-                    <th class="py-2 px-3">Template Name</th>
-                    <th class="py-2 px-3 text-center">Slides</th>
-                    <th class="py-2 px-3 text-center">Status</th>
-                    <th class="py-2 px-3">Style / Purpose</th>
-                  </tr>
-                </thead>
-                <tbody id="templates-table-body" class="divide-y divide-[#272b3c] font-sans">
-                  <tr>
-                    <td colspan="4" class="py-4 text-center text-gray-500 italic">Loading templates...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Bottom: Split Archetype Details & Slide Preview -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Metadata details -->
-            <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[260px] flex flex-col">
-              <span class="text-xs font-bold text-gray-300 pb-2 border-b border-[#272b3c] mb-2 flex items-center gap-1.5">
-                <i data-lucide="info" class="w-3.5 h-3.5 text-red-400"></i> Template Metadata
-              </span>
-              <div id="tpl-detail-meta" class="flex-1 overflow-y-auto text-xs space-y-2 text-gray-300 font-sans p-1">
-                <p class="text-gray-500 italic">Select a template above to inspect structure.</p>
-              </div>
-            </div>
-
-            <!-- Slide preview -->
-            <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[260px] flex flex-col">
-              <div class="flex items-center justify-between pb-2 border-b border-[#272b3c] mb-2">
-                <span class="text-xs font-bold text-gray-300">Slide Preview</span>
-                <div class="flex items-center gap-1">
-                  <button onclick="navTplSlide(-1)" id="tpl-prev-btn" class="text-gray-400 hover:text-white px-1 py-0.5 text-xs">◀</button>
-                  <span id="tpl-slide-counter" class="text-[11px] font-mono text-red-400">0 / 0</span>
-                  <button onclick="navTplSlide(1)" id="tpl-next-btn" class="text-gray-400 hover:text-white px-1 py-0.5 text-xs">▶</button>
+              <!-- Progress Bar -->
+              <div id="analyze-prog-container" class="mt-3 pt-3 border-t border-border hidden">
+                <div class="flex justify-between text-xs text-muted-foreground mb-1 font-mono">
+                  <span id="analyze-prog-status">Analyzing templates...</span>
+                  <span id="analyze-prog-pct">0%</span>
+                </div>
+                <div class="w-full bg-secondary rounded-full h-2 overflow-hidden border border-border">
+                  <div id="analyze-prog-bar" class="bg-primary h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
                 </div>
               </div>
-              <div class="flex-1 bg-[#0b0c10] rounded-lg border border-[#272b3c] flex items-center justify-center p-2 overflow-hidden">
-                <img id="tpl-slide-img" src="" alt="Template Slide" class="hidden max-h-full max-w-full object-contain rounded bg-white">
-                <span id="tpl-slide-placeholder" class="text-[11px] text-gray-500">No preview</span>
+            </div>
+          </div>
+
+          <!-- Templates Table -->
+          <div class="shadcn-card">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3">
+              <span class="text-xs font-semibold text-foreground uppercase tracking-wider">Available Templates (data/*.pptx)</span>
+              <span id="tpl-count-badge" class="shadcn-badge shadcn-badge-outline font-mono">0 Templates</span>
+            </div>
+            <div class="shadcn-card-content p-0">
+              <div class="overflow-x-auto max-h-[220px] overflow-y-auto border-t border-border">
+                <table class="w-full text-left text-xs text-foreground/90">
+                  <thead class="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0">
+                    <tr>
+                      <th class="py-2 px-3">Template Name</th>
+                      <th class="py-2 px-3 text-center">Slides</th>
+                      <th class="py-2 px-3 text-center">Status</th>
+                      <th class="py-2 px-3">Style / Purpose</th>
+                    </tr>
+                  </thead>
+                  <tbody id="templates-table-body" class="divide-y divide-border/60">
+                    <tr><td colspan="4" class="py-4 text-center text-muted-foreground italic">Loading templates...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Metadata & Slide Preview -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="shadcn-card h-[240px] flex flex-col">
+              <div class="shadcn-card-header py-2.5">
+                <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <i data-lucide="info" class="w-3.5 h-3.5 text-primary"></i> Metadata & Archetype
+                </span>
+              </div>
+              <div id="tpl-detail-meta" class="shadcn-card-content flex-1 overflow-y-auto text-xs space-y-1.5 p-3 pt-0 text-foreground/80">
+                <p class="text-muted-foreground italic">Select a template above to inspect structure.</p>
+              </div>
+            </div>
+
+            <div class="shadcn-card h-[240px] flex flex-col">
+              <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
+                <span class="text-xs font-semibold text-foreground">Slide Preview</span>
+                <div class="flex items-center gap-1">
+                  <button onclick="navTplSlide(-1)" id="tpl-prev-btn" class="shadcn-btn shadcn-btn-ghost h-5 w-5 p-0">◀</button>
+                  <span id="tpl-slide-counter" class="text-[11px] font-mono text-primary font-medium px-1">0 / 0</span>
+                  <button onclick="navTplSlide(1)" id="tpl-next-btn" class="shadcn-btn shadcn-btn-ghost h-5 w-5 p-0">▶</button>
+                </div>
+              </div>
+              <div class="shadcn-card-content flex-1 p-2 pt-0 flex items-center justify-center overflow-hidden">
+                <div class="w-full h-full bg-background rounded border border-border flex items-center justify-center p-2">
+                  <img id="tpl-slide-img" src="" alt="Template Slide" class="hidden max-h-full max-w-full object-contain rounded bg-white">
+                  <span id="tpl-slide-placeholder" class="text-[11px] text-muted-foreground">No preview</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Right: NOTE.md Markdown Editor & AI Execution Log -->
+        <!-- Right: NOTE.md Editor & Console -->
         <div class="lg:col-span-6 space-y-5">
-          <!-- NOTE.md Editor Card -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative flex flex-col h-[400px]">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
-            <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-3">
+          <div class="shadcn-card flex flex-col h-[390px]">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3">
               <div>
-                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-                  <i data-lucide="book-open" class="w-4 h-4 text-red-500"></i> TEMPLATE INTELLIGENCE NOTES (data/NOTE.md)
+                <h2 class="shadcn-card-title flex items-center gap-2">
+                  <i data-lucide="book-open" class="w-4 h-4 text-primary"></i> Template Knowledge Base (data/NOTE.md)
                 </h2>
-                <p class="text-[11px] text-gray-400">AI Knowledge Base: Purpose, Content Brief, Visual Ideas & Styles</p>
+                <p class="shadcn-card-description">Archetypes, layout guidelines & style notes</p>
               </div>
               <div class="flex items-center gap-2">
-                <button onclick="saveNoteMd()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1.5 rounded text-xs flex items-center gap-1 transition">
+                <button onclick="saveNoteMd()" class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5">
                   <i data-lucide="save" class="w-3.5 h-3.5"></i> Save NOTE.md
                 </button>
-                <button onclick="loadNoteMd()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-2.5 py-1.5 rounded text-xs transition">
+                <button onclick="loadNoteMd()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs">
                   Reload
                 </button>
               </div>
             </div>
-
-            <textarea id="note-md-editor" class="flex-1 w-full bg-[#0b0c10] border border-[#272b3c] rounded-lg p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-red-500 resize-none" placeholder="Loading template intelligence notes..."></textarea>
+            <div class="shadcn-card-content flex-1 p-3 pt-0">
+              <textarea id="note-md-editor" class="shadcn-input h-full resize-none font-mono text-xs leading-relaxed" placeholder="Loading template intelligence notes..."></textarea>
+            </div>
           </div>
 
-          <!-- Analysis Execution Console -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg h-[240px] flex flex-col">
-            <div class="flex items-center justify-between pb-2 border-b border-[#272b3c] mb-2">
-              <span class="text-xs font-bold text-gray-300 flex items-center gap-1.5">
-                <i data-lucide="terminal" class="w-4 h-4 text-red-500"></i> AI Template Analyzer Execution & Reasoning Log
+          <!-- Analyzer Console -->
+          <div class="shadcn-card flex flex-col h-[230px]">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
+              <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-muted-foreground"></i> Analyzer Console
               </span>
-              <button onclick="clearAnalyzeLog()" class="text-[11px] text-gray-400 hover:text-gray-200">Clear</button>
+              <button onclick="clearAnalyzeLog()" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px]">Clear</button>
             </div>
-            <div id="analyze-console-logs" class="flex-1 overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-[#0b0c10] rounded-lg border border-[#1b1e2b] text-gray-300">
-              <div class="text-gray-500 italic">Ready for template intelligence analysis...</div>
+            <div class="shadcn-card-content flex-1 p-3 pt-0 overflow-hidden">
+              <div id="analyze-console-logs" class="h-full overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-background rounded-md border border-border text-foreground/80">
+                <div class="text-muted-foreground italic">Ready for template intelligence analysis...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -429,136 +562,128 @@
     <!-- ============================================================== -->
     <div id="tab-content-manager" class="tab-content hidden space-y-6">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        <!-- Left Column: Dual File Treeview -->
-        <div class="lg:col-span-6 space-y-5">
-          <!-- Top Control Card -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative overflow-hidden">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-            
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-                  <i data-lucide="folder-kanban" class="w-4 h-4 text-red-500"></i> PRESENTATION & TEMPLATE MANAGER
-                </h2>
-                <p class="text-xs text-gray-400">Manage generated decks (data/output) and reference styles (data/*.pptx)</p>
-              </div>
-            </div>
 
-            <!-- Toolbar buttons -->
-            <div class="flex flex-wrap gap-2.5 text-xs">
-              <label class="cursor-pointer bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
-                <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import Reference PPTX
-                <input type="file" accept=".pptx" class="hidden" onchange="handleTemplateImport(event)">
-              </label>
-              <button onclick="loadManagerDecks()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh All
-              </button>
+        <!-- Left: File Lists -->
+        <div class="lg:col-span-6 space-y-5">
+          <div class="shadcn-card">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h2 class="shadcn-card-title flex items-center gap-2">
+                  <i data-lucide="folder-kanban" class="w-4 h-4 text-primary"></i> Presentation & Template Assets
+                </h2>
+                <p class="shadcn-card-description">Manage generated presentations and style templates</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <label class="cursor-pointer shadcn-btn shadcn-btn-default gap-1.5">
+                  <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import PPTX
+                  <input type="file" accept=".pptx" class="hidden" onchange="handleTemplateImport(event)">
+                </label>
+                <button onclick="loadManagerDecks()" class="shadcn-btn shadcn-btn-outline gap-1.5">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+                </button>
+              </div>
             </div>
           </div>
 
           <!-- Section 1: Generated Presentations -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
-            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
-              <span class="text-xs font-bold text-gray-300">GENERATED PRESENTATIONS (data/output)</span>
-              <span id="mgr-gen-count" class="text-[11px] font-mono text-red-400">0 decks</span>
+          <div class="shadcn-card">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
+              <span class="text-xs font-semibold text-foreground uppercase tracking-wider">Generated Presentations (data/output)</span>
+              <span id="mgr-gen-count" class="shadcn-badge shadcn-badge-outline font-mono">0 decks</span>
             </div>
-            <div class="overflow-y-auto max-h-[190px] rounded-lg border border-[#272b3c]">
-              <table class="w-full text-left text-xs text-gray-300">
-                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
-                  <tr>
-                    <th class="py-2 px-3">Deck Name</th>
-                    <th class="py-2 px-3 text-center">Size</th>
-                    <th class="py-2 px-3 text-center">Modified</th>
-                  </tr>
-                </thead>
-                <tbody id="mgr-gen-table-body" class="divide-y divide-[#272b3c]">
-                  <tr><td colspan="3" class="py-3 text-center text-gray-500 italic">No generated decks found.</td></tr>
-                </tbody>
-              </table>
+            <div class="shadcn-card-content p-0">
+              <div class="overflow-y-auto max-h-[190px] border-t border-border">
+                <table class="w-full text-left text-xs text-foreground/90">
+                  <thead class="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0">
+                    <tr>
+                      <th class="py-2 px-3">Deck Name</th>
+                      <th class="py-2 px-3 text-center">Size</th>
+                      <th class="py-2 px-3 text-center">Modified</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mgr-gen-table-body" class="divide-y divide-border/60">
+                    <tr><td colspan="3" class="py-3 text-center text-muted-foreground italic">No generated decks found.</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
           <!-- Section 2: Reference Templates -->
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-4 shadow-lg">
-            <div class="flex items-center justify-between pb-3 mb-2 border-b border-[#272b3c]">
-              <span class="text-xs font-bold text-gray-300">REFERENCE TEMPLATES (data/*.pptx)</span>
-              <span id="mgr-ref-count" class="text-[11px] font-mono text-red-400">0 templates</span>
+          <div class="shadcn-card">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
+              <span class="text-xs font-semibold text-foreground uppercase tracking-wider">Reference Templates (data/*.pptx)</span>
+              <span id="mgr-ref-count" class="shadcn-badge shadcn-badge-outline font-mono">0 templates</span>
             </div>
-            <div class="overflow-y-auto max-h-[190px] rounded-lg border border-[#272b3c]">
-              <table class="w-full text-left text-xs text-gray-300">
-                <thead class="bg-[#1b1e2b] text-[11px] uppercase tracking-wider text-gray-400 border-b border-[#272b3c] sticky top-0">
-                  <tr>
-                    <th class="py-2 px-3">Template Name</th>
-                    <th class="py-2 px-3 text-center">Size</th>
-                    <th class="py-2 px-3 text-center">Modified</th>
-                  </tr>
-                </thead>
-                <tbody id="mgr-ref-table-body" class="divide-y divide-[#272b3c]">
-                  <tr><td colspan="3" class="py-3 text-center text-gray-500 italic">No reference templates found.</td></tr>
-                </tbody>
-              </table>
+            <div class="shadcn-card-content p-0">
+              <div class="overflow-y-auto max-h-[190px] border-t border-border">
+                <table class="w-full text-left text-xs text-foreground/90">
+                  <thead class="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0">
+                    <tr>
+                      <th class="py-2 px-3">Template Name</th>
+                      <th class="py-2 px-3 text-center">Size</th>
+                      <th class="py-2 px-3 text-center">Modified</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mgr-ref-table-body" class="divide-y divide-border/60">
+                    <tr><td colspan="3" class="py-3 text-center text-muted-foreground italic">No reference templates found.</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Right Column: Selected File Inspector & Actions -->
+        <!-- Right: Inspector & Actions -->
         <div class="lg:col-span-6 space-y-5">
-          <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[580px] flex flex-col">
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
+          <div class="shadcn-card min-h-[560px] flex flex-col">
             <!-- Selected File Details Banner -->
-            <div class="bg-[#1b1e2b] p-3.5 rounded-lg border border-[#272b3c] mb-4">
-              <div id="mgr-sel-name" class="text-sm font-bold text-white truncate">Select a deck or template from the left list</div>
-              <div id="mgr-sel-details" class="text-[11px] text-gray-400 mt-1 font-mono truncate">Path: None | Size: -- | Type: --</div>
+            <div class="p-4 border-b border-border bg-secondary/30">
+              <div id="mgr-sel-name" class="text-sm font-semibold text-foreground truncate">Select a presentation from the list</div>
+              <div id="mgr-sel-details" class="text-[11px] text-muted-foreground mt-1 font-mono truncate">Path: None | Size: -- | Type: --</div>
             </div>
 
             <!-- Actions Toolbar -->
-            <div class="flex flex-wrap gap-2 mb-4 text-xs">
-              <button id="mgr-btn-open" onclick="mgrOpenPpt()" disabled class="disabled:opacity-40 bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+            <div class="p-3 border-b border-border flex flex-wrap gap-2 text-xs">
+              <button id="mgr-btn-open" onclick="mgrOpenPpt()" disabled class="shadcn-btn shadcn-btn-default h-8 gap-1.5">
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Open PPT
               </button>
-              <button id="mgr-btn-download" onclick="mgrDownload()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
-                <i data-lucide="download" class="w-3.5 h-3.5 text-green-400"></i> Download
+              <button id="mgr-btn-download" onclick="mgrDownload()" disabled class="shadcn-btn shadcn-btn-secondary h-8 gap-1.5">
+                <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i> Download
               </button>
-              <button id="mgr-btn-verify" onclick="mgrVerifyAndFix()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
-                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-yellow-400"></i> Verify & Fix
+              <button id="mgr-btn-verify" onclick="mgrVerifyAndFix()" disabled class="shadcn-btn shadcn-btn-secondary h-8 gap-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-yellow-400"></i> Verify
               </button>
-              <button id="mgr-btn-duplicate" onclick="mgrDuplicate()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+              <button id="mgr-btn-duplicate" onclick="mgrDuplicate()" disabled class="shadcn-btn shadcn-btn-secondary h-8 gap-1.5">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i> Duplicate
               </button>
-              <button id="mgr-btn-rename" onclick="mgrPromptRename()" disabled class="disabled:opacity-40 bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded flex items-center gap-1.5 transition">
+              <button id="mgr-btn-rename" onclick="mgrPromptRename()" disabled class="shadcn-btn shadcn-btn-secondary h-8 gap-1.5">
                 <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Rename
               </button>
-              <button id="mgr-btn-delete" onclick="mgrDelete()" disabled class="disabled:opacity-40 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800 px-3 py-1.5 rounded flex items-center gap-1.5 transition ml-auto">
+              <button id="mgr-btn-delete" onclick="mgrDelete()" disabled class="shadcn-btn shadcn-btn-destructive h-8 gap-1.5 ml-auto">
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Delete
               </button>
             </div>
 
-            <!-- Slide Inspector Carousel -->
-            <div class="flex-1 flex flex-col bg-[#0b0c10] rounded-xl border border-[#272b3c] p-4">
-              <div class="flex items-center justify-between mb-3 bg-[#1b1e2b] px-4 py-2 rounded-lg border border-[#272b3c]">
-                <button id="mgr-prev-btn" onclick="navMgrSlide(-1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  ◀ Prev
-                </button>
-                <div class="flex items-center gap-3">
-                  <span id="mgr-slide-counter" class="text-xs font-bold text-red-400">No slides loaded</span>
-                  <span id="mgr-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300"></span>
+            <!-- Slide Inspector -->
+            <div class="shadcn-card-content flex-1 flex flex-col p-4">
+              <div class="flex items-center justify-between mb-3 bg-secondary/60 px-3 py-2 rounded-md border border-border">
+                <button id="mgr-prev-btn" onclick="navMgrSlide(-1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">◀ Prev</button>
+                <div class="flex items-center gap-2">
+                  <span id="mgr-slide-counter" class="text-xs font-mono font-medium text-foreground">No slides loaded</span>
+                  <span id="mgr-engine-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300"></span>
                 </div>
-                <button id="mgr-next-btn" onclick="navMgrSlide(1)" disabled class="disabled:opacity-40 bg-[#272b3c] hover:bg-[#34394e] text-white px-3 py-1 rounded text-xs font-semibold transition">
-                  Next ▶
-                </button>
+                <button id="mgr-next-btn" onclick="navMgrSlide(1)" disabled class="shadcn-btn shadcn-btn-outline h-7 px-2.5 text-xs">Next ▶</button>
               </div>
 
-              <div class="flex-1 flex items-center justify-center min-h-[350px]">
-                <div id="mgr-slide-placeholder" class="text-center text-gray-500 text-xs">
-                  <i data-lucide="layout-grid" class="w-12 h-12 mx-auto mb-2 text-gray-600"></i>
-                  Select a presentation or template to inspect slide layouts.
+              <div class="flex-1 bg-background rounded-lg border border-border flex items-center justify-center min-h-[340px] p-2">
+                <div id="mgr-slide-placeholder" class="text-center text-muted-foreground text-xs">
+                  <i data-lucide="layout-grid" class="w-10 h-10 mx-auto mb-2 text-muted-foreground/60"></i>
+                  Select a presentation to inspect slides.
                 </div>
-                <img id="mgr-slide-img" src="" alt="Slide Preview" class="hidden max-h-[380px] max-w-full rounded-md shadow-2xl object-contain border border-[#1b1e2b] bg-white">
+                <img id="mgr-slide-img" src="" alt="Slide Preview" class="hidden max-h-[360px] max-w-full rounded-md shadow-lg object-contain border border-border bg-white">
               </div>
             </div>
-
           </div>
         </div>
 
@@ -569,60 +694,258 @@
     <!-- TAB 4: COMPONENT CATALOG -->
     <!-- ============================================================== -->
     <div id="tab-content-components" class="tab-content hidden space-y-6">
-      <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[600px] flex flex-col">
-        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
-        <div class="flex items-center justify-between pb-4 border-b border-[#272b3c] mb-4">
+      <div class="shadcn-card min-h-[640px] flex flex-col">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3 border-b border-border">
           <div>
-            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-              <i data-lucide="boxes" class="w-4 h-4 text-red-500"></i> TEMPLATE REPOSITORY & COMPONENT CATALOG
+            <h2 class="shadcn-card-title flex items-center gap-2">
+              <i data-lucide="boxes" class="w-4 h-4 text-primary"></i> Template Primitives & Component Catalog
             </h2>
-            <p class="text-xs text-gray-400">Inspect extracted shapes, layout containers, and design primitives</p>
+            <p class="shadcn-card-description">Extracted shapes, layout containers, cards and typography primitives</p>
           </div>
-          <div class="flex items-center gap-3">
-            <span id="comp-count-badge" class="text-xs font-bold font-mono text-red-400 bg-[#1b1e2b] px-3 py-1 rounded-full border border-[#272b3c]">Components: Loading...</span>
-            <button onclick="runComponentsExtraction()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition">
-              <i data-lucide="scan" class="w-3.5 h-3.5"></i> Scan & Extract Templates
-            </button>
-            <button onclick="loadComponentsCatalog()" class="bg-[#1b1e2b] hover:bg-[#272b3c] text-gray-200 border border-[#272b3c] px-3 py-1.5 rounded-lg text-xs transition">
-              Reload JSON
+          <div class="flex items-center gap-2">
+            <span id="comp-count-badge" class="shadcn-badge shadcn-badge-outline font-mono">Components: 0</span>
+            <div class="flex items-center gap-1 bg-secondary/50 p-0.5 rounded-md border border-border">
+              <button onclick="switchComponentView('visual')" id="btn-comp-view-visual" class="shadcn-btn shadcn-btn-ghost active h-7 px-2.5 text-xs gap-1.5 font-medium">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5 text-primary"></i> Visual Grid
+              </button>
+              <button onclick="switchComponentView('json')" id="btn-comp-view-json" class="shadcn-btn shadcn-btn-ghost h-7 px-2.5 text-xs gap-1.5 font-medium">
+                <i data-lucide="file-json" class="w-3.5 h-3.5"></i> Raw JSON
+              </button>
+            </div>
+            <button onclick="runComponentsExtraction()" class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5">
+              <i data-lucide="scan" class="w-3.5 h-3.5"></i> Scan Templates
             </button>
           </div>
         </div>
 
-        <textarea id="components-json-viewer" readonly class="flex-1 w-full bg-[#0b0c10] border border-[#272b3c] rounded-lg p-4 font-mono text-xs text-gray-300 focus:outline-none resize-none" placeholder="Loading components catalog..."></textarea>
+        <!-- Filter & Search Bar -->
+        <div class="p-4 border-b border-border bg-secondary/20 flex flex-wrap items-center justify-between gap-3">
+          <!-- Search input -->
+          <div class="relative w-72">
+            <input
+              type="text"
+              id="comp-search-input"
+              placeholder="Search components (title, metric, table, card)..."
+              class="shadcn-input pl-8 text-xs font-sans"
+              oninput="filterComponentCards()"
+            >
+            <i data-lucide="search" class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-2.5"></i>
+          </div>
+
+          <!-- Type filter chips -->
+          <div class="flex flex-wrap items-center gap-1.5" id="comp-filter-chips">
+            <button class="component-filter-chip active" onclick="setComponentFilter('all', this)">
+              All (<span id="filter-count-all">0</span>)
+            </button>
+            <button class="component-filter-chip" onclick="setComponentFilter('title', this)">
+              Headers (<span id="filter-count-title">0</span>)
+            </button>
+            <button class="component-filter-chip" onclick="setComponentFilter('metric', this)">
+              Metrics (<span id="filter-count-metric">0</span>)
+            </button>
+            <button class="component-filter-chip" onclick="setComponentFilter('card', this)">
+              Cards & Shapes (<span id="filter-count-card">0</span>)
+            </button>
+            <button class="component-filter-chip" onclick="setComponentFilter('table', this)">
+              Tables (<span id="filter-count-table">0</span>)
+            </button>
+            <button class="component-filter-chip" onclick="setComponentFilter('image', this)">
+              Images (<span id="filter-count-image">0</span>)
+            </button>
+          </div>
+        </div>
+
+        <!-- Visual Components Card Grid View -->
+        <div id="comp-visual-view" class="shadcn-card-content flex-1 p-5 overflow-y-auto">
+          <div id="components-cards-grid" class="component-card-grid">
+            <div class="col-span-full py-12 text-center text-muted-foreground text-xs">
+              <i data-lucide="boxes" class="w-10 h-10 mx-auto mb-2 text-muted-foreground/60"></i>
+              Loading template component primitives...
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Viewer -->
+        <div id="comp-json-view" class="hidden shadcn-card-content flex-1 p-4 pt-0">
+          <textarea id="components-json-viewer" readonly class="shadcn-input h-full font-mono text-xs leading-relaxed resize-none p-4" placeholder="Loading components catalog..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPONENT DETAIL MODAL DIALOG -->
+    <div id="comp-detail-modal" class="hidden fixed inset-0 z-[9995] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="shadcn-card max-w-lg w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3 border-b border-border">
+          <div class="flex items-center gap-2">
+            <i data-lucide="box" class="w-4 h-4 text-primary"></i>
+            <h3 id="comp-modal-title" class="shadcn-card-title text-sm">Component Primitive Schema</h3>
+          </div>
+          <button onclick="closeComponentModal()" class="text-muted-foreground hover:text-foreground">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="shadcn-card-content p-5 space-y-3 text-xs">
+          <div class="p-3 rounded-lg bg-background border border-border flex items-center justify-center min-h-[90px]" id="comp-modal-preview"></div>
+
+          <div class="space-y-1.5 font-sans">
+            <div class="text-foreground font-semibold" id="comp-modal-label">--</div>
+            <div class="text-muted-foreground text-[11px]" id="comp-modal-desc">--</div>
+            <div class="text-muted-foreground text-[11px] font-mono truncate" id="comp-modal-source">--</div>
+          </div>
+
+          <div class="pt-2 border-t border-border">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-[11px] font-mono font-medium text-muted-foreground">JSON DEFINITION</span>
+              <button onclick="copyModalComponentJson()" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy JSON
+              </button>
+            </div>
+            <pre id="comp-modal-json" class="p-3 bg-background rounded border border-border font-mono text-[11px] max-h-48 overflow-y-auto text-foreground/90 leading-relaxed"></pre>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- ============================================================== -->
-    <!-- TAB 5: AUTONOMOUS AI TERMINAL -->
+    <!-- TAB 5: AUTONOMOUS AI TERMINAL (Google Gemini Floating Chat Input) -->
     <!-- ============================================================== -->
     <div id="tab-content-agent" class="tab-content hidden space-y-6">
-      <div class="bg-[#14161f] border border-[#272b3c] rounded-xl p-5 shadow-lg relative min-h-[640px] flex flex-col">
-        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
-        <div class="flex items-center justify-between pb-3 border-b border-[#272b3c] mb-3">
-          <div>
-            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-              <i data-lucide="bot" class="w-4 h-4 text-red-500"></i> AUTONOMOUS AGENT WORKSPACE
-            </h2>
-            <p class="text-xs text-gray-400">Execute multi-step presentation queries, tool automation, and web research</p>
+      <div class="shadcn-card h-[680px] flex flex-col">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3 border-b border-border">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center">
+              <i data-lucide="sparkles" class="w-4 h-4 text-primary"></i>
+            </div>
+            <div>
+              <h2 class="shadcn-card-title">Autonomous AI Assistant</h2>
+              <p class="shadcn-card-description">Multi-turn presentation reasoning, template intelligence & web tool automation</p>
+            </div>
           </div>
-          <button onclick="clearAgentLogs()" class="text-xs text-gray-400 hover:text-white">Clear Log</button>
+          <div class="flex items-center gap-2">
+            <span id="agent-typing-indicator" class="hidden shadcn-badge shadcn-badge-outline text-[11px] gap-1.5 text-primary border-primary/40 animate-pulse">
+              <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+              Agent thinking...
+            </span>
+            <div class="flex items-center gap-1 bg-secondary/50 p-0.5 rounded-md border border-border">
+              <button onclick="exportChatMarkdown()" class="shadcn-btn shadcn-btn-ghost h-7 px-2 text-xs gap-1" title="Export conversation as Markdown (.md)">
+                <i data-lucide="file-down" class="w-3.5 h-3.5 text-sky-400"></i> Export MD
+              </button>
+              <button onclick="exportChatJson()" class="shadcn-btn shadcn-btn-ghost h-7 px-2 text-xs gap-1" title="Export conversation as JSON (.json)">
+                <i data-lucide="code" class="w-3.5 h-3.5 text-emerald-400"></i> JSON
+              </button>
+              <button onclick="copyFullChatTranscript()" class="shadcn-btn shadcn-btn-ghost h-7 px-2 text-xs gap-1" title="Copy entire chat transcript">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy All
+              </button>
+            </div>
+            <button onclick="clearAgentChat()" class="shadcn-btn shadcn-btn-ghost h-7 text-xs gap-1 text-muted-foreground hover:text-destructive">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear
+            </button>
+          </div>
         </div>
 
-        <!-- Terminal Log Box -->
-        <div id="agent-console-logs" class="flex-1 overflow-y-auto font-mono text-xs space-y-2 p-4 bg-[#0b0c10] rounded-xl border border-[#272b3c] text-gray-300 mb-4">
-          <div class="text-gray-500 italic">Agent workspace ready. Enter an instruction prompt below...</div>
+        <!-- Chat Message Thread Body -->
+        <div id="agent-chat-messages" class="shadcn-chat-messages bg-background/50">
+          <!-- Initial Welcome Message from Assistant -->
+          <div class="chat-message-item assistant">
+            <div class="chat-avatar ai-avatar">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+            </div>
+            <div class="chat-bubble-content">
+              <div class="chat-bubble">
+                Hello! I am your autonomous PrismPresenter AI Agent. I can analyze template structures, synthesize Word documents into PowerPoint decks, extract layout components, or search the web for reference material.
+              </div>
+              <div class="chat-meta">
+                <span>PrismPresenter Agent</span> • <span>System</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- Input Bar -->
-        <div class="flex gap-2">
-          <input type="text" id="agent-prompt-input" placeholder="Ask AI Agent to inspect templates, build slides, or search web..." class="flex-1 bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-4 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-red-500 font-mono" onkeydown="if(event.key === 'Enter') sendAgentPrompt()">
-          <button id="btn-agent-send" onclick="sendAgentPrompt()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-lg text-xs flex items-center gap-1.5 shadow transition">
-            <i data-lucide="send" class="w-3.5 h-3.5"></i> Execute
+        <!-- Suggestion Chips -->
+        <div class="chat-prompt-chips">
+          <button class="chat-chip" onclick="applyPromptChip('List all available template styles in the repository')">
+            <i data-lucide="sparkles" class="w-3 h-3 text-primary"></i> List templates
+          </button>
+          <button class="chat-chip" onclick="applyPromptChip('Analyze the design rules in data/NOTE.md')">
+            <i data-lucide="book-open" class="w-3 h-3 text-sky-400"></i> Review NOTE.md
+          </button>
+          <button class="chat-chip" onclick="applyPromptChip('Explain how the 3-tier slide rendering cascade works')">
+            <i data-lucide="layers" class="w-3 h-3 text-emerald-400"></i> 3-Tier Rendering
+          </button>
+          <button class="chat-chip" onclick="applyPromptChip('Extract design components from all templates')">
+            <i data-lucide="boxes" class="w-3 h-3 text-amber-400"></i> Scan Primitives
           </button>
         </div>
+
+        <!-- Google Gemini Style Floating Input Capsule -->
+        <div class="gemini-input-wrapper">
+          <!-- Attached Templates Note Indicator Banner -->
+          <div id="attached-note-banner" class="hidden mb-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-primary/40 flex items-center justify-between text-xs animate-in fade-in slide-in-from-bottom-2">
+            <div class="flex items-center gap-2 text-foreground">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-primary"></i>
+              <span class="font-medium font-mono text-[11px]">Attached Context: data/NOTE.md (Template Intelligence Notes)</span>
+            </div>
+            <button type="button" onclick="detachNoteFromPrompt()" class="text-muted-foreground hover:text-foreground">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <div class="gemini-input-box">
+            <textarea
+              id="agent-prompt-input"
+              rows="1"
+              placeholder="Ask anything about templates, slide decks, or automation..."
+              class="gemini-textarea"
+              oninput="autoResizeGeminiInput(this)"
+              onkeydown="handleGeminiInputKeydown(event)"
+            ></textarea>
+            <div class="gemini-toolbar">
+              <div class="gemini-tools-left">
+                <!-- Attach Template Notes Toggle -->
+                <button
+                  type="button"
+                  id="tool-btn-inspect"
+                  class="gemini-icon-btn"
+                  onclick="toggleAttachTemplateNotes()"
+                  title="Attach Template Intelligence Notes (data/NOTE.md)"
+                >
+                  <i data-lucide="scan-search" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Enable/Disable Slide Synthesis Tools Toggle -->
+                <button
+                  type="button"
+                  id="tool-btn-pptx"
+                  class="gemini-icon-btn tool-btn-active text-primary"
+                  onclick="togglePptxTools()"
+                  title="Slide Synthesis Tools (AI presentation generation & editing)"
+                >
+                  <i data-lucide="presentation" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Enable/Disable Web Search & Fetch Toggle -->
+                <button
+                  type="button"
+                  id="tool-btn-globe"
+                  class="gemini-icon-btn tool-btn-active text-sky-400"
+                  onclick="toggleSearchTools()"
+                  title="Web Search & Fetch Tools (Exa search engine & web scraper)"
+                >
+                  <i data-lucide="globe" class="w-4 h-4"></i>
+                </button>
+
+                <div class="gemini-model-indicator font-mono">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span id="gemini-model-name">9Router AI</span>
+                </div>
+              </div>
+              <button id="btn-agent-send" onclick="sendAgentPrompt()" class="gemini-send-btn" title="Send message (Enter)">
+                <i data-lucide="arrow-up" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -630,59 +953,200 @@
     <!-- TAB 6: ENGINE SETTINGS (.env) -->
     <!-- ============================================================== -->
     <div id="tab-content-settings" class="tab-content hidden space-y-6">
-      <div class="max-w-3xl bg-[#14161f] border border-[#272b3c] rounded-xl p-6 shadow-lg relative">
-        <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-red-600 to-red-900"></div>
-
-        <div class="flex items-center justify-between pb-4 border-b border-[#272b3c] mb-5">
-          <div>
-            <h2 class="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-              <i data-lucide="sliders" class="w-4 h-4 text-red-500"></i> 9ROUTER & API CONFIGURATION
-            </h2>
-            <p class="text-xs text-gray-400">Configure environment endpoints, model routing, and API credentials</p>
-          </div>
+      <div class="max-w-2xl mx-auto shadcn-card">
+        <div class="shadcn-card-header">
+          <h2 class="shadcn-card-title flex items-center gap-2">
+            <i data-lucide="settings-2" class="w-4 h-4 text-primary"></i> 9Router & Engine Configuration
+          </h2>
+          <p class="shadcn-card-description">Configure model endpoints, API credentials and rendering flags</p>
         </div>
 
-        <div class="space-y-4 text-xs">
+        <div class="shadcn-card-content space-y-4 text-xs">
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_URL:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">9Router Base Gateway URL (e.g. http://localhost:20128)</p>
-            <input type="text" id="cfg-url" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_URL:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">9Router Base Gateway URL (e.g. http://localhost:20128)</p>
+            <input type="text" id="cfg-url" class="shadcn-input font-mono">
           </div>
 
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_KEY:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">API Key for 9Router or OpenAI-compatible backend</p>
-            <input type="password" id="cfg-key" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_KEY:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">API Key for 9Router or OpenAI backend</p>
+            <input type="password" id="cfg-key" class="shadcn-input font-mono">
           </div>
 
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_CHAT_MODEL:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">Primary Chat / Reasoning Model</p>
-            <input type="text" id="cfg-chat-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_CHAT_MODEL:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Primary Chat & Reasoning Model</p>
+            <input type="text" id="cfg-chat-model" class="shadcn-input font-mono">
           </div>
 
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_SEARCH_MODEL:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">Search Provider / Model (tavily, exa, brave-search)</p>
-            <input type="text" id="cfg-search-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_SEARCH_MODEL:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Search Provider (tavily, exa, brave-search)</p>
+            <input type="text" id="cfg-search-model" class="shadcn-input font-mono">
           </div>
 
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_FETCH_MODEL:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">Web Reader / Scraper Provider (jina-reader, firecrawl, exa)</p>
-            <input type="text" id="cfg-fetch-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_FETCH_MODEL:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Web Reader / Scraper (jina-reader, firecrawl, exa)</p>
+            <input type="text" id="cfg-fetch-model" class="shadcn-input font-mono">
           </div>
 
           <div>
-            <label class="block font-medium text-gray-200 mb-1">NINEROUTER_IMAGE_MODEL:</label>
-            <p class="text-[11px] text-gray-400 mb-1.5">Slide Image Generation Model</p>
-            <input type="text" id="cfg-image-model" class="w-full bg-[#1b1e2b] border border-[#272b3c] rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-red-500">
+            <label class="block font-medium text-foreground mb-1">NINEROUTER_IMAGE_MODEL:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Slide Image Generation Model</p>
+            <input type="text" id="cfg-image-model" class="shadcn-input font-mono">
           </div>
 
-          <div class="pt-4 border-t border-[#272b3c]">
-            <button onclick="saveConfigSettings()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2.5 rounded-lg text-xs flex items-center gap-1.5 shadow transition">
-              <i data-lucide="save" class="w-4 h-4"></i> Save Configuration (.env) & Reload Engine
+          <div class="pt-2">
+            <button onclick="saveConfigSettings()" class="shadcn-btn shadcn-btn-default gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i> Save Settings (.env)
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- TAB 7: HELP & ABOUT (Brand Reveal Video, Guide, Contact) -->
+    <!-- ============================================================== -->
+    <div id="tab-content-help" class="tab-content hidden space-y-6 max-w-5xl mx-auto">
+      <!-- Top Brand Motion Hero Card -->
+      <div class="shadcn-card overflow-hidden shadow-2xl">
+        <div class="relative bg-black flex items-center justify-center overflow-hidden border-b border-border min-h-[300px] max-h-[460px]">
+          <video
+            id="brand-reveal-video"
+            src="/assets/videos/PrismPresenter_brand_reveal.mp4"
+            class="w-full h-full object-contain"
+            loop
+            muted
+            playsinline
+            controls
+          ></video>
+        </div>
+
+        <div class="p-6">
+          <div class="flex items-center gap-3 mb-2">
+            <img src="/static/images/logo-icon-transparent.png" alt="PrismPresenter" class="w-8 h-8 object-contain">
+            <div>
+              <h2 class="text-lg font-bold text-foreground tracking-tight">PrismPresenter — Autonomous Slide Synthesizer</h2>
+              <p class="text-xs text-muted-foreground">Version 0.3.0 • Unified AI Presentation Engineering Studio</p>
+            </div>
+          </div>
+          <p class="text-xs text-foreground/80 leading-relaxed max-w-3xl mt-2">
+            PrismPresenter is an autonomous, multi-modal presentation synthesis engine that converts unstructured Word documents (<code class="font-mono text-[11px] px-1 py-0.5 bg-muted rounded">.docx</code>) into structured, pixel-accurate PowerPoint presentations (<code class="font-mono text-[11px] px-1 py-0.5 bg-muted rounded">.pptx</code>) by intelligently cloning, replacing, and adapting production template design archetypes.
+          </p>
+        </div>
+      </div>
+
+      <!-- Feature Grid Details -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
+        <div class="shadcn-card p-5 space-y-2">
+          <div class="w-8 h-8 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center text-primary mb-2">
+            <i data-lucide="layers" class="w-4 h-4"></i>
+          </div>
+          <h3 class="font-semibold text-foreground text-sm">3-Tier Cascade Rendering</h3>
+          <p class="text-muted-foreground leading-relaxed">
+            High-fidelity slide preview cascade: Native Microsoft PowerPoint COM Engine &rarr; Web Vector DOM Renderer &rarr; Pure Python PIL fallback.
+          </p>
+        </div>
+
+        <div class="shadcn-card p-5 space-y-2">
+          <div class="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-2">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+          </div>
+          <h3 class="font-semibold text-foreground text-sm">Multi-Archetype Matching</h3>
+          <p class="text-muted-foreground leading-relaxed">
+            Autonomous visual AI classification matching sections to optimal layouts: Metrics/KPIs, Timelines, Comparison Columns, Tables, and Charts.
+          </p>
+        </div>
+
+        <div class="shadcn-card p-5 space-y-2">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-2">
+            <i data-lucide="bot" class="w-4 h-4"></i>
+          </div>
+          <h3 class="font-semibold text-foreground text-sm">9Router Autonomous Agent</h3>
+          <p class="text-muted-foreground leading-relaxed">
+            Built-in multi-turn reasoning agent with web search, live scrape extraction, automatic XML healing, and DALL-E image generation capabilities.
+          </p>
+        </div>
+      </div>
+
+      <!-- Application Architecture & End-to-End Workflow Flow -->
+      <div class="shadcn-card p-6 space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+            <i data-lucide="git-branch" class="w-4 h-4 text-primary"></i> PrismPresenter End-to-End Synthesis Pipeline
+          </h3>
+          <p class="text-xs text-muted-foreground mt-0.5">How document parsing, archetype scanning, and multi-modal AI generate presentations</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-2">
+          <!-- Step 1 -->
+          <div class="p-4 rounded-lg bg-secondary/40 border border-border space-y-2 relative">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">STEP 01</span>
+              <i data-lucide="file-text" class="w-4 h-4 text-muted-foreground"></i>
+            </div>
+            <h4 class="font-semibold text-xs text-foreground">Document Ingestion</h4>
+            <p class="text-[11px] text-muted-foreground leading-relaxed">
+              Parse raw Word <code class="font-mono bg-background px-1 py-0.5 rounded">.docx</code> into semantic outlines (headings, paragraphs, bullet points, metrics, and data tables).
+            </p>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="p-4 rounded-lg bg-secondary/40 border border-border space-y-2 relative">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">STEP 02</span>
+              <i data-lucide="scan-search" class="w-4 h-4 text-sky-400"></i>
+            </div>
+            <h4 class="font-semibold text-xs text-foreground">Template Intelligence</h4>
+            <p class="text-[11px] text-muted-foreground leading-relaxed">
+              Scan reference PPTX templates and classify slides into archetypes (KPI metrics, comparison columns, flowcharts, and tables) logged in <code class="font-mono bg-background px-1 py-0.5 rounded">NOTE.md</code>.
+            </p>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="p-4 rounded-lg bg-secondary/40 border border-border space-y-2 relative">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">STEP 03</span>
+              <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
+            </div>
+            <h4 class="font-semibold text-xs text-foreground">9Router AI Synthesis</h4>
+            <p class="text-[11px] text-muted-foreground leading-relaxed">
+              Vision & Reasoning models select the ideal slide layout, clone template shapes, replace text, and synthesize context-aware visuals and DALL-E images.
+            </p>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="p-4 rounded-lg bg-secondary/40 border border-border space-y-2 relative">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">STEP 04</span>
+              <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <h4 class="font-semibold text-xs text-foreground">Validation & 3-Tier Render</h4>
+            <p class="text-[11px] text-muted-foreground leading-relaxed">
+              Auto-heal corrupt XML package structures and export slides via 3-tier cascade (Native COM &rarr; Vector DOM &rarr; PIL fallback).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contact & Author Section -->
+      <div class="shadcn-card p-6">
+        <h3 class="text-sm font-semibold text-foreground flex items-center gap-2 mb-3">
+          <i data-lucide="mail" class="w-4 h-4 text-primary"></i> Contact & Author
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div class="space-y-1.5 text-muted-foreground">
+            <div><strong class="text-foreground">Full Name:</strong> Amirreza Uneszadeh Shirazi</div>
+            <div><strong class="text-foreground">Professional Alias:</strong> ARUSH</div>
+            <div><strong class="text-foreground">Email:</strong> <a href="mailto:arush221617@gmail.com" class="text-primary hover:underline font-mono">arush221617@gmail.com</a></div>
+          </div>
+          <div class="space-y-1.5 text-muted-foreground">
+            <div><strong class="text-foreground">Repository:</strong> <span class="font-mono text-[11px] text-foreground">github.com/arush/pptx-jahat</span></div>
+            <div><strong class="text-foreground">Platform:</strong> Python 3.11+ / Flask Web SPA / TailwindCSS / Shadcn UI</div>
+            <div><strong class="text-foreground">License:</strong> MIT License &bull; Open Source</div>
           </div>
         </div>
       </div>
@@ -691,14 +1155,12 @@
   </main>
 
   <!-- BOTTOM STATUS BAR -->
-  <footer class="border-t border-[#272b3c] bg-[#14161f] px-6 py-2.5 flex items-center justify-between text-xs text-gray-400 font-mono">
+  <footer class="border-t border-border bg-card/60 px-6 py-2 flex items-center justify-between text-xs text-muted-foreground font-mono">
     <div class="flex items-center gap-2">
-      <img src="/static/images/logo-icon-transparent.png" alt="Logo" class="w-4 h-4 object-contain">
-      <span id="footer-status">Idle • Ready for presentation generation</span>
+      <span id="footer-status">Idle • Ready for presentation synthesis</span>
     </div>
-    <div class="flex items-center gap-3 text-[11px] text-gray-500">
-      <img src="/static/images/logo-transparent.png" alt="PPTX Jahat" class="h-3.5 object-contain opacity-60 hover:opacity-100 transition">
-      <span>PPTX Jahat v0.3</span>
+    <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <span>PrismPresenter v0.3</span>
     </div>
   </footer>
 

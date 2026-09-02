@@ -266,16 +266,45 @@ TOOL_HANDLERS: Dict[str, Callable] = {
 }
 
 class AIAgent:
-    def __init__(self, system_prompt: Optional[str] = None):
+    def __init__(
+        self,
+        system_prompt: Optional[str] = None,
+        enable_search: bool = True,
+        enable_pptx_tools: bool = True
+    ):
         self.system_prompt = system_prompt or (
-            "You are PPTX Jahat Autonomous AI Agent. "
+            "You are PrismPresenter Autonomous AI Agent. "
             "You have full access to workspace files, web search, PPTX extraction & component analysis, "
             "Word docx parsing, exact PPTX template slide cloning with AI text replacement, and Image generation. "
             "Execute tasks directly using your tool suite."
         )
+        self.enable_search = enable_search
+        self.enable_pptx_tools = enable_pptx_tools
         self.messages: List[Dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt}
         ]
+
+    def _get_tools(self) -> List[Dict[str, Any]]:
+        search_tool_names = {"search_web", "fetch_page_content"}
+        pptx_tool_names = {
+            "build_pptx_from_docx",
+            "extract_all_templates",
+            "get_components_catalog",
+            "generate_image",
+            "verify_and_repair_pptx",
+            "analyze_pptx_template",
+            "analyze_all_templates"
+        }
+
+        active_tools = []
+        for tool in TOOLS_DEFINITIONS:
+            name = tool["function"]["name"]
+            if name in search_tool_names and not self.enable_search:
+                continue
+            if name in pptx_tool_names and not self.enable_pptx_tools:
+                continue
+            active_tools.append(tool)
+        return active_tools
 
     def _get_client(self) -> OpenAI:
         base_url = f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
@@ -286,20 +315,24 @@ class AIAgent:
         def log(msg: str):
             if log_callback:
                 log_callback(msg)
-                
+
         self.messages.append({"role": "user", "content": user_prompt})
         client = self._get_client()
+        active_tools = self._get_tools()
 
         for step in range(max_steps):
             try:
                 log(f"[Agent Step {step+1}] Calling 9Router model '{Config.NINEROUTER_CHAT_MODEL}' at {Config.NINEROUTER_URL}...")
-                response = client.chat.completions.create(
-                    model=Config.NINEROUTER_CHAT_MODEL,
-                    messages=self.messages,
-                    tools=TOOLS_DEFINITIONS,
-                    tool_choice="auto",
-                    temperature=0.2
-                )
+                kwargs: Dict[str, Any] = {
+                    "model": Config.NINEROUTER_CHAT_MODEL,
+                    "messages": self.messages,
+                    "temperature": 0.2
+                }
+                if active_tools:
+                    kwargs["tools"] = active_tools
+                    kwargs["tool_choice"] = "auto"
+
+                response = client.chat.completions.create(**kwargs)
             except Exception as e:
                 err_msg = f"9Router LLM API Call Error: {str(e)}"
                 log(err_msg)

@@ -21,7 +21,7 @@ from flask import (
 from flask_cors import CORS
 from PIL import Image
 
-from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR
+from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR, STRUCTURES_DIR, IMAGES_DIR
 from pptx_jahat.agent import AIAgent
 from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
 from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg, image_to_base64_png
@@ -34,6 +34,19 @@ from pptx_jahat.tools.template_analyzer import (
     NOTE_FILE
 )
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
+from pptx_jahat.tools.structure_manager import (
+    list_structure_files,
+    get_structure_content,
+    save_structure_content,
+    delete_structure_file,
+    build_structure_from_template,
+    build_structure_from_sample_files
+)
+from pptx_jahat.tools.multi_parser import (
+    is_supported_file,
+    get_file_type_category,
+    ALL_SUPPORTED_EXTS
+)
 
 # Global Job Registry for SSE streams
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -83,8 +96,8 @@ def create_app() -> Flask:
         if "file" not in request.files:
             return jsonify({"success": False, "error": "No file part in request"}), 400
         file = request.files["file"]
-        if not file.filename or not file.filename.endswith(".docx"):
-            return jsonify({"success": False, "error": "Invalid file. Must be a .docx document."}), 400
+        if not file.filename:
+            return jsonify({"success": False, "error": "Invalid file."}), 400
 
         filename = Path(file.filename).name
         target_path = UPLOAD_CACHE / filename
@@ -97,6 +110,48 @@ def create_app() -> Flask:
             "success": True,
             "filename": filename,
             "file_path": str(target_path.resolve()),
+            "category": get_file_type_category(filename),
+            "suggested_output": suggested_output
+        })
+
+    @app.route("/api/generator/upload-multi", methods=["POST"])
+    def upload_multi_sources():
+        uploaded_files = request.files.getlist("files")
+        if not uploaded_files and "file" in request.files:
+            uploaded_files = [request.files["file"]]
+
+        if not uploaded_files:
+            return jsonify({"success": False, "error": "No files uploaded."}), 400
+
+        results = []
+        for file in uploaded_files:
+            if not file.filename:
+                continue
+            fname = Path(file.filename).name
+            if not is_supported_file(fname):
+                continue
+            target = UPLOAD_CACHE / fname
+            file.save(str(target))
+            results.append({
+                "filename": fname,
+                "file_path": str(target.resolve()),
+                "category": get_file_type_category(fname),
+                "size_kb": round(target.stat().st_size / 1024, 1)
+            })
+
+        if not results:
+            return jsonify({
+                "success": False,
+                "error": "No supported files provided. Supported: Word, PPTX, Text, Images, Audio."
+            }), 400
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        suggested_output = str(OUTPUT_DIR / f"{Path(results[0]['filename']).stem}_generated.pptx")
+
+        return jsonify({
+            "success": True,
+            "files": results,
+            "primary_file": results[0]["file_path"],
             "suggested_output": suggested_output
         })
 
@@ -104,18 +159,38 @@ def create_app() -> Flask:
     def start_generation():
         data = request.get_json() or {}
         docx_path = data.get("docx_path", "").strip()
+        source_files = data.get("source_files", [])
+        raw_text = data.get("raw_text", "").strip()
         template_name = data.get("template_name", None)
+        structure_name = data.get("structure_name", None)
+        enable_restructure = bool(data.get("enable_restructure", False))
         output_path = data.get("output_path", "").strip()
+        timeout_val = data.get("timeout", None)
 
-        if not docx_path or not Path(docx_path).exists():
-            return jsonify({"success": False, "error": "Invalid or missing Word document path."}), 400
+        try:
+            req_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            req_timeout = None
+
+        all_sources = []
+        if source_files and isinstance(source_files, list):
+            all_sources.extend([str(p).strip() for p in source_files if str(p).strip() and Path(str(p).strip()).exists()])
+        if docx_path and docx_path not in all_sources and Path(docx_path).exists():
+            all_sources.append(docx_path)
+
+        if not all_sources and not raw_text:
+            return jsonify({"success": False, "error": "Please provide at least one source file or text notes."}), 400
 
         if template_name and ("All Templates" in template_name or "No templates" in template_name):
             template_name = None
 
+        if structure_name and ("None" in structure_name or "Select" in structure_name or "none" == structure_name.lower()):
+            structure_name = None
+
         if not output_path:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            output_path = str(OUTPUT_DIR / f"{Path(docx_path).stem}_generated.pptx")
+            stem = Path(all_sources[0]).stem if all_sources else "presentation"
+            output_path = str(OUTPUT_DIR / f"{stem}_generated.pptx")
 
         job_id = f"gen_{int(time.time() * 1000)}"
         event_queue = queue.Queue()
@@ -152,11 +227,15 @@ def create_app() -> Flask:
             try:
                 event_queue.put({"event": "status", "data": {"status": "Generating presentation..."}})
                 res = build_pptx_with_agent(
-                    docx_path,
-                    output_path,
-                    template_name,
+                    docx_path=all_sources if len(all_sources) > 1 else (all_sources[0] if all_sources else None),
+                    output_path=output_path,
+                    template_name=template_name,
                     log_callback=log_callback,
-                    on_ai_images_ready=on_ai_images_ready
+                    on_ai_images_ready=on_ai_images_ready,
+                    structure_name=structure_name,
+                    raw_text=raw_text,
+                    enable_restructure=enable_restructure,
+                    timeout=req_timeout
                 )
 
                 # Pre-render slides for instant UI loading
@@ -340,6 +419,216 @@ def create_app() -> Flask:
                 "success": True,
                 "message": f"Successfully updated {NOTE_FILE.name}"
             })
+
+    # -------------------------------------------------------------
+    # 2.1. SLIDE STORYBOARD STRUCTURE ENDPOINTS (data/structure/*.md)
+    # -------------------------------------------------------------
+    @app.route("/api/structure/list", methods=["GET"])
+    def api_list_structures():
+        structures = list_structure_files()
+        return jsonify({
+            "success": True,
+            "structures": structures,
+            "count": len(structures)
+        })
+
+    @app.route("/api/structure/get", methods=["GET"])
+    def api_get_structure():
+        name = request.args.get("name", "").strip()
+        if not name:
+            return jsonify({"success": False, "error": "Structure name required."}), 400
+        try:
+            content = get_structure_content(name)
+            return jsonify({
+                "success": True,
+                "name": name,
+                "content": content
+            })
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 404
+
+    @app.route("/api/structure/save", methods=["POST"])
+    def api_save_structure():
+        data = request.get_json() or {}
+        name = data.get("name", "").strip()
+        content = data.get("content", "")
+        if not name:
+            return jsonify({"success": False, "error": "Structure name cannot be empty."}), 400
+        try:
+            res = save_structure_content(name, content)
+            return jsonify(res)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/structure/delete", methods=["DELETE"])
+    def api_delete_structure():
+        data = request.get_json() or {}
+        name = data.get("name", "").strip()
+        if not name:
+            return jsonify({"success": False, "error": "Structure name required."}), 400
+        deleted = delete_structure_file(name)
+        if deleted:
+            return jsonify({"success": True, "message": f"Deleted structure: {name}"})
+        else:
+            return jsonify({"success": False, "error": "Cannot delete protected sample or file not found."}), 400
+
+    @app.route("/api/structure/build", methods=["POST"])
+    def api_build_structure():
+        data = request.get_json() or {}
+        template_name = data.get("template_name", "").strip()
+        structure_name = data.get("structure_name", "").strip()
+        custom_instructions = data.get("custom_instructions", "").strip()
+        timeout_val = data.get("timeout", None)
+
+        try:
+            struct_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            struct_timeout = None
+
+        if not template_name:
+            return jsonify({"success": False, "error": "Template name is required."}), 400
+        if not structure_name:
+            structure_name = f"{Path(template_name).stem}-structure"
+
+        job_id = f"struct_{int(time.time() * 1000)}"
+        event_queue = queue.Queue()
+
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "id": job_id,
+                "type": "structure_build",
+                "queue": event_queue,
+                "status": "running"
+            }
+
+        def worker():
+            def log_cb(msg: str):
+                event_queue.put({"event": "log", "data": {"message": msg, "time": time.strftime("%H:%M:%S")}})
+
+            try:
+                log_cb(f"[*] Starting Storyboard Schema Builder for template: {template_name}")
+                res = build_structure_from_template(
+                    template_name,
+                    structure_name,
+                    custom_instructions=custom_instructions,
+                    log_cb=log_cb,
+                    timeout=struct_timeout
+                )
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        JOBS[job_id]["status"] = "completed"
+                        JOBS[job_id]["result"] = res
+                event_queue.put({"event": "completed", "data": res})
+            except Exception as e:
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        JOBS[job_id]["status"] = "error"
+                        JOBS[job_id]["error"] = str(e)
+                event_queue.put({"event": "error", "data": {"error": str(e)}})
+            finally:
+                event_queue.put({"event": "close", "data": {}})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        return jsonify({"success": True, "job_id": job_id, "structure_name": structure_name})
+
+    @app.route("/api/structure/upload-samples", methods=["POST"])
+    def api_upload_structure_samples():
+        files = request.files.getlist("files")
+        if not files and "file" in request.files:
+            files = [request.files["file"]]
+
+        if not files:
+            return jsonify({"success": False, "error": "No files uploaded."}), 400
+
+        samples_dir = UPLOAD_CACHE / "samples"
+        samples_dir.mkdir(parents=True, exist_ok=True)
+
+        results = []
+        for file in files:
+            if not file.filename:
+                continue
+            fname = Path(file.filename).name
+            if not is_supported_file(fname):
+                continue
+            target = samples_dir / fname
+            file.save(str(target))
+            results.append({
+                "filename": fname,
+                "file_path": str(target.resolve()),
+                "category": get_file_type_category(fname),
+                "size_kb": round(target.stat().st_size / 1024, 1)
+            })
+
+        if not results:
+            return jsonify({
+                "success": False,
+                "error": "No supported files found. Supported: Images, Word docs, PPTX, Text."
+            }), 400
+
+        return jsonify({"success": True, "files": results})
+
+    @app.route("/api/structure/build-from-samples", methods=["POST"])
+    def api_build_structure_from_samples():
+        data = request.get_json() or {}
+        sample_files = data.get("sample_files", [])
+        structure_name = data.get("structure_name", "").strip()
+        custom_instructions = data.get("custom_instructions", "").strip()
+        timeout_val = data.get("timeout", None)
+
+        try:
+            struct_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            struct_timeout = None
+
+        if not sample_files or not isinstance(sample_files, list):
+            return jsonify({"success": False, "error": "At least one sample file is required."}), 400
+
+        if not structure_name:
+            first_stem = Path(sample_files[0]).stem
+            structure_name = f"{first_stem}-detection-structure"
+
+        job_id = f"struct_samples_{int(time.time() * 1000)}"
+        event_queue = queue.Queue()
+
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "id": job_id,
+                "type": "structure_samples_build",
+                "queue": event_queue,
+                "status": "running"
+            }
+
+        def worker():
+            def log_cb(msg: str):
+                event_queue.put({"event": "log", "data": {"message": msg, "time": time.strftime("%H:%M:%S")}})
+
+            try:
+                log_cb(f"[*] Starting AI Detection Structure Analysis on {len(sample_files)} sample file(s)...")
+                res = build_structure_from_sample_files(
+                    sample_file_paths=sample_files,
+                    structure_name=structure_name,
+                    custom_instructions=custom_instructions,
+                    log_cb=log_cb,
+                    timeout=struct_timeout
+                )
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        JOBS[job_id]["status"] = "completed"
+                        JOBS[job_id]["result"] = res
+                event_queue.put({"event": "completed", "data": res})
+            except Exception as e:
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        JOBS[job_id]["status"] = "error"
+                        JOBS[job_id]["error"] = str(e)
+                event_queue.put({"event": "error", "data": {"error": str(e)}})
+            finally:
+                event_queue.put({"event": "close", "data": {}})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        return jsonify({"success": True, "job_id": job_id, "structure_name": structure_name})
 
     @app.route("/api/templates/analyze", methods=["POST"])
     def analyze_single_template():
@@ -691,8 +980,10 @@ def create_app() -> Flask:
                     "NINEROUTER_SEARCH_MODEL": Config.NINEROUTER_SEARCH_MODEL,
                     "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
                     "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
-                    "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE
-                }
+                    "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
+                    "LLM_TIMEOUT": Config.LLM_TIMEOUT
+                },
+                "model_metadata": Config.get_model_metadata()
             })
         else:
             data = request.get_json() or {}
@@ -706,7 +997,8 @@ def create_app() -> Flask:
                 "NINEROUTER_SEARCH_MODEL",
                 "NINEROUTER_FETCH_MODEL",
                 "NINEROUTER_IMAGE_MODEL",
-                "PURE_PIL_ACTIVE"
+                "PURE_PIL_ACTIVE",
+                "LLM_TIMEOUT"
             ]:
                 if k in cfg:
                     env_lines.append(f"{k}={str(cfg[k]).strip()}")

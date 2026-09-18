@@ -10,6 +10,12 @@ let visualSlides = [];
 let visualSlideIdx = 0;
 let aiTestImages = [];
 let aiTestIdx = 0;
+let genSourceFiles = [];
+
+// Storyboard Structure State
+let structuresList = [];
+let currentStructure = null;
+let structSampleFiles = [];
 
 // Template Analyzer State
 let templatesList = [];
@@ -141,14 +147,36 @@ function setupDragAndDrop() {
     const dt = e.dataTransfer;
     const files = dt.files;
     if (files && files.length > 0) {
-      const file = files[0];
-      if (file.name.endsWith('.docx')) {
-        uploadDocxFile(file);
-      } else {
-        showToast('Please upload a Microsoft Word (.docx) document.', 'warning');
-      }
+      uploadMultiFiles(Array.from(files));
     }
   }, false);
+
+  const samplesDropzone = document.getElementById('samples-dropzone');
+  if (samplesDropzone) {
+    ['dragenter', 'dragover'].forEach(eventName => {
+      samplesDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        samplesDropzone.classList.add('dropzone-active');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      samplesDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        samplesDropzone.classList.remove('dropzone-active');
+      }, false);
+    });
+
+    samplesDropzone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      if (files && files.length > 0) {
+        uploadStructSampleFiles(Array.from(files));
+      }
+    }, false);
+  }
 }
 
 // -------------------------------------------------------------
@@ -244,6 +272,7 @@ function switchTab(tabId) {
   if (tabId === 'templates') {
     loadTemplatesList();
     loadNoteMd();
+    loadStructuresList();
   } else if (tabId === 'manager') {
     loadManagerDecks();
   } else if (tabId === 'components') {
@@ -300,6 +329,7 @@ function setSystemStatus(text, isBusy = false) {
 async function loadInitialData() {
   try {
     loadGeneratorTemplates();
+    loadGeneratorStructures();
     loadConfigBadge();
   } catch (err) {
     console.error('Error loading initial data', err);
@@ -310,20 +340,77 @@ async function loadConfigBadge() {
   try {
     const res = await fetch('/api/config');
     const data = await res.json();
-    if (data.success && data.config) {
-      const modelName = data.config.NINEROUTER_CHAT_MODEL ? data.config.NINEROUTER_CHAT_MODEL.split('/').pop() : 'Default';
-      const badge = document.getElementById('model-badge');
-      if (badge) {
-        badge.innerText = `MODEL: ${modelName}`;
-      }
-      const geminiModel = document.getElementById('gemini-model-name');
-      if (geminiModel) {
-        geminiModel.innerText = modelName;
-      }
+    if (data.success) {
+      applyConfigAndMetadata(data);
     }
   } catch (e) {
     console.error(e);
   }
+}
+
+function applyConfigAndMetadata(data) {
+  if (!data || !data.success) return;
+  const cfg = data.config || {};
+  const meta = data.model_metadata || {};
+
+  const modelName = cfg.NINEROUTER_CHAT_MODEL ? cfg.NINEROUTER_CHAT_MODEL.split('/').pop() : 'Default';
+  const badge = document.getElementById('model-badge');
+  if (badge) badge.innerText = `MODEL: ${modelName}`;
+
+  const geminiModel = document.getElementById('gemini-model-name');
+  if (geminiModel) geminiModel.innerText = modelName;
+
+  const timeoutSec = cfg.LLM_TIMEOUT || 300;
+  const genTimeout = document.getElementById('gen-timeout-input');
+  if (genTimeout && !genTimeout.dataset.userEdited) {
+    genTimeout.value = timeoutSec;
+  }
+
+  const cfgTimeout = document.getElementById('cfg-timeout');
+  if (cfgTimeout) cfgTimeout.value = timeoutSec;
+
+  // Render detected limits
+  const maxTokens = meta.max_tokens ? Number(meta.max_tokens).toLocaleString() : '--';
+  const contextLength = meta.context_length ? Number(meta.context_length).toLocaleString() : '--';
+  const shortMax = meta.max_tokens ? `${Math.round(meta.max_tokens / 1024)}k` : '65k';
+  const shortContext = meta.context_length ? (meta.context_length >= 1000000 ? `${(meta.context_length / 1000000).toFixed(1).replace('.0','')}M` : `${Math.round(meta.context_length / 1024)}k`) : '1M';
+
+  const genBadge = document.getElementById('gen-model-limits-badge');
+  if (genBadge) {
+    genBadge.innerText = `Max: ${shortMax} • Context: ${shortContext}`;
+    genBadge.title = `Model: ${meta.model_id || modelName}\nMax output: ${maxTokens} tokens\nContext window: ${contextLength} tokens`;
+  }
+
+  const elMax = document.getElementById('cfg-meta-max-tokens');
+  if (elMax) elMax.innerText = `${maxTokens} tokens`;
+
+  const elCtx = document.getElementById('cfg-meta-context');
+  if (elCtx) elCtx.innerText = `${contextLength} tokens`;
+
+  const elCaps = document.getElementById('cfg-meta-caps');
+  if (elCaps && meta.capabilities) {
+    elCaps.innerHTML = '';
+    const capList = [
+      { key: 'vision', label: 'Vision OCR' },
+      { key: 'tools', label: 'Tool Calling' },
+      { key: 'reasoning', label: 'Extended Reasoning' },
+      { key: 'search', label: 'Web Search' }
+    ];
+    capList.forEach(c => {
+      const active = Boolean(meta.capabilities[c.key]);
+      const span = document.createElement('span');
+      span.className = `shadcn-badge shadcn-badge-outline text-[10px] py-0.5 px-1.5 font-mono ${active ? 'text-emerald-400 border-emerald-800/80 bg-emerald-950/30' : 'text-muted-foreground border-border'}`;
+      span.innerText = `${active ? '✓' : '○'} ${c.label}`;
+      elCaps.appendChild(span);
+    });
+  }
+}
+
+async function refreshModelMetadataUI() {
+  showToast('Querying 9Router model capabilities...', 'info', 1500);
+  await loadConfigBadge();
+  await loadConfigSettings();
+  showToast('Updated model intelligence from 9Router', 'success', 2000);
 }
 
 // -------------------------------------------------------------
@@ -352,36 +439,653 @@ async function loadGeneratorTemplates() {
 async function handleDocxUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  uploadDocxFile(file);
+  uploadMultiFiles([file]);
 }
 
 async function uploadDocxFile(file) {
+  uploadMultiFiles([file]);
+}
+
+// Multi-Source Input Handling
+async function handleMultiSourceUpload(e) {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  uploadMultiFiles(Array.from(files));
+}
+
+async function uploadMultiFiles(filesList) {
+  if (!filesList || filesList.length === 0) return;
+
   const status = document.getElementById('upload-status');
-  status.classList.remove('hidden');
-  status.innerText = `Uploading ${file.name}...`;
-  status.className = 'text-[11px] text-muted-foreground mt-1.5';
+  if (status) {
+    status.classList.remove('hidden');
+    status.innerText = `Uploading ${filesList.length} source file(s)...`;
+    status.className = 'text-[11px] text-muted-foreground mt-1.5';
+  }
 
   const formData = new FormData();
-  formData.append('file', file);
+  filesList.forEach(f => formData.append('files', f));
 
   try {
-    const res = await fetch('/api/generator/upload', {
+    const res = await fetch('/api/generator/upload-multi', {
       method: 'POST',
       body: formData
     });
     const data = await res.json();
     if (data.success) {
-      document.getElementById('gen-docx-path').value = data.file_path;
-      document.getElementById('gen-output-path').value = data.suggested_output;
-      status.innerHTML = `<span class="text-emerald-400 font-medium">✓ Uploaded: ${data.filename}</span>`;
-      showToast(`Uploaded ${data.filename}`, 'success');
+      const newFiles = data.files || [];
+      newFiles.forEach(nf => {
+        if (!genSourceFiles.some(existing => existing.file_path === nf.file_path)) {
+          genSourceFiles.push(nf);
+        }
+      });
+
+      renderGenSourceFiles();
+
+      if (genSourceFiles.length > 0) {
+        const docxInput = document.getElementById('gen-docx-path');
+        if (docxInput) docxInput.value = genSourceFiles[0].file_path;
+        const outInput = document.getElementById('gen-output-path');
+        if (outInput && !outInput.value) {
+          outInput.value = data.suggested_output;
+        }
+      }
+
+      if (status) {
+        status.innerHTML = `<span class="text-emerald-400 font-medium">✓ Uploaded ${newFiles.length} file(s) successfully</span>`;
+      }
+      showToast(`Added ${newFiles.length} source file(s)`, 'success');
     } else {
-      status.innerHTML = `<span class="text-destructive">Upload failed: ${data.error}</span>`;
+      if (status) status.innerHTML = `<span class="text-destructive">Upload failed: ${data.error}</span>`;
       showToast(`Upload failed: ${data.error}`, 'error');
     }
   } catch (err) {
-    status.innerHTML = `<span class="text-destructive">Upload error: ${err.message}</span>`;
+    if (status) status.innerHTML = `<span class="text-destructive">Upload error: ${err.message}</span>`;
     showToast(`Upload error: ${err.message}`, 'error');
+  }
+}
+
+function renderGenSourceFiles() {
+  const container = document.getElementById('gen-source-files-list');
+  const countBadge = document.getElementById('gen-source-count-badge');
+  if (!container) return;
+
+  if (countBadge) countBadge.innerText = `${genSourceFiles.length} file(s)`;
+
+  if (genSourceFiles.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = '';
+
+  genSourceFiles.forEach((file, idx) => {
+    const pill = document.createElement('div');
+    pill.className = 'flex items-center justify-between p-2 rounded bg-secondary/70 border border-border text-xs gap-2';
+
+    let iconName = 'file';
+    let iconColor = 'text-primary';
+    const cat = file.category || '';
+    if (cat.includes('Word')) {
+      iconName = 'file-text';
+      iconColor = 'text-sky-400';
+    } else if (cat.includes('PowerPoint')) {
+      iconName = 'presentation';
+      iconColor = 'text-amber-400';
+    } else if (cat.includes('Image')) {
+      iconName = 'image';
+      iconColor = 'text-emerald-400';
+    } else if (cat.includes('Audio')) {
+      iconName = 'mic';
+      iconColor = 'text-purple-400';
+    } else if (cat.includes('Text')) {
+      iconName = 'file-code';
+      iconColor = 'text-cyan-400';
+    }
+
+    pill.innerHTML = `
+      <div class="flex items-center gap-2 truncate flex-1 min-w-0">
+        <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} flex-shrink-0"></i>
+        <div class="truncate">
+          <div class="font-medium text-foreground truncate text-[11px]">${file.filename}</div>
+          <div class="text-[10px] text-muted-foreground font-mono">${file.category} • ${file.size_kb} KB</div>
+        </div>
+      </div>
+      <button type="button" onclick="removeGenSourceFile(${idx})" class="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-secondary flex-shrink-0" title="Remove file">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    `;
+    container.appendChild(pill);
+  });
+
+  refreshIcons();
+}
+
+function removeGenSourceFile(index) {
+  if (index >= 0 && index < genSourceFiles.length) {
+    const removed = genSourceFiles.splice(index, 1)[0];
+    renderGenSourceFiles();
+    const docxInput = document.getElementById('gen-docx-path');
+    if (docxInput) {
+      docxInput.value = genSourceFiles.length > 0 ? genSourceFiles[0].file_path : '';
+    }
+    showToast(`Removed ${removed.filename}`, 'info', 1500);
+  }
+}
+
+function toggleRawNotesInput() {
+  const input = document.getElementById('gen-raw-text-input');
+  const btnTxt = document.getElementById('toggle-notes-btn-text');
+  if (!input) return;
+  if (input.classList.contains('hidden')) {
+    input.classList.remove('hidden');
+    input.focus();
+    if (btnTxt) btnTxt.innerText = '- Hide Direct Text Notes';
+  } else {
+    input.classList.add('hidden');
+    if (btnTxt) btnTxt.innerText = '+ Paste Direct Text Notes / Speech Outline';
+  }
+}
+
+// -------------------------------------------------------------
+// STORYBOARD SPECIFICATIONS (data/structure/*.md)
+// -------------------------------------------------------------
+async function loadGeneratorStructures() {
+  try {
+    const res = await fetch('/api/structure/list');
+    const data = await res.json();
+    structuresList = data.structures || [];
+
+    const select = document.getElementById('gen-structure-select');
+    if (select) {
+      const prevVal = select.value;
+      select.innerHTML = '<option value="">✨ None (Standard Direct Generation - No Schema Restructuring)</option>';
+      structuresList.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.filename;
+        opt.innerText = `${s.filename} ${s.is_sample ? '★ (Sample Blueprint)' : ''} [${s.size}]`;
+        select.appendChild(opt);
+      });
+      if (prevVal && structuresList.some(s => s.filename === prevVal)) {
+        select.value = prevVal;
+      }
+    }
+
+    updateStructuresListUI();
+  } catch (err) {
+    console.error('Failed to load structures list', err);
+  }
+}
+
+function onGeneratorStructureChange() {
+  const sel = document.getElementById('gen-structure-select');
+  const chk = document.getElementById('gen-enable-restructure');
+  if (!sel || !chk) return;
+  if (sel.value) {
+    chk.checked = true;
+    showToast(`Selected structure blueprint: ${sel.value}. Restructure Agent enabled.`, 'info');
+  } else {
+    chk.checked = false;
+  }
+}
+
+async function previewCurrentSelectedStructure() {
+  const sel = document.getElementById('gen-structure-select');
+  const name = sel ? sel.value : null;
+  if (!name) {
+    showToast('Please select a structure blueprint from the dropdown to view.', 'warning');
+    return;
+  }
+  openPreviewStructureModal(name);
+}
+
+async function openPreviewStructureModal(name) {
+  const modal = document.getElementById('preview-structure-modal');
+  const title = document.getElementById('preview-struct-modal-title');
+  const pathEl = document.getElementById('preview-struct-modal-path');
+  const contentEl = document.getElementById('preview-struct-content');
+  if (!modal) return;
+
+  if (contentEl) contentEl.innerText = 'Loading specification...';
+  modal.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`/api/structure/get?name=${encodeURIComponent(name)}`);
+    const data = await res.json();
+    if (data.success) {
+      if (title) title.innerText = `Storyboard Schema: ${name}`;
+      if (pathEl) pathEl.innerText = `data/structure/${name}`;
+      if (contentEl) contentEl.innerText = data.content;
+    } else {
+      if (contentEl) contentEl.innerText = `Error loading structure: ${data.error}`;
+    }
+  } catch (err) {
+    if (contentEl) contentEl.innerText = `Network error: ${err.message}`;
+  }
+  refreshIcons();
+}
+
+function closePreviewStructureModal() {
+  const modal = document.getElementById('preview-structure-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function updateStructuresListUI() {
+  const container = document.getElementById('structures-list-container');
+  const badge = document.getElementById('struct-count-badge');
+  if (!container) return;
+
+  if (badge) badge.innerText = `${structuresList.length} files`;
+
+  if (structuresList.length === 0) {
+    container.innerHTML = '<div class="text-muted-foreground italic text-xs py-3">No structure specifications found in data/structure/.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  structuresList.forEach(s => {
+    const item = document.createElement('div');
+    const isSelected = currentStructure && currentStructure.filename === s.filename;
+    item.className = `p-2.5 rounded-md border cursor-pointer transition text-xs space-y-1 ${isSelected ? 'bg-secondary border-primary/70 font-medium' : 'bg-card/60 border-border hover:border-border/90 hover:bg-muted/40'}`;
+    item.onclick = () => selectStructureItem(s.filename);
+
+    item.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="font-mono text-foreground font-semibold truncate max-w-[190px]">${s.filename}</span>
+        ${s.is_sample ? '<span class="shadcn-badge shadcn-badge-outline text-amber-400 border-amber-800 text-[9px] py-0 px-1">Sample</span>' : ''}
+      </div>
+      <div class="text-[10px] text-muted-foreground flex items-center justify-between">
+        <span>${s.size}</span>
+        <span>${s.modified}</span>
+      </div>
+      ${s.excerpt ? `<div class="text-[11px] text-muted-foreground line-clamp-1 italic">${escapeHtml(s.excerpt)}</div>` : ''}
+    `;
+    container.appendChild(item);
+  });
+
+  if (!currentStructure && structuresList.length > 0) {
+    selectStructureItem(structuresList[0].filename);
+  }
+}
+
+async function selectStructureItem(filename) {
+  try {
+    const res = await fetch(`/api/structure/get?name=${encodeURIComponent(filename)}`);
+    const data = await res.json();
+    if (data.success) {
+      currentStructure = { filename: filename, content: data.content };
+      const nameInput = document.getElementById('struct-editor-filename');
+      const contentInput = document.getElementById('struct-editor-content');
+      if (nameInput) nameInput.value = filename;
+      if (contentInput) contentInput.value = data.content;
+
+      const delBtn = document.getElementById('btn-delete-current-structure');
+      if (delBtn) {
+        delBtn.disabled = (filename === 'pptx-structure-yosefzadeh.md');
+      }
+
+      updateStructuresListUI();
+    }
+  } catch (err) {
+    console.error('Failed to get structure item', err);
+  }
+}
+
+async function saveCurrentStructure() {
+  let name = document.getElementById('struct-editor-filename')?.value.trim();
+  const content = document.getElementById('struct-editor-content')?.value || '';
+
+  if (!name) {
+    showToast('Please provide a filename for the structure.', 'warning');
+    return;
+  }
+  if (!name.endsWith('.md')) {
+    name += '.md';
+    document.getElementById('struct-editor-filename').value = name;
+  }
+
+  try {
+    const res = await fetch('/api/structure/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Saved structure: ${name}`, 'success');
+      await loadGeneratorStructures();
+      selectStructureItem(name);
+    } else {
+      showToast(`Save failed: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Save error: ${err.message}`, 'error');
+  }
+}
+
+async function deleteCurrentStructure() {
+  const name = document.getElementById('struct-editor-filename')?.value.trim();
+  if (!name) return;
+  if (name === 'pptx-structure-yosefzadeh.md') {
+    showToast('The sample reference structure cannot be deleted.', 'warning');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete structure file: ${name}?`)) return;
+
+  try {
+    const res = await fetch('/api/structure/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Deleted ${name}`, 'info');
+      currentStructure = null;
+      await loadGeneratorStructures();
+    } else {
+      showToast(`Delete failed: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Delete error: ${err.message}`, 'error');
+  }
+}
+
+function newStructureFile() {
+  currentStructure = null;
+  const defName = `structure-${Date.now().toString().slice(-4)}.md`;
+  const nameInput = document.getElementById('struct-editor-filename');
+  const contentInput = document.getElementById('struct-editor-content');
+  if (nameInput) nameInput.value = defName;
+  if (contentInput) {
+    contentInput.value = `# Slide Storyboard Specification Schema (${defName})\n\n## 1. Document Metadata\n- **Subject / Topic**: [Topic]\n- **Slide_Range**: [Slides 1–4]\n\n---\n\n## 2. Quadrant Layout Mapping\n- Quadrant_TR: Slide 1 (Theory / Definition)\n- Quadrant_TL: Slide 2 (Classification)\n- Quadrant_BR: Slide 3 (Worked Example)\n- Quadrant_BL: Slide 4 (Exercise & Summary)\n\n---\n\n## 3. Slide Content Schema\n### Slide 1: [Title]\n- **Quadrant**: TR\n- **Slide_Type**: Theory / Definition\n- **Core_Concept**: [Brief 1-line concept]\n\n#### Animation Sequence (Numbered Steps)\n1. **Step 1 (①)**: [Text / Formula / Statement]\n2. **Step 2 (②)**: [Text / Formula / Statement]\n\n#### Mathematical Elements\n- **Formulas / Equations**: $E = mc^2$\n\n#### Visual Annotations\n- **Teacher Callouts**: اگه دقت کنی! ...\n`;
+    contentInput.focus();
+  }
+  updateStructuresListUI();
+}
+
+function openBuildStructureModal() {
+  const modal = document.getElementById('build-structure-modal');
+  const tplSelect = document.getElementById('modal-struct-template-select');
+  const nameInput = document.getElementById('modal-struct-name-input');
+  const progBox = document.getElementById('modal-struct-progress');
+
+  if (progBox) progBox.classList.add('hidden');
+
+  if (tplSelect && templatesList.length > 0) {
+    tplSelect.innerHTML = '<option value="">Select target template...</option>';
+    templatesList.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.filename;
+      opt.innerText = `${t.filename} (${t.slide_count} slides) - ${t.style}`;
+      tplSelect.appendChild(opt);
+    });
+
+    if (selectedTemplateName) {
+      tplSelect.value = selectedTemplateName;
+    } else {
+      tplSelect.value = templatesList[0].filename;
+    }
+  }
+
+  const chosenTpl = tplSelect?.value || 'template';
+  const cleanStem = chosenTpl.replace(/\.pptx$/i, '');
+  if (nameInput) {
+    nameInput.value = `${cleanStem}-structure`;
+  }
+
+  modal.classList.remove('hidden');
+  refreshIcons();
+}
+
+function closeBuildStructureModal() {
+  const modal = document.getElementById('build-structure-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function submitBuildStructure() {
+  const tplName = document.getElementById('modal-struct-template-select')?.value;
+  let structName = document.getElementById('modal-struct-name-input')?.value.trim();
+  const instructions = document.getElementById('modal-struct-instructions-input')?.value.trim();
+
+  if (!tplName) {
+    showToast('Please select a reference template.', 'warning');
+    return;
+  }
+  if (!structName) {
+    structName = `${tplName.replace(/\.pptx$/i, '')}-structure`;
+  }
+  if (structName.endsWith('.md')) {
+    structName = structName.replace(/\.md$/i, '');
+  }
+
+  const btnSubmit = document.getElementById('btn-submit-build-structure');
+  const progBox = document.getElementById('modal-struct-progress');
+  const logLine = document.getElementById('modal-struct-log-line');
+
+  btnSubmit.disabled = true;
+  progBox.classList.remove('hidden');
+  logLine.innerText = `Connecting to AI model to inspect ${tplName}...`;
+
+  try {
+    const res = await fetch('/api/structure/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        template_name: tplName,
+        structure_name: structName,
+        custom_instructions: instructions
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const evtSource = new EventSource(`/api/generator/stream/${data.job_id}`);
+    evtSource.addEventListener('log', (e) => {
+      const d = JSON.parse(e.data);
+      if (logLine) logLine.innerText = d.message;
+    });
+
+    evtSource.addEventListener('completed', (e) => {
+      const d = JSON.parse(e.data);
+      evtSource.close();
+      btnSubmit.disabled = false;
+      closeBuildStructureModal();
+      showToast(`Successfully created structure: ${d.filename}`, 'success');
+      loadGeneratorStructures().then(() => {
+        selectStructureItem(d.filename);
+      });
+    });
+
+    evtSource.addEventListener('error', (e) => {
+      evtSource.close();
+      btnSubmit.disabled = false;
+      logLine.innerText = 'Failed generating structure.';
+      showToast('Error synthesizing structure.md', 'error');
+    });
+
+    evtSource.addEventListener('close', () => evtSource.close());
+  } catch (err) {
+    btnSubmit.disabled = false;
+    logLine.innerText = `Error: ${err.message}`;
+    showToast(`Build error: ${err.message}`, 'error');
+  }
+}
+
+// -------------------------------------------------------------
+// BUILD DETECTION STRUCTURE FROM SAMPLES
+// -------------------------------------------------------------
+function openBuildStructureFromSamplesModal() {
+  const modal = document.getElementById('build-structure-from-samples-modal');
+  const progBox = document.getElementById('modal-sample-struct-progress');
+  const nameInput = document.getElementById('modal-sample-struct-name-input');
+
+  if (progBox) progBox.classList.add('hidden');
+  if (nameInput && !nameInput.value) {
+    nameInput.value = `paper-detection-schema-${Date.now().toString().slice(-4)}`;
+  }
+
+  structSampleFiles = [];
+  renderStructSamplePills();
+
+  if (modal) modal.classList.remove('hidden');
+  refreshIcons();
+}
+
+function closeBuildStructureFromSamplesModal() {
+  const modal = document.getElementById('build-structure-from-samples-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function handleStructSamplesUpload(e) {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  uploadStructSampleFiles(Array.from(files));
+}
+
+async function uploadStructSampleFiles(filesList) {
+  if (!filesList || filesList.length === 0) return;
+
+  const formData = new FormData();
+  filesList.forEach(f => formData.append('files', f));
+
+  try {
+    const res = await fetch('/api/structure/upload-samples', {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if (data.success && data.files) {
+      data.files.forEach(nf => {
+        if (!structSampleFiles.some(existing => existing.file_path === nf.file_path)) {
+          structSampleFiles.push(nf);
+        }
+      });
+      renderStructSamplePills();
+      showToast(`Uploaded ${data.files.length} sample file(s)`, 'success', 2000);
+    } else {
+      showToast(`Upload failed: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Upload error: ${err.message}`, 'error');
+  }
+}
+
+function renderStructSamplePills() {
+  const container = document.getElementById('struct-samples-pills-list');
+  if (!container) return;
+
+  if (structSampleFiles.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = '';
+
+  structSampleFiles.forEach((file, idx) => {
+    const pill = document.createElement('div');
+    pill.className = 'flex items-center justify-between p-2 rounded bg-secondary/70 border border-border text-xs gap-2';
+
+    let icon = 'file-image';
+    if (file.category.includes('Word')) icon = 'file-text';
+    else if (file.category.includes('Image')) icon = 'image';
+
+    pill.innerHTML = `
+      <div class="flex items-center gap-2 truncate flex-1 min-w-0">
+        <i data-lucide="${icon}" class="w-4 h-4 text-primary flex-shrink-0"></i>
+        <div class="truncate">
+          <div class="font-medium text-foreground truncate text-[11px]">${file.filename}</div>
+          <div class="text-[10px] text-muted-foreground font-mono">${file.category} • ${file.size_kb} KB</div>
+        </div>
+      </div>
+      <button type="button" onclick="removeStructSamplePill(${idx})" class="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-secondary flex-shrink-0">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    `;
+    container.appendChild(pill);
+  });
+
+  refreshIcons();
+}
+
+function removeStructSamplePill(idx) {
+  if (idx >= 0 && idx < structSampleFiles.length) {
+    structSampleFiles.splice(idx, 1);
+    renderStructSamplePills();
+  }
+}
+
+async function submitBuildStructureFromSamples() {
+  if (structSampleFiles.length === 0) {
+    showToast('Please upload at least one sample file or photo.', 'warning');
+    return;
+  }
+
+  let structName = document.getElementById('modal-sample-struct-name-input')?.value.trim();
+  const instructions = document.getElementById('modal-sample-struct-instructions-input')?.value.trim();
+
+  if (!structName) {
+    const firstStem = structSampleFiles[0].filename.split('.')[0];
+    structName = `${firstStem}-detection-schema`;
+  }
+  if (structName.endsWith('.md')) {
+    structName = structName.replace(/\.md$/i, '');
+  }
+
+  const btnSubmit = document.getElementById('btn-submit-build-sample-struct');
+  const progBox = document.getElementById('modal-sample-struct-progress');
+  const logLine = document.getElementById('modal-sample-struct-log-line');
+
+  btnSubmit.disabled = true;
+  progBox.classList.remove('hidden');
+  logLine.innerText = `Connecting to Vision AI to analyze ${structSampleFiles.length} sample(s)...`;
+
+  try {
+    const res = await fetch('/api/structure/build-from-samples', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sample_files: structSampleFiles.map(f => f.file_path),
+        structure_name: structName,
+        custom_instructions: instructions
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const evtSource = new EventSource(`/api/generator/stream/${data.job_id}`);
+    evtSource.addEventListener('log', (e) => {
+      const d = JSON.parse(e.data);
+      if (logLine) logLine.innerText = d.message;
+    });
+
+    evtSource.addEventListener('completed', (e) => {
+      const d = JSON.parse(e.data);
+      evtSource.close();
+      btnSubmit.disabled = false;
+      closeBuildStructureFromSamplesModal();
+      showToast(`Successfully created detection structure: ${d.filename}`, 'success');
+      loadGeneratorStructures().then(() => {
+        selectStructureItem(d.filename);
+      });
+    });
+
+    evtSource.addEventListener('error', (e) => {
+      evtSource.close();
+      btnSubmit.disabled = false;
+      logLine.innerText = 'Failed generating detection structure.';
+      showToast('Error synthesizing detection schema', 'error');
+    });
+
+    evtSource.addEventListener('close', () => evtSource.close());
+  } catch (err) {
+    btnSubmit.disabled = false;
+    logLine.innerText = `Error: ${err.message}`;
+    showToast(`Build error: ${err.message}`, 'error');
   }
 }
 
@@ -419,12 +1123,16 @@ function copyGenLogsToClipboard() {
 }
 
 async function startPresentationGeneration() {
-  const docxPath = document.getElementById('gen-docx-path').value.trim();
-  const templateName = document.getElementById('gen-template-select').value;
-  const outputPath = document.getElementById('gen-output-path').value.trim();
+  const sourceFiles = genSourceFiles.map(f => f.file_path);
+  const docxPath = document.getElementById('gen-docx-path')?.value.trim() || '';
+  const rawText = document.getElementById('gen-raw-text-input')?.value.trim() || '';
+  const templateName = document.getElementById('gen-template-select')?.value;
+  const structureName = document.getElementById('gen-structure-select')?.value || '';
+  const enableRestructure = document.getElementById('gen-enable-restructure')?.checked || false;
+  const outputPath = document.getElementById('gen-output-path')?.value.trim();
 
-  if (!docxPath) {
-    showToast('Please select or upload a Word (.docx) document first.', 'warning');
+  if (sourceFiles.length === 0 && !docxPath && !rawText) {
+    showToast('Please upload source files (Word, PPTX, Text, Images, Audio) or enter text notes.', 'warning');
     return;
   }
 
@@ -437,16 +1145,27 @@ async function startPresentationGeneration() {
   btnDownload.disabled = true;
 
   setSystemStatus('SYNTHESIZING...', true);
-  appendGenLog(`[*] Starting presentation generation for ${docxPath}`);
+  const inputSummary = sourceFiles.length > 0 ? `${sourceFiles.length} source file(s)` : (docxPath ? docxPath.split(/[\\/]/).pop() : 'Direct notes');
+  appendGenLog(`\n[*] Starting presentation synthesis for ${inputSummary}`);
+  if (structureName && enableRestructure) {
+    appendGenLog(`[*] AI Storyboard Restructure Agent ACTIVE: Conforming to '${structureName}'`);
+  }
+
+  const timeoutVal = parseInt(document.getElementById('gen-timeout-input')?.value || '300', 10);
 
   try {
     const res = await fetch('/api/generator/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        source_files: sourceFiles,
         docx_path: docxPath,
+        raw_text: rawText,
         template_name: templateName,
-        output_path: outputPath
+        structure_name: structureName,
+        enable_restructure: enableRestructure,
+        output_path: outputPath,
+        timeout: timeoutVal
       })
     });
 
@@ -2032,6 +2751,10 @@ async function loadConfigSettings() {
       document.getElementById('cfg-search-model').value = cfg.NINEROUTER_SEARCH_MODEL || '';
       document.getElementById('cfg-fetch-model').value = cfg.NINEROUTER_FETCH_MODEL || '';
       document.getElementById('cfg-image-model').value = cfg.NINEROUTER_IMAGE_MODEL || '';
+      const timeoutEl = document.getElementById('cfg-timeout');
+      if (timeoutEl) timeoutEl.value = cfg.LLM_TIMEOUT || 300;
+
+      applyConfigAndMetadata(data);
     }
   } catch (err) {
     console.error('Failed to load settings', err);
@@ -2039,6 +2762,7 @@ async function loadConfigSettings() {
 }
 
 async function saveConfigSettings() {
+  const timeoutVal = parseInt(document.getElementById('cfg-timeout')?.value.trim() || '300', 10);
   const config = {
     NINEROUTER_URL: document.getElementById('cfg-url').value.trim(),
     NINEROUTER_KEY: document.getElementById('cfg-key').value.trim(),
@@ -2046,6 +2770,7 @@ async function saveConfigSettings() {
     NINEROUTER_SEARCH_MODEL: document.getElementById('cfg-search-model').value.trim(),
     NINEROUTER_FETCH_MODEL: document.getElementById('cfg-fetch-model').value.trim(),
     NINEROUTER_IMAGE_MODEL: document.getElementById('cfg-image-model').value.trim(),
+    LLM_TIMEOUT: isNaN(timeoutVal) ? 300 : timeoutVal,
     PURE_PIL_ACTIVE: true
   };
 

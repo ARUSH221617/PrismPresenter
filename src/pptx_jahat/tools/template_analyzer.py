@@ -169,7 +169,8 @@ def _extract_template_summary_for_ai(pptx_path: Path) -> Dict[str, Any]:
 def analyze_template(
     pptx_path: Path | str,
     log_cb: Optional[Callable[[str], None]] = None,
-    save_to_file: bool = True
+    save_to_file: bool = True,
+    timeout: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Analyzes a single PPTX template using 9Router AI Agent.
@@ -213,10 +214,11 @@ def analyze_template(
         log(f"[!] Visual preview capture skipped ({e}). Proceeding with structural analysis.")
 
     # Build 9Router AI prompt
+    effective_timeout = float(timeout or Config.LLM_TIMEOUT)
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
         base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
-        timeout=120.0
+        timeout=effective_timeout
     )
 
     system_prompt = (

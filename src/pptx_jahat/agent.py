@@ -20,6 +20,13 @@ from pptx_jahat.tools.template_analyzer import (
     analyze_all_templates,
     load_notes
 )
+from pptx_jahat.tools.structure_manager import (
+    list_structure_files,
+    get_structure_content,
+    save_structure_content,
+    build_structure_from_template,
+    build_structure_from_sample_files
+)
 
 TOOLS_DEFINITIONS = [
     {
@@ -239,6 +246,78 @@ TOOLS_DEFINITIONS = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_structures",
+            "description": "List all slide storyboard specifications (structure.md) available in data/structure/",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_structure",
+            "description": "Read the contents of a specific structure.md file from data/structure/",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "structure_name": {"type": "string", "description": "Filename or name of the structure.md file"}
+                },
+                "required": ["structure_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_structure",
+            "description": "Save or update a structure.md file in data/structure/",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "structure_name": {"type": "string", "description": "Name for the structure file"},
+                    "content": {"type": "string", "description": "Markdown content for the structure specification"}
+                },
+                "required": ["structure_name", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_structure_from_template",
+            "description": "Analyze a PPTX template and generate a complete Slide Storyboard Specification Schema (structure.md) saved to data/structure/<name>.md",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template_name": {"type": "string", "description": "Filename of the PPTX template (e.g. 'T711.pptx')"},
+                    "structure_name": {"type": "string", "description": "Desired name for the generated structure file"},
+                    "custom_instructions": {"type": "string", "description": "Optional instructions for tailoring the storyboard schema"}
+                },
+                "required": ["template_name", "structure_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_structure_from_sample_files",
+            "description": "Analyze multiple sample files (photos of paper notes, worksheets, documents) to generate a Slide Storyboard & Detection Specification Schema (`structure.md`) saved to data/structure/<name>.md",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sample_file_paths": {"type": "array", "items": {"type": "string"}, "description": "List of paths to sample files or images"},
+                    "structure_name": {"type": "string", "description": "Desired name for the generated structure file"},
+                    "custom_instructions": {"type": "string", "description": "Optional instructions or domain context"}
+                },
+                "required": ["sample_file_paths", "structure_name"]
+            }
+        }
     }
 ]
 
@@ -263,6 +342,15 @@ TOOL_HANDLERS: Dict[str, Callable] = {
     "analyze_pptx_template": lambda pptx_path: json.dumps(analyze_template(pptx_path), indent=2),
     "analyze_all_templates": lambda: analyze_all_templates(),
     "get_template_notes": lambda: load_notes(),
+    "list_structures": lambda: json.dumps(list_structure_files(), indent=2),
+    "read_structure": lambda structure_name: get_structure_content(structure_name),
+    "save_structure": lambda structure_name, content: json.dumps(save_structure_content(structure_name, content), indent=2),
+    "build_structure_from_template": lambda template_name, structure_name, custom_instructions=None: json.dumps(
+        build_structure_from_template(template_name, structure_name, custom_instructions), indent=2
+    ),
+    "build_structure_from_sample_files": lambda sample_file_paths, structure_name, custom_instructions=None: json.dumps(
+        build_structure_from_sample_files(sample_file_paths, structure_name, custom_instructions), indent=2
+    ),
 }
 
 class AIAgent:
@@ -293,7 +381,11 @@ class AIAgent:
             "generate_image",
             "verify_and_repair_pptx",
             "analyze_pptx_template",
-            "analyze_all_templates"
+            "analyze_all_templates",
+            "list_structures",
+            "read_structure",
+            "save_structure",
+            "build_structure_from_template"
         }
 
         active_tools = []
@@ -309,7 +401,7 @@ class AIAgent:
     def _get_client(self) -> OpenAI:
         base_url = f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
         api_key = Config.NINEROUTER_KEY or "dummy_key"
-        return OpenAI(api_key=api_key, base_url=base_url)
+        return OpenAI(api_key=api_key, base_url=base_url, timeout=Config.LLM_TIMEOUT)
 
     def run(self, user_prompt: str, max_steps: int = 10, log_callback: Optional[Callable[[str], None]] = None) -> str:
         def log(msg: str):

@@ -7,7 +7,11 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.dml.color import RGBColor
 
 from pptx_jahat.config import DATA_DIR, COMPONENTS_DIR, SHAPES_DIR, IMAGES_DIR
-from pptx_jahat.tools.preview import render_pptx_slide_to_image, image_to_base64_jpeg
+from pptx_jahat.tools.preview import (
+    render_pptx_file_previews,
+    render_pptx_slide_to_image,
+    image_to_base64_jpeg
+)
 
 def _rgb_to_hex(color: Optional[RGBColor]) -> Optional[str]:
     if not color:
@@ -283,10 +287,13 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
     if include_screenshots:
         try:
             rendered_images = render_pptx_file_previews(str(path), target_width_px=screenshot_width)
+            if isinstance(rendered_images, tuple):
+                rendered_images = rendered_images[0]
             for idx, img in enumerate(rendered_images):
                 batch_screenshots[idx] = image_to_base64_jpeg(img, quality=80)
-        except Exception:
-            pass
+        except Exception as ex:
+            import logging
+            logging.getLogger("pptx_engine").warning("Batch slide preview render failed for %s: %s", path.name, ex)
 
     for slide_idx, slide in enumerate(prs.slides):
         slide_entry = {

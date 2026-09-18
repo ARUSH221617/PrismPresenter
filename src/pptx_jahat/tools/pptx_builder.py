@@ -6,7 +6,7 @@ import zipfile
 import collections
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable, Tuple
+from typing import Dict, Any, List, Optional, Callable, Tuple, Sequence
 from pptx import Presentation
 from pptx.util import Pt, Inches
 from pptx.dml.color import RGBColor
@@ -18,6 +18,13 @@ from pptx.oxml import parse_xml
 
 from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR
 from pptx_jahat.tools.docx_parser import parse_docx
+from pptx_jahat.tools.json_parser import safe_json_loads
+from pptx_jahat.tools.multi_parser import parse_multiple_sources
+from pptx_jahat.tools.structure_manager import (
+    get_structure_content,
+    restructure_slides_with_agent,
+    convert_restructured_to_sections
+)
 from pptx_jahat.tools.pptx_engine import inspect_template_slides, inspect_all_templates
 from pptx_jahat.tools.image_gen import generate_image
 from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg
@@ -180,7 +187,7 @@ def _remove_shapes(slide: Any, shape_indices: List[int]) -> None:
     for s_idx in sorted(set(shape_indices), reverse=True):
         _remove_shape(slide, s_idx)
 
-def clone_slide_across_presentations(source_prs: Presentation, target_prs: Presentation, slide_index: int) -> Any:
+def clone_slide_across_presentations(source_prs: Any, target_prs: Any, slide_index: int) -> Any:
     """
     Deep clones a slide from source_prs into target_prs, preserving layout, background,
     media parts, and relationship mappings while avoiding duplicate/corrupted package parts.
@@ -286,11 +293,13 @@ def generate_slide_replacements_with_ai(
     template_inventory: List[Dict[str, Any]],
     doc_structure: Dict[str, Any],
     log_cb: Optional[Callable[[str], None]] = None,
-    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None
-) -> Dict[str, Any]:
+    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    structure_blueprint: Optional[str] = None,
+    timeout: Optional[float] = None
+) -> Optional[Dict[str, Any]]:
     """
     Step 3: AI Vision Agent reasons over multimodal slide screenshots, shape slots across templates,
-    and Word docx content.
+    Word docx or multi-modal content, and optional Storyboard Specification (structure.md).
     Returns optimal slide selections across templates, exact text replacements, shapes to remove,
     speaker notes, and optional AI image generation prompts for picture slots.
     """
@@ -298,19 +307,20 @@ def generate_slide_replacements_with_ai(
         if log_cb:
             log_cb(msg)
 
-    log("[Step 3] AI Vision Agent analyzing candidate template slides & document content...")
+    effective_timeout = float(timeout or Config.LLM_TIMEOUT)
+    log(f"[Step 3] AI Vision Agent analyzing candidate template slides & document content (timeout={effective_timeout}s)...")
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
         base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
-        timeout=120.0
+        timeout=effective_timeout
     )
 
     system_prompt = (
         "You are an expert Presentation Art Director and Content Producer. "
         "You receive Template Intelligence & Design Notes (analyzing template purposes, ideas, content briefs, and styles like friendly, corporate, modern tech), "
         "visual screenshots, shape slots, and archetype tags of candidate presentation slides across multiple templates, "
-        "along with a parsed Word document. "
+        "along with parsed and structured input material. "
         "Your task is to:\n"
         "1. Step 1 (Template Selection): Choose the best Template(s) by matching the document's domain, purpose, and style with the Template Intelligence Notes.\n"
         "2. Step 2 (Slide Selection): Select the best visual slide archetype from the selected templates for each section/topic in the document (title_cover, table_matrix, metrics_stats, multi_column, process_timeline, content_bullets, conclusion_quote).\n"
@@ -331,6 +341,14 @@ def generate_slide_replacements_with_ai(
 Step 0 - Template Intelligence & Style Notes (from data/NOTE.md):
 Use these analyzed notes to guide Step 1 (Best Template Selection by style, purpose, feel) and Step 2 (Best Slide Selection):
 {template_notes}
+"""
+
+    structure_prompt_block = ""
+    if structure_blueprint and structure_blueprint.strip():
+        structure_prompt_block = f"""
+Step 0.5 - Storyboard Specification Schema (from selected structure.md):
+The presentation follows this structured pedagogical schema. Incorporate numbered animation steps (①, ②, ③...), formulas, and teacher callouts directly into slots:
+{structure_blueprint[:2000]}
 """
 
     # Prepare slot descriptions (without heavy base64 strings in the JSON text prompt)
@@ -363,6 +381,7 @@ Use these analyzed notes to guide Step 1 (Best Template Selection by style, purp
             "type": "text",
             "text": f"""
 {notes_prompt_block}
+{structure_prompt_block}
 
 Step 1 - Available Slide Blueprints, Archetypes & Slots:
 {json.dumps(inventory_summary, ensure_ascii=False, indent=2)}
@@ -448,13 +467,7 @@ Return a JSON object with this exact schema:
             temperature=0.3
         )
         content = response.choices[0].message.content or "{}"
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-        if match:
-            json_str = match.group(1)
-        else:
-            json_str = content.strip()
-            
-        plan = json.loads(json_str)
+        plan = safe_json_loads(content)
         log("[Step 3] AI Vision Agent generated presentation plan successfully.")
         return plan
     except Exception as e:
@@ -462,22 +475,39 @@ Return a JSON object with this exact schema:
         return None
 
 def build_pptx_with_agent(
-    docx_path: str | Path,
+    docx_path: Optional[str | Path | Sequence[str | Path]] = None,
     output_path: Optional[str | Path] = None,
     template_name: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
-    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None
+    on_ai_images_ready: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    structure_name: Optional[str] = None,
+    raw_text: Optional[str] = None,
+    enable_restructure: bool = False,
+    timeout: Optional[float] = None
 ) -> str:
     """
-    4-Step Vision-Guided Multi-Template Presentation Generation:
+    Multi-Template & Storyboard-Guided Presentation Generation:
     Step 1: Scan & inspect candidate slides across all templates with rendered screenshots.
-    Step 2: Read and parse Word DOCX structure.
+    Step 2: Read and parse multi-modal sources (Word, PowerPoint, Text, Image OCR, Audio, raw text).
+    Step 2.5 (Optional): Restructure & rewrite slide contents conforming to structure.md.
     Step 3: Vision AI reasons on slide screenshots & doc content, selecting best slides across templates.
     Step 4: Clone selected slides across presentations into target deck, prune removed shapes, and update text in-place.
     """
     def log(msg: str):
         if log_callback:
             log_callback(msg)
+
+    effective_timeout = float(timeout or Config.LLM_TIMEOUT)
+
+    # Normalize input files
+    if isinstance(docx_path, (list, tuple)):
+        input_paths = [Path(p) for p in docx_path if p]
+    elif isinstance(docx_path, (str, Path)):
+        input_paths = [Path(docx_path)]
+    elif docx_path is not None:
+        input_paths = [Path(p) for p in docx_path]
+    else:
+        input_paths = []
 
     # ----------------------------------------------------
     # Step 1: Scan & inspect templates
@@ -500,12 +530,48 @@ def build_pptx_with_agent(
     log(f"[Step 1] Loaded {len(template_inventory)} candidate slides across templates.")
 
     # ----------------------------------------------------
-    # Step 2: Read and parse Word Document
+    # Step 1.5: Pre-load Detection / Storyboard Schema if specified
     # ----------------------------------------------------
-    docx_file = Path(docx_path)
-    log(f"[Step 2] Reading Word document: {docx_file.name}...")
-    parsed_doc = parse_docx(docx_file)
-    log(f"[Step 2] Parsed {parsed_doc['total_sections']} sections from document.")
+    structure_blueprint = None
+    if structure_name and "none" not in str(structure_name).lower():
+        try:
+            log(f"[*] Loading Detection / Storyboard Schema: {structure_name}...")
+            structure_blueprint = get_structure_content(structure_name)
+            log(f"[✓] Active Schema: {Path(structure_name).name} guiding detection & extraction.")
+        except Exception as st_ex:
+            log(f"[!] Schema notice: {st_ex}. Proceeding with standard detection.")
+
+    # ----------------------------------------------------
+    # Step 2: Read & parse input sources (Word, PPTX, Text, Image, Audio)
+    # ----------------------------------------------------
+    if len(input_paths) > 1 or any(p.suffix.lower() != ".docx" for p in input_paths) or raw_text:
+        log(f"[Step 2] Reading multi-modal sources ({len(input_paths)} files + direct notes)...")
+        parsed_doc = parse_multiple_sources(input_paths, raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=structure_blueprint)
+    elif input_paths and input_paths[0].exists():
+        docx_file = input_paths[0]
+        log(f"[Step 2] Reading Word document: {docx_file.name}...")
+        parsed_doc = parse_docx(docx_file)
+    else:
+        log("[Step 2] Parsing direct text input...")
+        parsed_doc = parse_multiple_sources([], raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=structure_blueprint)
+
+    log(f"[Step 2] Extracted {parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))} content sections.")
+
+    # ----------------------------------------------------
+    # Step 2.5: Restructure & Rewrite Slides base on structure.md (Optional)
+    # ----------------------------------------------------
+    if structure_blueprint and (enable_restructure or True):
+        try:
+            name_display = Path(structure_name).name if structure_name else "structure.md"
+            log(f"[Step 2.5] Autonomous Restructure Agent rewriting & structuring slides based on {name_display}...")
+            restructured = restructure_slides_with_agent(parsed_doc, structure_blueprint, log_cb=log, timeout=effective_timeout)
+            if restructured and restructured.get("slides"):
+                parsed_doc["restructured_slides"] = restructured.get("slides", [])
+                parsed_doc["sections"] = convert_restructured_to_sections(restructured)
+                parsed_doc["total_sections"] = len(parsed_doc["sections"])
+                log(f"[Step 2.5] Restructure Agent prepared {len(parsed_doc['sections'])} slides adhering to {name_display}.")
+        except Exception as st_ex:
+            log(f"[Step 2.5 Warning] Storyboard restructuring notice: {st_ex}. Continuing with standard sections.")
 
     # ----------------------------------------------------
     # Step 3: AI Vision Agent writes texts and selects slides
@@ -514,7 +580,9 @@ def build_pptx_with_agent(
         template_inventory,
         parsed_doc,
         log_cb=log,
-        on_ai_images_ready=on_ai_images_ready
+        on_ai_images_ready=on_ai_images_ready,
+        structure_blueprint=structure_blueprint,
+        timeout=effective_timeout
     )
 
     # ----------------------------------------------------
@@ -523,8 +591,8 @@ def build_pptx_with_agent(
     log("[Step 4] Assembling target presentation from selected template slides...")
 
     # Cache opened presentations by filename
-    prs_cache: Dict[str, Presentation] = {}
-    def get_source_prs(tpl_file: str) -> Presentation:
+    prs_cache: Dict[str, Any] = {}
+    def get_source_prs(tpl_file: str) -> Any:
         if tpl_file not in prs_cache:
             p = DATA_DIR / tpl_file
             if not p.exists():
@@ -643,7 +711,8 @@ def build_pptx_with_agent(
 
     if not output_path:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = OUTPUT_DIR / f"{docx_file.stem}_generated.pptx"
+        primary_stem = input_paths[0].stem if input_paths else "presentation"
+        output_path = OUTPUT_DIR / f"{primary_stem}_generated.pptx"
     else:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -804,7 +873,7 @@ def verify_and_auto_heal_pptx(
             client = OpenAI(
                 api_key=Config.NINEROUTER_KEY or "dummy_key",
                 base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
-                timeout=120.0
+                timeout=Config.LLM_TIMEOUT
             )
             
             ai_repair_prompt = f"""
@@ -845,9 +914,7 @@ Ensure no conflicting shape removals or malformed tables are generated.
                 temperature=0.1
             )
             content = response.choices[0].message.content or "{}"
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-            json_str = match.group(1) if match else content.strip()
-            repaired_plan = json.loads(json_str)
+            repaired_plan = safe_json_loads(content)
             
             if repaired_plan and "slides" in repaired_plan:
                 log("[Verification Loop - AI Agent] AI Agent provided healed plan. Re-assembling presentation...")

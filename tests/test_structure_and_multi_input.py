@@ -263,6 +263,56 @@ def test_generate_endpoint_with_different_structures(client):
     assert d["success"] is True
     assert "job_id" in d
 
+def test_diagnostics_tracker_lifecycle():
+    from pptx_jahat.tools.pptx_builder import DiagnosticsTracker, get_initial_diagnostics_steps
+
+    steps = get_initial_diagnostics_steps()
+    assert len(steps) == 7
+    step_ids = [s["id"] for s in steps]
+    assert "step_1" in step_ids
+    assert "step_1_5" in step_ids
+    assert "step_2" in step_ids
+    assert "step_2_5" in step_ids
+    assert "step_3" in step_ids
+    assert "step_4" in step_ids
+    assert "step_5" in step_ids
+
+    events = []
+    def callback(step_data):
+        events.append(dict(step_data))
+
+    tracker = DiagnosticsTracker(callback=callback)
+    
+    # Step 1: Start and complete
+    tracker.start_step("step_1", input_desc="Test Input 1")
+    assert tracker.steps["step_1"]["status"] == "running"
+    assert tracker.steps["step_1"]["input"] == "Test Input 1"
+
+    tracker.complete_step("step_1", output_desc="Test Output 1")
+    assert tracker.steps["step_1"]["status"] == "completed"
+    assert tracker.steps["step_1"]["output"] == "Test Output 1"
+    assert tracker.steps["step_1"]["duration"] is not None
+
+    # Step 1.5: Skip
+    tracker.start_step("step_1_5", input_desc="Schema check")
+    tracker.skip_step("step_1_5", reason="No schema needed")
+    assert tracker.steps["step_1_5"]["status"] == "skipped"
+    assert "Skipped: No schema needed" in tracker.steps["step_1_5"]["output"]
+
+    # Step 2: Fail active
+    tracker.start_step("step_2", input_desc="Source parsing")
+    tracker.fail_active("Network timeout error")
+    assert tracker.steps["step_2"]["status"] == "failed"
+    assert "Network timeout error" in tracker.steps["step_2"]["output"]
+
+    # Verify callback notifications
+    assert len(events) >= 5
+    summary_list = tracker.get_steps_list()
+    assert len(summary_list) == 7
+    for s in summary_list:
+        assert not any(k.startswith("_") for k in s.keys())
+
+
 
 
 

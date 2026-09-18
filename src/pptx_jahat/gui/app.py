@@ -13,7 +13,11 @@ from pptx import Presentation
 
 from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR, STRUCTURES_DIR
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
-from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
+from pptx_jahat.tools.pptx_builder import (
+    build_pptx_with_agent,
+    verify_and_auto_heal_pptx,
+    get_initial_diagnostics_steps
+)
 from pptx_jahat.tools.preview import render_pptx_file_previews
 from pptx_jahat.tools.template_analyzer import (
     analyze_template,
@@ -349,6 +353,14 @@ class PPTXJahatApp(tk.Tk):
         self.btn_open_pptx.set_state("disabled")
         self.btn_open_pptx.pack(side=tk.LEFT)
 
+        self.btn_view_diag = StyledActionBtn(
+            action_bar,
+            text="🩺 Diagnostics",
+            command=lambda: self.preview_sub_notebook.select(self.subtab_diagnostics),
+            is_primary=False
+        )
+        self.btn_view_diag.pack(side=tk.LEFT, padx=(8, 0))
+
         # Console Logs Card
         self.gen_console = ConsoleLogWidget(left_container, title="Generation Execution Stream", height=10)
         self.gen_console.pack(fill=tk.BOTH, expand=True)
@@ -384,6 +396,11 @@ class PPTXJahatApp(tk.Tk):
         self.subtab_ai_test = tk.Frame(self.preview_sub_notebook, bg=Theme.BG_SURFACE)
         self.preview_sub_notebook.add(self.subtab_ai_test, text="  🤖 Visual AI Test Images  ")
         self._setup_subtab_ai_test_images()
+
+        # SUB-TAB 4: Pipeline Diagnostics (Status, Input, Output per Step)
+        self.subtab_diagnostics = tk.Frame(self.preview_sub_notebook, bg=Theme.BG_SURFACE)
+        self.preview_sub_notebook.add(self.subtab_diagnostics, text="  🩺 Diagnostics & Steps  ")
+        self._setup_subtab_diagnostics()
 
         self._refresh_templates()
         self._refresh_structures()
@@ -576,6 +593,253 @@ class PPTXJahatApp(tk.Tk):
             anchor="center"
         )
         self.ai_test_label.pack(fill=tk.BOTH, expand=True)
+
+    def _setup_subtab_diagnostics(self):
+        """Builds the real-time Diagnostics & Step Inspector subtab."""
+        # Top Header Bar
+        top_bar = tk.Frame(self.subtab_diagnostics, bg=Theme.BG_SURFACE, pady=6, padx=8)
+        top_bar.pack(fill=tk.X, side=tk.TOP)
+
+        lbl_title = tk.Label(
+            top_bar,
+            text="🩺 Generation Pipeline Diagnostics",
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_WHITE,
+            font=Theme.FONT_TITLE
+        )
+        lbl_title.pack(side=tk.LEFT)
+
+        self.diag_summary_var = tk.StringVar(value="Total: 7 • Completed: 0 • Running: 0 • Pending: 7")
+        lbl_summary = tk.Label(
+            top_bar,
+            textvariable=self.diag_summary_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_MUTED,
+            font=Theme.FONT_CAPTION
+        )
+        lbl_summary.pack(side=tk.LEFT, padx=(12, 0))
+
+        btn_reset = StyledActionBtn(
+            top_bar,
+            text="Reset",
+            command=self._init_diagnostics,
+            is_primary=False,
+            padx=8,
+            pady=2
+        )
+        btn_reset.pack(side=tk.RIGHT)
+
+        sep = tk.Frame(self.subtab_diagnostics, bg=Theme.BORDER_DARK, height=1)
+        sep.pack(fill=tk.X, side=tk.TOP)
+
+        # Scrollable Canvas for Steps
+        canvas_container = tk.Frame(self.subtab_diagnostics, bg=Theme.BG_DARKEST)
+        canvas_container.pack(fill=tk.BOTH, expand=True)
+
+        self.diag_canvas = tk.Canvas(
+            canvas_container,
+            bg=Theme.BG_DARKEST,
+            bd=0,
+            highlightthickness=0
+        )
+        diag_scrollbar = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL, command=self.diag_canvas.yview)
+        self.diag_canvas.configure(yscrollcommand=diag_scrollbar.set)
+
+        diag_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.diag_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.diag_scroll_frame = tk.Frame(self.diag_canvas, bg=Theme.BG_DARKEST, padx=8, pady=8)
+        self.diag_canvas_window = self.diag_canvas.create_window((0, 0), window=self.diag_scroll_frame, anchor="nw")
+
+        def _on_frame_configure(event):
+            self.diag_canvas.configure(scrollregion=self.diag_canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            self.diag_canvas.itemconfig(self.diag_canvas_window, width=event.width)
+
+        self.diag_scroll_frame.bind("<Configure>", _on_frame_configure)
+        self.diag_canvas.bind("<Configure>", _on_canvas_configure)
+
+        self.diag_step_widgets = {}
+        self._init_diagnostics()
+
+    def _init_diagnostics(self):
+        """Initializes or resets the step cards with baseline pipeline steps."""
+        for child in self.diag_scroll_frame.winfo_children():
+            child.destroy()
+
+        self.diag_step_widgets = {}
+        initial_steps = get_initial_diagnostics_steps()
+
+        for idx, step in enumerate(initial_steps):
+            step_id = step["id"]
+            card = tk.Frame(
+                self.diag_scroll_frame,
+                bg=Theme.BG_SURFACE,
+                highlightbackground=Theme.BORDER_DARK,
+                highlightthickness=1,
+                padx=10,
+                pady=8
+            )
+            card.pack(fill=tk.X, pady=4)
+
+            # Header Row: Number + Name + Duration + Status Badge
+            hdr = tk.Frame(card, bg=Theme.BG_SURFACE)
+            hdr.pack(fill=tk.X, pady=(0, 6))
+
+            lbl_name = tk.Label(
+                hdr,
+                text=f"{idx + 1}. {step['name']}",
+                bg=Theme.BG_SURFACE,
+                fg=Theme.TEXT_WHITE,
+                font=Theme.FONT_BODY_BOLD,
+                anchor="w"
+            )
+            lbl_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            lbl_dur = tk.Label(
+                hdr,
+                text="",
+                bg=Theme.BG_SURFACE,
+                fg=Theme.TEXT_DIM,
+                font=Theme.FONT_CAPTION
+            )
+            lbl_dur.pack(side=tk.RIGHT, padx=(0, 6))
+
+            badge = Badge(
+                hdr,
+                text="PENDING",
+                bg_color=Theme.BG_DARKEST,
+                fg_color=Theme.TEXT_DIM,
+                border_color=Theme.BORDER_DARK
+            )
+            badge.pack(side=tk.RIGHT)
+
+            # Body: Input & Output Panels
+            body = tk.Frame(card, bg=Theme.BG_SURFACE)
+            body.pack(fill=tk.X)
+
+            # Input Section
+            in_hdr = tk.Frame(body, bg=Theme.BG_SURFACE)
+            in_hdr.pack(fill=tk.X, pady=(2, 1))
+            tk.Label(
+                in_hdr,
+                text="↳ INPUT:",
+                bg=Theme.BG_SURFACE,
+                fg=Theme.RED_PRIMARY,
+                font=("Segoe UI", 8, "bold")
+            ).pack(side=tk.LEFT)
+
+            lbl_input = tk.Label(
+                body,
+                text=step.get("input", "None"),
+                bg=Theme.BG_DARKEST,
+                fg=Theme.TEXT_MAIN,
+                font=("Consolas", 8),
+                justify="left",
+                anchor="w",
+                padx=8,
+                pady=4,
+                wraplength=450
+            )
+            lbl_input.pack(fill=tk.X, pady=(0, 4))
+
+            # Output Section
+            out_hdr = tk.Frame(body, bg=Theme.BG_SURFACE)
+            out_hdr.pack(fill=tk.X, pady=(2, 1))
+            tk.Label(
+                out_hdr,
+                text="↱ OUTPUT:",
+                bg=Theme.BG_SURFACE,
+                fg=Theme.TEXT_SUCCESS,
+                font=("Segoe UI", 8, "bold")
+            ).pack(side=tk.LEFT)
+
+            lbl_output = tk.Label(
+                body,
+                text=step.get("output", "Awaiting execution..."),
+                bg=Theme.BG_DARKEST,
+                fg=Theme.TEXT_MUTED,
+                font=("Consolas", 8),
+                justify="left",
+                anchor="w",
+                padx=8,
+                pady=4,
+                wraplength=450
+            )
+            lbl_output.pack(fill=tk.X)
+
+            self.diag_step_widgets[step_id] = {
+                "card": card,
+                "badge": badge,
+                "input_lbl": lbl_input,
+                "output_lbl": lbl_output,
+                "duration_lbl": lbl_dur,
+                "status": "pending"
+            }
+
+        self._refresh_diag_summary()
+
+    def _refresh_diag_summary(self):
+        total = len(self.diag_step_widgets)
+        completed = sum(1 for w in self.diag_step_widgets.values() if w["status"] == "completed")
+        running = sum(1 for w in self.diag_step_widgets.values() if w["status"] == "running")
+        failed = sum(1 for w in self.diag_step_widgets.values() if w["status"] == "failed")
+        skipped = sum(1 for w in self.diag_step_widgets.values() if w["status"] == "skipped")
+        pending = sum(1 for w in self.diag_step_widgets.values() if w["status"] == "pending")
+
+        parts = [f"Total: {total}", f"✓ Completed: {completed}"]
+        if running:
+            parts.append(f"⚡ Running: {running}")
+        if failed:
+            parts.append(f"✗ Failed: {failed}")
+        if skipped:
+            parts.append(f"⏭ Skipped: {skipped}")
+        if pending:
+            parts.append(f"⏳ Pending: {pending}")
+
+        self.diag_summary_var.set(" • ".join(parts))
+
+    def _update_diagnostic_step_ui(self, step_info: Dict[str, Any]):
+        step_id = step_info.get("id")
+        if not step_id or step_id not in self.diag_step_widgets:
+            return
+
+        w = self.diag_step_widgets[step_id]
+        status = step_info.get("status", "pending")
+        w["status"] = status
+
+        # Update Badge
+        if status == "completed":
+            w["badge"].set_text("✓ COMPLETED", fg_color=Theme.TEXT_SUCCESS, bg_color="#0e2a1b")
+            w["card"].config(highlightbackground=Theme.TEXT_SUCCESS)
+        elif status == "running":
+            w["badge"].set_text("⚡ RUNNING...", fg_color="#fbbf24", bg_color="#2d2208")
+            w["card"].config(highlightbackground="#fbbf24")
+        elif status == "skipped":
+            w["badge"].set_text("⏭ SKIPPED", fg_color=Theme.TEXT_MUTED, bg_color=Theme.BG_SURFACE)
+            w["card"].config(highlightbackground=Theme.BORDER_DARK)
+        elif status == "failed":
+            w["badge"].set_text("✗ FAILED", fg_color=Theme.TEXT_RED, bg_color=Theme.BADGE_BG_RED)
+            w["card"].config(highlightbackground=Theme.RED_PRIMARY)
+        else:
+            w["badge"].set_text("⏳ PENDING", fg_color=Theme.TEXT_DIM, bg_color=Theme.BG_DARKEST)
+            w["card"].config(highlightbackground=Theme.BORDER_DARK)
+
+        # Update text labels
+        if "input" in step_info and step_info["input"]:
+            w["input_lbl"].config(text=step_info["input"])
+
+        if "output" in step_info and step_info["output"]:
+            w["output_lbl"].config(
+                text=step_info["output"],
+                fg=Theme.TEXT_WHITE if status == "completed" else (Theme.TEXT_RED if status == "failed" else Theme.TEXT_MUTED)
+            )
+
+        if "duration" in step_info and step_info["duration"]:
+            w["duration_lbl"].config(text=f"({step_info['duration']})")
+
+        self._refresh_diag_summary()
 
     def _browse_docx(self):
         f = filedialog.askopenfilename(filetypes=[("Word Document", "*.docx")])
@@ -908,7 +1172,11 @@ class PPTXJahatApp(tk.Tk):
             def ai_images_cb(sent_images):
                 self.after(50, lambda: self._set_ai_test_images(sent_images))
 
+            def diag_step_cb(step_info):
+                self.after(0, lambda: self._update_diagnostic_step_ui(step_info))
+
             try:
+                self.after(0, self._init_diagnostics)
                 self.gen_console.log(f"Starting PPTX generation pipeline for '{Path(docx_p).name}'", "accent")
                 if struct_name:
                     if enable_det:
@@ -923,7 +1191,8 @@ class PPTXJahatApp(tk.Tk):
                     on_ai_images_ready=ai_images_cb,
                     structure_name=struct_name,
                     enable_restructure=enable_restruct,
-                    enable_detection=enable_det
+                    enable_detection=enable_det,
+                    on_step_update=diag_step_cb
                 )
                 self.current_generated_pptx = res
                 self.gen_console.log(f"SUCCESS: Generated PPTX saved at {res}", "success")

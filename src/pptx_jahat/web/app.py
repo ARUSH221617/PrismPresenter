@@ -23,7 +23,11 @@ from PIL import Image
 
 from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR, STRUCTURES_DIR, IMAGES_DIR
 from pptx_jahat.agent import AIAgent
-from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
+from pptx_jahat.tools.pptx_builder import (
+    build_pptx_with_agent,
+    verify_and_auto_heal_pptx,
+    get_initial_diagnostics_steps
+)
 from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg, image_to_base64_png
 from pptx_jahat.tools.template_analyzer import (
     analyze_template,
@@ -218,7 +222,8 @@ def create_app() -> Flask:
                 "status": "running",
                 "result": None,
                 "error": None,
-                "ai_images": []
+                "ai_images": [],
+                "diagnostics": get_initial_diagnostics_steps()
             }
 
         def worker():
@@ -239,6 +244,18 @@ def create_app() -> Flask:
                         JOBS[job_id]["ai_images"] = parsed
                 event_queue.put({"event": "ai_images", "data": {"images": parsed}})
 
+            def on_step_update(step_info: Dict[str, Any]):
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        diag = JOBS[job_id].setdefault("diagnostics", get_initial_diagnostics_steps())
+                        for i, s in enumerate(diag):
+                            if s.get("id") == step_info.get("id"):
+                                diag[i] = dict(step_info)
+                                break
+                        else:
+                            diag.append(dict(step_info))
+                event_queue.put({"event": "step_update", "data": step_info})
+
             try:
                 event_queue.put({"event": "status", "data": {"status": "Generating presentation..."}})
                 res = build_pptx_with_agent(
@@ -255,14 +272,16 @@ def create_app() -> Flask:
                     restructure_structure_name=restructure_structure_name,
                     blueprint_structure_name=blueprint_structure_name,
                     enable_detection=enable_detection,
-                    enable_blueprint=enable_blueprint
+                    enable_blueprint=enable_blueprint,
+                    on_step_update=on_step_update
                 )
 
                 # Pre-render slides for instant UI loading
                 previews = []
                 try:
                     imgs, engine_name = render_pptx_file_previews(res, target_width_px=800, return_engine_info=True)
-                    for idx, img in enumerate(imgs):
+                    img_list = imgs if isinstance(imgs, list) else [imgs]
+                    for idx, img in enumerate(img_list):
                         previews.append({
                             "slide_index": idx,
                             "data_url": image_to_base64_jpeg(img, quality=85)
@@ -272,6 +291,7 @@ def create_app() -> Flask:
                     log_callback(f"Preview render warning: {str(ex)}")
 
                 with JOBS_LOCK:
+                    current_diag = JOBS[job_id].get("diagnostics", []) if job_id in JOBS else []
                     if job_id in JOBS:
                         JOBS[job_id]["status"] = "completed"
                         JOBS[job_id]["result"] = res
@@ -282,15 +302,17 @@ def create_app() -> Flask:
                         "pptx_path": res,
                         "filename": Path(res).name,
                         "engine_name": engine_name,
-                        "previews": previews
+                        "previews": previews,
+                        "diagnostics": current_diag
                     }
                 })
             except Exception as e:
                 with JOBS_LOCK:
+                    current_diag = JOBS[job_id].get("diagnostics", []) if job_id in JOBS else []
                     if job_id in JOBS:
                         JOBS[job_id]["status"] = "error"
                         JOBS[job_id]["error"] = str(e)
-                event_queue.put({"event": "error", "data": {"error": str(e)}})
+                event_queue.put({"event": "error", "data": {"error": str(e), "diagnostics": current_diag}})
             finally:
                 event_queue.put({"event": "close", "data": {}})
 
@@ -300,6 +322,30 @@ def create_app() -> Flask:
             "success": True,
             "job_id": job_id,
             "output_path": output_path
+        })
+
+    @app.route("/api/generator/diagnostics", methods=["GET"])
+    def get_generator_diagnostics():
+        job_id = request.args.get("job_id")
+        with JOBS_LOCK:
+            if job_id and job_id in JOBS:
+                return jsonify({
+                    "success": True,
+                    "job_id": job_id,
+                    "diagnostics": JOBS[job_id].get("diagnostics", [])
+                })
+            # Return the latest generator job with diagnostics
+            for j_id, j in reversed(list(JOBS.items())):
+                if j.get("type") == "generator" and "diagnostics" in j:
+                    return jsonify({
+                        "success": True,
+                        "job_id": j_id,
+                        "diagnostics": j.get("diagnostics", [])
+                    })
+        return jsonify({
+            "success": True,
+            "job_id": None,
+            "diagnostics": get_initial_diagnostics_steps()
         })
 
     @app.route("/api/generator/stream/<job_id>", methods=["GET"])

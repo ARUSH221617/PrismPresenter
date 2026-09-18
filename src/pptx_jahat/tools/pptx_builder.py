@@ -2,6 +2,7 @@ import json
 import re
 import copy
 import io
+import time
 import zipfile
 import collections
 import xml.etree.ElementTree as ET
@@ -726,6 +727,134 @@ Return a JSON object with this exact schema:
     log("[Step 3 Warning] All AI reasoning tiers exhausted, proceeding with multi-template algorithmic fallback.")
     return None
 
+def get_initial_diagnostics_steps() -> List[Dict[str, Any]]:
+    """Returns the baseline list of 7 pipeline steps for diagnostics display."""
+    return [
+        {
+            "id": "step_1",
+            "name": "Step 1: Scan & Inspect Templates",
+            "status": "pending",
+            "input": "Template catalog (data/), selected template style, visual slide screenshots",
+            "output": "Awaiting template inspection...",
+            "duration": None,
+        },
+        {
+            "id": "step_1_5",
+            "name": "Step 1.5: Storyboard Schema Resolution",
+            "status": "pending",
+            "input": "Storyboard schema (.md) for detection, restructuring, and layout blueprints",
+            "output": "Awaiting schema resolution...",
+            "duration": None,
+        },
+        {
+            "id": "step_2",
+            "name": "Step 2: Ingest & Parse Source Content",
+            "status": "pending",
+            "input": "Source documents (Word .docx, PPTX, MD, TXT, Images, Audio) and direct notes",
+            "output": "Awaiting content ingestion...",
+            "duration": None,
+        },
+        {
+            "id": "step_2_5",
+            "name": "Step 2.5: Storyboard Restructuring (AI Agent)",
+            "status": "pending",
+            "input": "Extracted document sections & active restructure schema rules",
+            "output": "Awaiting restructure agent...",
+            "duration": None,
+        },
+        {
+            "id": "step_3",
+            "name": "Step 3: Vision AI Reasoning & Slide Selection",
+            "status": "pending",
+            "input": "Template slide screenshots, content sections, schema archetype rules",
+            "output": "Awaiting AI reasoning and slide selection...",
+            "duration": None,
+        },
+        {
+            "id": "step_4",
+            "name": "Step 4: Deck Assembly & Slide Cloning",
+            "status": "pending",
+            "input": "AI synthesis plan, source template slides, target layout parameters",
+            "output": "Awaiting presentation assembly...",
+            "duration": None,
+        },
+        {
+            "id": "step_5",
+            "name": "Step 5: SlideCheck QA & Integrity Verification",
+            "status": "pending",
+            "input": "Assembled PPTX presentation, template typography, geometry boundaries",
+            "output": "Awaiting SlideCheck QA & font auto-healing...",
+            "duration": None,
+        },
+    ]
+
+
+class DiagnosticsTracker:
+    def __init__(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None):
+        self.callback = callback
+        self.steps: Dict[str, Dict[str, Any]] = {s["id"]: dict(s) for s in get_initial_diagnostics_steps()}
+        self.active_step_id: Optional[str] = None
+
+    def start_step(self, step_id: str, input_desc: Optional[str] = None):
+        self.active_step_id = step_id
+        if step_id in self.steps:
+            self.steps[step_id]["status"] = "running"
+            self.steps[step_id]["_start_time"] = time.time()
+            if input_desc:
+                self.steps[step_id]["input"] = input_desc
+            self.steps[step_id]["output"] = "In progress..."
+            self._notify(step_id)
+
+    def complete_step(self, step_id: str, output_desc: str, input_desc: Optional[str] = None):
+        if step_id in self.steps:
+            self.steps[step_id]["status"] = "completed"
+            st = self.steps[step_id].pop("_start_time", None)
+            if st:
+                self.steps[step_id]["duration"] = f"{time.time() - st:.2f}s"
+            if input_desc:
+                self.steps[step_id]["input"] = input_desc
+            self.steps[step_id]["output"] = output_desc
+            self._notify(step_id)
+
+    def skip_step(self, step_id: str, reason: str, input_desc: Optional[str] = None):
+        if step_id in self.steps:
+            self.steps[step_id]["status"] = "skipped"
+            self.steps[step_id].pop("_start_time", None)
+            self.steps[step_id]["duration"] = "0.00s"
+            if input_desc:
+                self.steps[step_id]["input"] = input_desc
+            self.steps[step_id]["output"] = f"Skipped: {reason}"
+            self._notify(step_id)
+
+    def fail_step(self, step_id: str, error_desc: str):
+        if step_id in self.steps:
+            self.steps[step_id]["status"] = "failed"
+            st = self.steps[step_id].pop("_start_time", None)
+            if st:
+                self.steps[step_id]["duration"] = f"{time.time() - st:.2f}s"
+            self.steps[step_id]["output"] = f"Error: {error_desc}"
+            self._notify(step_id)
+
+    def fail_active(self, error_desc: str):
+        if self.active_step_id:
+            self.fail_step(self.active_step_id, error_desc)
+
+    def get_steps_list(self) -> List[Dict[str, Any]]:
+        out = []
+        for s in self.steps.values():
+            item = {k: v for k, v in s.items() if not k.startswith("_")}
+            out.append(item)
+        return out
+
+    def _notify(self, step_id: str):
+        if self.callback and step_id in self.steps:
+            try:
+                item = {k: v for k, v in self.steps[step_id].items() if not k.startswith("_")}
+                self.callback(item)
+            except Exception:
+                pass
+
+
 def build_pptx_with_agent(
     docx_path: Optional[str | Path | Sequence[str | Path]] = None,
     output_path: Optional[str | Path] = None,
@@ -740,7 +869,8 @@ def build_pptx_with_agent(
     restructure_structure_name: Optional[str] = None,
     blueprint_structure_name: Optional[str] = None,
     enable_detection: bool = True,
-    enable_blueprint: bool = True
+    enable_blueprint: bool = True,
+    on_step_update: Optional[Callable[[Dict[str, Any]], None]] = None
 ) -> str:
     """
     Multi-Template & Storyboard-Guided Presentation Generation:
@@ -749,12 +879,14 @@ def build_pptx_with_agent(
     Step 2.5 (Optional): Restructure & rewrite slide contents conforming to structure.md.
     Step 3: Vision AI reasons on slide screenshots & doc content, selecting best slides across templates.
     Step 4: Clone selected slides across presentations into target deck, prune removed shapes, and update text in-place.
+    Step 5: SlideCheck QA & Automated Healing Loop.
     """
     def log(msg: str):
         if log_callback:
             log_callback(msg)
 
     effective_timeout = float(timeout or Config.LLM_TIMEOUT)
+    tracker = DiagnosticsTracker(callback=on_step_update)
 
     # Normalize input files
     if isinstance(docx_path, (list, tuple)):
@@ -766,348 +898,470 @@ def build_pptx_with_agent(
     else:
         input_paths = []
 
-    # ----------------------------------------------------
-    # Step 1: Scan & inspect templates
-    # ----------------------------------------------------
-    if template_name and template_name != "All Templates (Global AI Matching)":
-        candidate = DATA_DIR / template_name
-        if candidate.exists():
-            log(f"[Step 1] Inspecting selected template: {candidate.name}...")
-            template_inventory = inspect_template_slides(candidate, include_screenshots=True)
+    try:
+        # ----------------------------------------------------
+        # Step 1: Scan & inspect templates
+        # ----------------------------------------------------
+        tpl_target_desc = template_name or "All Templates (Global AI Matching)"
+        tracker.start_step(
+            "step_1",
+            input_desc=f"Catalog: '{DATA_DIR.name}/', Selected: '{tpl_target_desc}', Screenshots: Enabled"
+        )
+
+        if template_name and template_name != "All Templates (Global AI Matching)":
+            candidate = DATA_DIR / template_name
+            if candidate.exists():
+                log(f"[Step 1] Inspecting selected template: {candidate.name}...")
+                template_inventory = inspect_template_slides(candidate, include_screenshots=True)
+            else:
+                log(f"[Step 1] Scanning all templates in {DATA_DIR}...")
+                template_inventory = inspect_all_templates(DATA_DIR, include_screenshots=True)
         else:
-            log(f"[Step 1] Scanning all templates in {DATA_DIR}...")
+            log(f"[Step 1] Scanning all templates in {DATA_DIR} with visual screenshots...")
             template_inventory = inspect_all_templates(DATA_DIR, include_screenshots=True)
-    else:
-        log(f"[Step 1] Scanning all templates in {DATA_DIR} with visual screenshots...")
-        template_inventory = inspect_all_templates(DATA_DIR, include_screenshots=True)
 
-    if not template_inventory:
-        raise FileNotFoundError("No PPTX templates found in data folder.")
+        if not template_inventory:
+            tracker.fail_step("step_1", "No PPTX templates found in data folder.")
+            raise FileNotFoundError("No PPTX templates found in data folder.")
 
-    log(f"[Step 1] Loaded {len(template_inventory)} candidate slides across templates.")
+        tpl_files_set = sorted(set(s.get("template_file", "Template") for s in template_inventory))
+        tpl_fonts = template_inventory[0].get("template_fonts", []) if template_inventory else []
+        fonts_str = f", Fonts: {', '.join(tpl_fonts[:3])}" if tpl_fonts else ""
+        tracker.complete_step(
+            "step_1",
+            output_desc=f"Loaded {len(template_inventory)} candidate slides across {len(tpl_files_set)} templates ({', '.join(tpl_files_set)}){fonts_str}."
+        )
+        log(f"[Step 1] Loaded {len(template_inventory)} candidate slides across templates.")
 
-    # ----------------------------------------------------
-    # Step 1.5: Pre-load Detection / Storyboard Schema if specified
-    # ----------------------------------------------------
-    def _resolve_blueprint(name: Optional[str], label: str) -> Optional[str]:
-        if not name or "none" in str(name).lower():
-            return None
-        try:
-            log(f"[*] Loading {label} Schema: {name}...")
-            content = get_structure_content(name)
-            log(f"[✓] Active {label} Schema: {Path(name).name}")
-            return content
-        except Exception as ex:
-            log(f"[!] {label} Schema notice: {ex}. Proceeding without this schema.")
-            return None
+        # ----------------------------------------------------
+        # Step 1.5: Pre-load Detection / Storyboard Schema if specified
+        # ----------------------------------------------------
+        det_target = detection_structure_name or structure_name
+        restruct_target = restructure_structure_name or structure_name
+        bp_target = blueprint_structure_name or structure_name
 
-    det_target = detection_structure_name or structure_name
-    detection_blueprint = _resolve_blueprint(det_target, "Detection") if (enable_detection and det_target) else None
+        tracker.start_step(
+            "step_1_5",
+            input_desc=f"Detection: '{det_target or 'None'}' (enabled={enable_detection}), Restructure: '{restruct_target or 'None'}' (enabled={enable_restructure}), Blueprint: '{bp_target or 'None'}' (enabled={enable_blueprint})"
+        )
 
-    restruct_target = restructure_structure_name or structure_name
-    restructure_blueprint = _resolve_blueprint(restruct_target, "Restructure") if (enable_restructure and restruct_target) else None
+        def _resolve_blueprint(name: Optional[str], label: str) -> Optional[str]:
+            if not name or "none" in str(name).lower():
+                return None
+            try:
+                log(f"[*] Loading {label} Schema: {name}...")
+                content = get_structure_content(name)
+                log(f"[✓] Active {label} Schema: {Path(name).name}")
+                return content
+            except Exception as ex:
+                log(f"[!] {label} Schema notice: {ex}. Proceeding without this schema.")
+                return None
 
-    bp_target = blueprint_structure_name or structure_name
-    blueprint_blueprint = _resolve_blueprint(bp_target, "Slide Blueprint") if (enable_blueprint and bp_target) else None
+        detection_blueprint = _resolve_blueprint(det_target, "Detection") if (enable_detection and det_target) else None
+        restructure_blueprint = _resolve_blueprint(restruct_target, "Restructure") if (enable_restructure and restruct_target) else None
+        blueprint_blueprint = _resolve_blueprint(bp_target, "Slide Blueprint") if (enable_blueprint and bp_target) else None
 
-    structure_blueprint = blueprint_blueprint or restructure_blueprint or detection_blueprint
+        structure_blueprint = blueprint_blueprint or restructure_blueprint or detection_blueprint
 
-    # ----------------------------------------------------
-    # Step 2: Read & parse input sources (Word, PPTX, Text, Image, Audio)
-    # ----------------------------------------------------
-    if len(input_paths) > 1 or any(p.suffix.lower() != ".docx" for p in input_paths) or raw_text:
-        log(f"[Step 2] Reading multi-modal sources ({len(input_paths)} files + direct notes)...")
-        parsed_doc = parse_multiple_sources(input_paths, raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
-    elif input_paths and input_paths[0].exists():
-        docx_file = input_paths[0]
-        log(f"[Step 2] Reading Word document: {docx_file.name}...")
-        parsed_doc = parse_docx(docx_file)
-    else:
-        log("[Step 2] Parsing direct text input...")
-        parsed_doc = parse_multiple_sources([], raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
+        if structure_blueprint:
+            active_schemas = []
+            if detection_blueprint and det_target:
+                active_schemas.append(f"Detect: {Path(det_target).name}")
+            if restructure_blueprint and restruct_target:
+                active_schemas.append(f"Restructure: {Path(restruct_target).name}")
+            if blueprint_blueprint and bp_target:
+                active_schemas.append(f"Blueprint: {Path(bp_target).name}")
+            tracker.complete_step(
+                "step_1_5",
+                output_desc=f"Resolved active storyboard schema(s): {', '.join(active_schemas)}."
+            )
+        else:
+            tracker.skip_step(
+                "step_1_5",
+                reason="No storyboard schema active. Proceeding with standard direct generation."
+            )
 
-    log(f"[Step 2] Extracted {parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))} content sections.")
+        # ----------------------------------------------------
+        # Step 2: Read & parse input sources (Word, PPTX, Text, Image, Audio)
+        # ----------------------------------------------------
+        source_summary = f"{len(input_paths)} file(s) ({', '.join(p.name for p in input_paths[:3])}{'...' if len(input_paths) > 3 else ''})" if input_paths else "Direct text outline"
+        tracker.start_step(
+            "step_2",
+            input_desc=f"Sources: {source_summary}, Direct notes length: {len(raw_text) if raw_text else 0} chars, Detection schema active: {bool(detection_blueprint)}"
+        )
 
-    # ----------------------------------------------------
-    # Step 2.5: Restructure & Rewrite Slides base on structure.md (Optional)
-    # ----------------------------------------------------
-    if restructure_blueprint and enable_restructure:
-        try:
+        if len(input_paths) > 1 or any(p.suffix.lower() != ".docx" for p in input_paths) or raw_text:
+            log(f"[Step 2] Reading multi-modal sources ({len(input_paths)} files + direct notes)...")
+            parsed_doc = parse_multiple_sources(input_paths, raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
+        elif input_paths and input_paths[0].exists():
+            docx_file = input_paths[0]
+            log(f"[Step 2] Reading Word document: {docx_file.name}...")
+            parsed_doc = parse_docx(docx_file)
+        else:
+            log("[Step 2] Parsing direct text input...")
+            parsed_doc = parse_multiple_sources([], raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
+
+        sec_count = parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))
+        media_count = len(parsed_doc.get('extracted_media', []))
+        doc_title = parsed_doc.get('document_title', 'Presentation')
+        tracker.complete_step(
+            "step_2",
+            output_desc=f"Parsed '{doc_title}'. Extracted {sec_count} content section(s) and {media_count} media element(s)."
+        )
+        log(f"[Step 2] Extracted {sec_count} content sections.")
+
+        # ----------------------------------------------------
+        # Step 2.5: Restructure & Rewrite Slides base on structure.md (Optional)
+        # ----------------------------------------------------
+        if restructure_blueprint and enable_restructure:
             name_display = Path(restruct_target).name if restruct_target else "structure.md"
-            log(f"[Step 2.5] Autonomous Restructure Agent rewriting & structuring slides based on {name_display}...")
-            restructured = restructure_slides_with_agent(parsed_doc, restructure_blueprint, log_cb=log, timeout=effective_timeout)
-            if restructured and restructured.get("slides"):
-                parsed_doc["restructured_slides"] = restructured.get("slides", [])
-                parsed_doc["sections"] = convert_restructured_to_sections(restructured)
-                parsed_doc["total_sections"] = len(parsed_doc["sections"])
-                log(f"[Step 2.5] Restructure Agent prepared {len(parsed_doc['sections'])} slides adhering to {name_display}.")
-        except Exception as st_ex:
-            log(f"[Step 2.5 Warning] Storyboard restructuring notice: {st_ex}. Continuing with standard sections.")
+            tracker.start_step(
+                "step_2_5",
+                input_desc=f"Raw sections: {len(parsed_doc.get('sections', []))}, Schema: '{name_display}', AI timeout: {effective_timeout}s"
+            )
+            try:
+                log(f"[Step 2.5] Autonomous Restructure Agent rewriting & structuring slides based on {name_display}...")
+                restructured = restructure_slides_with_agent(parsed_doc, restructure_blueprint, log_cb=log, timeout=effective_timeout)
+                if restructured and restructured.get("slides"):
+                    parsed_doc["restructured_slides"] = restructured.get("slides", [])
+                    parsed_doc["sections"] = convert_restructured_to_sections(restructured)
+                    parsed_doc["total_sections"] = len(parsed_doc["sections"])
+                    tracker.complete_step(
+                        "step_2_5",
+                        output_desc=f"Autonomous Restructure Agent synthesized {len(parsed_doc['sections'])} slides adhering to '{name_display}'."
+                    )
+                    log(f"[Step 2.5] Restructure Agent prepared {len(parsed_doc['sections'])} slides adhering to {name_display}.")
+                else:
+                    tracker.complete_step(
+                        "step_2_5",
+                        output_desc=f"Restructure Agent returned without alterations; retaining {len(parsed_doc['sections'])} original sections."
+                    )
+            except Exception as st_ex:
+                tracker.complete_step(
+                    "step_2_5",
+                    output_desc=f"Restructure notice: {st_ex}. Continued with standard sections."
+                )
+                log(f"[Step 2.5 Warning] Storyboard restructuring notice: {st_ex}. Continuing with standard sections.")
+        else:
+            tracker.skip_step(
+                "step_2_5",
+                reason="Restructure toggle disabled or no restructure schema provided.",
+                input_desc="Restructure Agent disabled; original document section partitioning retained."
+            )
 
-    # ----------------------------------------------------
-    # Step 3: AI Vision Agent writes texts and selects slides
-    # ----------------------------------------------------
-    active_bp_for_gen = blueprint_blueprint or restructure_blueprint or detection_blueprint
-    ai_plan = generate_slide_replacements_with_ai(
-        template_inventory,
-        parsed_doc,
-        log_cb=log,
-        on_ai_images_ready=on_ai_images_ready,
-        structure_blueprint=active_bp_for_gen,
-        timeout=effective_timeout
-    )
+        # ----------------------------------------------------
+        # Step 3: AI Vision Agent writes texts and selects slides
+        # ----------------------------------------------------
+        active_bp_for_gen = blueprint_blueprint or restructure_blueprint or detection_blueprint
+        bp_name = Path(bp_target).name if bp_target else ("structure.md" if active_bp_for_gen else "None")
+        tracker.start_step(
+            "step_3",
+            input_desc=f"Candidate slides: {len(template_inventory)}, Document sections: {parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))}, Model timeout: {effective_timeout}s, Blueprint: '{bp_name}'"
+        )
 
-    # ----------------------------------------------------
-    # Step 4: Assemble target deck across presentations
-    # ----------------------------------------------------
-    log("[Step 4] Assembling target presentation from selected template slides...")
+        ai_plan = generate_slide_replacements_with_ai(
+            template_inventory,
+            parsed_doc,
+            log_cb=log,
+            on_ai_images_ready=on_ai_images_ready,
+            structure_blueprint=active_bp_for_gen,
+            timeout=effective_timeout
+        )
 
-    # Cache opened presentations by filename
-    prs_cache: Dict[str, Any] = {}
-    def get_source_prs(tpl_file: str) -> Any:
-        if tpl_file not in prs_cache:
-            p = DATA_DIR / tpl_file
-            if not p.exists():
-                # Fallback to first existing template
-                p = next(DATA_DIR.glob("*.pptx"))
-            prs_cache[tpl_file] = Presentation(str(p))
-        return prs_cache[tpl_file]
+        if ai_plan and "slides" in ai_plan and len(ai_plan["slides"]) > 0:
+            total_shapes = sum(len(s.get("shape_replacements", [])) for s in ai_plan.get("slides", []))
+            total_tables = sum(len(s.get("table_replacements", [])) for s in ai_plan.get("slides", []))
+            total_imgs = sum(len(s.get("image_replacements", [])) for s in ai_plan.get("slides", []))
+            tracker.complete_step(
+                "step_3",
+                output_desc=f"AI Vision synthesis plan: {len(ai_plan['slides'])} slides selected. Planned {total_shapes} text replacements, {total_tables} table updates, {total_imgs} AI image prompts."
+            )
+        else:
+            tracker.complete_step(
+                "step_3",
+                output_desc=f"Algorithmic multi-template fallback plan activated for {len(parsed_doc.get('sections', []))} sections across available templates."
+            )
 
-    # Pre-open first source template to create matching target presentation package
-    first_tpl_name = template_inventory[0]["template_file"]
-    first_tpl_path = DATA_DIR / first_tpl_name if (DATA_DIR / first_tpl_name).exists() else next(DATA_DIR.glob("*.pptx"))
-    
-    # Initialize target presentation from base template to retain themes, color palettes, and layouts
-    target_prs = Presentation(str(first_tpl_path))
-    
-    # Clear existing slides from target presentation
-    while len(target_prs.slides) > 0:
-        rId = target_prs.slides._sldIdLst[0].rId
-        target_prs.part.drop_rel(rId)
-        target_prs.slides._sldIdLst.remove(target_prs.slides._sldIdLst[0])
+        # ----------------------------------------------------
+        # Step 4: Assemble target deck across presentations
+        # ----------------------------------------------------
+        log("[Step 4] Assembling target presentation from selected template slides...")
 
-    if ai_plan and "slides" in ai_plan and len(ai_plan["slides"]) > 0:
-        for s_plan in ai_plan["slides"]:
-            src_tpl = s_plan.get("source_template") or first_tpl_name
-            src_idx = s_plan.get("source_slide_index", 0)
-            
-            src_prs = get_source_prs(src_tpl)
-            if src_idx >= len(src_prs.slides):
-                src_idx = 0
+        # Cache opened presentations by filename
+        prs_cache: Dict[str, Any] = {}
+        def get_source_prs(tpl_file: str) -> Any:
+            if tpl_file not in prs_cache:
+                p = DATA_DIR / tpl_file
+                if not p.exists():
+                    # Fallback to first existing template
+                    p = next(DATA_DIR.glob("*.pptx"))
+                prs_cache[tpl_file] = Presentation(str(p))
+            return prs_cache[tpl_file]
+
+        # Pre-open first source template to create matching target presentation package
+        first_tpl_name = template_inventory[0]["template_file"]
+        first_tpl_path = DATA_DIR / first_tpl_name if (DATA_DIR / first_tpl_name).exists() else next(DATA_DIR.glob("*.pptx"))
+        
+        planned_count = len(ai_plan["slides"]) if (ai_plan and "slides" in ai_plan) else len(parsed_doc.get("sections", []))
+        target_out_name = Path(output_path).name if output_path else "presentation.pptx"
+        tracker.start_step(
+            "step_4",
+            input_desc=f"Planned slides: {planned_count}, Base template: '{first_tpl_name}', Output destination: '{target_out_name}'"
+        )
+
+        # Initialize target presentation from base template to retain themes, color palettes, and layouts
+        target_prs = Presentation(str(first_tpl_path))
+        
+        # Clear existing slides from target presentation
+        while len(target_prs.slides) > 0:
+            rId = target_prs.slides._sldIdLst[0].rId
+            target_prs.part.drop_rel(rId)
+            target_prs.slides._sldIdLst.remove(target_prs.slides._sldIdLst[0])
+
+        if ai_plan and "slides" in ai_plan and len(ai_plan["slides"]) > 0:
+            for s_plan in ai_plan["slides"]:
+                src_tpl = s_plan.get("source_template") or first_tpl_name
+                src_idx = s_plan.get("source_slide_index", 0)
                 
-            # Clone slide across presentation
-            target_slide = clone_slide_across_presentations(src_prs, target_prs, src_idx)
-            
-            # In-place text replacements (supporting both shape_index and placeholder_idx)
-            replacements_by_sh_idx = {}
-            replacements_by_ph_idx = {}
-            for r in s_plan.get("shape_replacements", []):
-                txt = r.get("text")
-                if txt is not None:
-                    if r.get("shape_index") is not None:
-                        replacements_by_sh_idx[r["shape_index"]] = txt
-                    if r.get("placeholder_idx") is not None:
-                        replacements_by_ph_idx[r["placeholder_idx"]] = txt
+                src_prs = get_source_prs(src_tpl)
+                if src_idx >= len(src_prs.slides):
+                    src_idx = 0
+                    
+                # Clone slide across presentation
+                target_slide = clone_slide_across_presentations(src_prs, target_prs, src_idx)
+                
+                # In-place text replacements (supporting both shape_index and placeholder_idx)
+                replacements_by_sh_idx = {}
+                replacements_by_ph_idx = {}
+                for r in s_plan.get("shape_replacements", []):
+                    txt = r.get("text")
+                    if txt is not None:
+                        if r.get("shape_index") is not None:
+                            replacements_by_sh_idx[r["shape_index"]] = txt
+                        if r.get("placeholder_idx") is not None:
+                            replacements_by_ph_idx[r["placeholder_idx"]] = txt
 
-            for shape_idx, shape in enumerate(target_slide.shapes):
-                new_text = None
-                if shape_idx in replacements_by_sh_idx:
-                    new_text = replacements_by_sh_idx[shape_idx]
-                elif getattr(shape, "is_placeholder", False):
+                for shape_idx, shape in enumerate(target_slide.shapes):
+                    new_text = None
+                    if shape_idx in replacements_by_sh_idx:
+                        new_text = replacements_by_sh_idx[shape_idx]
+                    elif getattr(shape, "is_placeholder", False):
+                        try:
+                            ph_i = shape.placeholder_format.idx
+                            if ph_i in replacements_by_ph_idx:
+                                new_text = replacements_by_ph_idx[ph_i]
+                        except Exception:
+                            pass
+
+                    if new_text is not None and shape.has_text_frame:
+                        _safe_update_text_frame(
+                            shape.text_frame,
+                            str(new_text),
+                            is_rtl=None,
+                            max_box_width_emu=getattr(shape, "width", None),
+                            max_box_height_emu=getattr(shape, "height", None)
+                        )
+
+                # Table replacements (supporting both shape_index and placeholder_idx)
+                table_repl_by_sh = {}
+                table_repl_by_ph = {}
+                for t in s_plan.get("table_replacements", []):
+                    tdata = t.get("table_data")
+                    if tdata:
+                        if t.get("shape_index") is not None:
+                            table_repl_by_sh[t["shape_index"]] = tdata
+                        if t.get("placeholder_idx") is not None:
+                            table_repl_by_ph[t["placeholder_idx"]] = tdata
+
+                for shape_idx, shape in enumerate(target_slide.shapes):
+                    tdata = None
+                    if shape_idx in table_repl_by_sh:
+                        tdata = table_repl_by_sh[shape_idx]
+                    elif getattr(shape, "is_placeholder", False):
+                        try:
+                            ph_i = shape.placeholder_format.idx
+                            if ph_i in table_repl_by_ph:
+                                tdata = table_repl_by_ph[ph_i]
+                        except Exception:
+                            pass
+
+                    if tdata and shape.has_table:
+                        for r_i, row in enumerate(tdata):
+                            if r_i < len(shape.table.rows):
+                                for c_i, cell_val in enumerate(row):
+                                    if c_i < len(shape.table.columns):
+                                        cell = shape.table.cell(r_i, c_i)
+                                        cell.text = str(cell_val)
+                                        if cell.text_frame and cell.text_frame.paragraphs:
+                                            p = cell.text_frame.paragraphs[0]
+                                            _set_paragraph_rtl_and_fonts(p, is_rtl=_is_rtl_text(str(cell_val)))
+                                            if p.runs:
+                                                _set_run_rtl_and_fonts(p.runs[0], is_rtl=_is_rtl_text(str(cell_val)))
+
+                # Image replacements via Image Gen API (supporting pictures and image placeholders)
+                image_repl_by_sh = {}
+                image_repl_by_ph = {}
+                for img in s_plan.get("image_replacements", []):
+                    prompt = img.get("image_prompt")
+                    if prompt:
+                        if img.get("shape_index") is not None:
+                            image_repl_by_sh[img["shape_index"]] = prompt
+                        if img.get("placeholder_idx") is not None:
+                            image_repl_by_ph[img["placeholder_idx"]] = prompt
+
+                for shape_idx, shape in enumerate(target_slide.shapes):
+                    prompt = None
+                    if shape_idx in image_repl_by_sh:
+                        prompt = image_repl_by_sh[shape_idx]
+                    elif getattr(shape, "is_placeholder", False):
+                        try:
+                            ph_i = shape.placeholder_format.idx
+                            if ph_i in image_repl_by_ph:
+                                prompt = image_repl_by_ph[ph_i]
+                        except Exception:
+                            pass
+
+                    is_img_target = (
+                        shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+                        or getattr(shape, "is_placeholder", False)
+                    )
+                    if prompt and is_img_target:
+                        try:
+                            log(f"[Step 4] Generating AI image for slide slot #{shape_idx}: '{prompt[:40]}...'")
+                            img_file = generate_image(prompt)
+                            if img_file and not img_file.startswith("Error"):
+                                _replace_image_in_shape(shape, img_file)
+                        except Exception as e:
+                            log(f"[Step 4 Warning] Image generation skipped: {e}")
+
+                # Speaker Notes
+                notes_text = s_plan.get("speaker_notes")
+                if notes_text:
                     try:
-                        ph_i = shape.placeholder_format.idx
-                        if ph_i in replacements_by_ph_idx:
-                            new_text = replacements_by_ph_idx[ph_i]
+                        notes_slide = target_slide.notes_slide
+                        text_frame = notes_slide.notes_text_frame
+                        text_frame.text = str(notes_text)
                     except Exception:
                         pass
 
-                if new_text is not None and shape.has_text_frame:
+                # Remove unwanted shapes after text/table replacements to avoid index shifts during replacement
+                shapes_to_remove = s_plan.get("shapes_to_remove", [])
+                if shapes_to_remove:
+                    _remove_shapes(target_slide, shapes_to_remove)
+        else:
+            # Fallback Multi-Template Assembly:
+            # Title slide from first template, content slides from available candidate slides
+            log("[Step 4 Fallback] Generating presentation using multi-slide assembly...")
+            
+            # 1. Title Slide
+            first_tpl = template_inventory[0]["template_file"]
+            base_prs = get_source_prs(first_tpl)
+            title_slide = clone_slide_across_presentations(base_prs, target_prs, 0)
+            for shape in title_slide.shapes:
+                if shape.has_text_frame and shape.text_frame.text.strip():
                     _safe_update_text_frame(
                         shape.text_frame,
-                        str(new_text),
-                        is_rtl=None,
+                        parsed_doc.get("document_title", "Presentation"),
                         max_box_width_emu=getattr(shape, "width", None),
                         max_box_height_emu=getattr(shape, "height", None)
                     )
-
-            # Table replacements (supporting both shape_index and placeholder_idx)
-            table_repl_by_sh = {}
-            table_repl_by_ph = {}
-            for t in s_plan.get("table_replacements", []):
-                tdata = t.get("table_data")
-                if tdata:
-                    if t.get("shape_index") is not None:
-                        table_repl_by_sh[t["shape_index"]] = tdata
-                    if t.get("placeholder_idx") is not None:
-                        table_repl_by_ph[t["placeholder_idx"]] = tdata
-
-            for shape_idx, shape in enumerate(target_slide.shapes):
-                tdata = None
-                if shape_idx in table_repl_by_sh:
-                    tdata = table_repl_by_sh[shape_idx]
-                elif getattr(shape, "is_placeholder", False):
-                    try:
-                        ph_i = shape.placeholder_format.idx
-                        if ph_i in table_repl_by_ph:
-                            tdata = table_repl_by_ph[ph_i]
-                    except Exception:
-                        pass
-
-                if tdata and shape.has_table:
-                    for r_i, row in enumerate(tdata):
-                        if r_i < len(shape.table.rows):
-                            for c_i, cell_val in enumerate(row):
-                                if c_i < len(shape.table.columns):
-                                    cell = shape.table.cell(r_i, c_i)
-                                    cell.text = str(cell_val)
-                                    if cell.text_frame and cell.text_frame.paragraphs:
-                                        p = cell.text_frame.paragraphs[0]
-                                        _set_paragraph_rtl_and_fonts(p, is_rtl=_is_rtl_text(str(cell_val)))
-                                        if p.runs:
-                                            _set_run_rtl_and_fonts(p.runs[0], is_rtl=_is_rtl_text(str(cell_val)))
-
-            # Image replacements via Image Gen API (supporting pictures and image placeholders)
-            image_repl_by_sh = {}
-            image_repl_by_ph = {}
-            for img in s_plan.get("image_replacements", []):
-                prompt = img.get("image_prompt")
-                if prompt:
-                    if img.get("shape_index") is not None:
-                        image_repl_by_sh[img["shape_index"]] = prompt
-                    if img.get("placeholder_idx") is not None:
-                        image_repl_by_ph[img["placeholder_idx"]] = prompt
-
-            for shape_idx, shape in enumerate(target_slide.shapes):
-                prompt = None
-                if shape_idx in image_repl_by_sh:
-                    prompt = image_repl_by_sh[shape_idx]
-                elif getattr(shape, "is_placeholder", False):
-                    try:
-                        ph_i = shape.placeholder_format.idx
-                        if ph_i in image_repl_by_ph:
-                            prompt = image_repl_by_ph[ph_i]
-                    except Exception:
-                        pass
-
-                is_img_target = (
-                    shape.shape_type == MSO_SHAPE_TYPE.PICTURE
-                    or getattr(shape, "is_placeholder", False)
-                )
-                if prompt and is_img_target:
-                    try:
-                        log(f"[Step 4] Generating AI image for slide slot #{shape_idx}: '{prompt[:40]}...'")
-                        img_file = generate_image(prompt)
-                        if img_file and not img_file.startswith("Error"):
-                            _replace_image_in_shape(shape, img_file)
-                    except Exception as e:
-                        log(f"[Step 4 Warning] Image generation skipped: {e}")
-
-            # Speaker Notes
-            notes_text = s_plan.get("speaker_notes")
-            if notes_text:
-                try:
-                    notes_slide = target_slide.notes_slide
-                    text_frame = notes_slide.notes_text_frame
-                    text_frame.text = str(notes_text)
-                except Exception:
-                    pass
-
-            # Remove unwanted shapes after text/table replacements to avoid index shifts during replacement
-            shapes_to_remove = s_plan.get("shapes_to_remove", [])
-            if shapes_to_remove:
-                _remove_shapes(target_slide, shapes_to_remove)
-    else:
-        # Fallback Multi-Template Assembly:
-        # Title slide from first template, content slides from available candidate slides
-        log("[Step 4 Fallback] Generating presentation using multi-slide assembly...")
-        
-        # 1. Title Slide
-        first_tpl = template_inventory[0]["template_file"]
-        base_prs = get_source_prs(first_tpl)
-        title_slide = clone_slide_across_presentations(base_prs, target_prs, 0)
-        for shape in title_slide.shapes:
-            if shape.has_text_frame and shape.text_frame.text.strip():
-                _safe_update_text_frame(
-                    shape.text_frame,
-                    parsed_doc.get("document_title", "Presentation"),
-                    max_box_width_emu=getattr(shape, "width", None),
-                    max_box_height_emu=getattr(shape, "height", None)
-                )
-                break
+                    break
+                    
+            # 2. Content Slides per Section
+            for s_idx, section in enumerate(parsed_doc.get("sections", [])):
+                candidate_entry = template_inventory[(s_idx + 1) % len(template_inventory)]
+                src_prs = get_source_prs(candidate_entry["template_file"])
+                src_idx = candidate_entry["slide_index"]
                 
-        # 2. Content Slides per Section
-        for s_idx, section in enumerate(parsed_doc.get("sections", [])):
-            candidate_entry = template_inventory[(s_idx + 1) % len(template_inventory)]
-            src_prs = get_source_prs(candidate_entry["template_file"])
-            src_idx = candidate_entry["slide_index"]
-            
-            c_slide = clone_slide_across_presentations(src_prs, target_prs, src_idx)
-            text_shapes = [sh for sh in c_slide.shapes if sh.has_text_frame and sh.text_frame.text.strip()]
-            
-            if text_shapes:
-                _safe_update_text_frame(
-                    text_shapes[0].text_frame,
-                    section.get("title", ""),
-                    max_box_width_emu=getattr(text_shapes[0], "width", None),
-                    max_box_height_emu=getattr(text_shapes[0], "height", None)
-                )
-                if len(text_shapes) > 1:
-                    body = "\n".join(section.get("paragraphs", []) + [f"• {b}" for b in section.get("bullets", [])])
+                c_slide = clone_slide_across_presentations(src_prs, target_prs, src_idx)
+                text_shapes = [sh for sh in c_slide.shapes if sh.has_text_frame and sh.text_frame.text.strip()]
+                
+                if text_shapes:
                     _safe_update_text_frame(
-                        text_shapes[1].text_frame,
-                        body,
-                        max_box_width_emu=getattr(text_shapes[1], "width", None),
-                        max_box_height_emu=getattr(text_shapes[1], "height", None)
+                        text_shapes[0].text_frame,
+                        section.get("title", ""),
+                        max_box_width_emu=getattr(text_shapes[0], "width", None),
+                        max_box_height_emu=getattr(text_shapes[0], "height", None)
                     )
+                    if len(text_shapes) > 1:
+                        body = "\n".join(section.get("paragraphs", []) + [f"• {b}" for b in section.get("bullets", [])])
+                        _safe_update_text_frame(
+                            text_shapes[1].text_frame,
+                            body,
+                            max_box_width_emu=getattr(text_shapes[1], "width", None),
+                            max_box_height_emu=getattr(text_shapes[1], "height", None)
+                        )
 
-    if not output_path:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        primary_stem = input_paths[0].stem if input_paths else "presentation"
-        output_path = OUTPUT_DIR / f"{primary_stem}_generated.pptx"
-    else:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-    target_prs.save(str(output_path))
-    log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
+        if not output_path:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            primary_stem = input_paths[0].stem if input_paths else "presentation"
+            output_path = OUTPUT_DIR / f"{primary_stem}_generated.pptx"
+        else:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+        target_prs.save(str(output_path))
+        out_size_kb = (Path(output_path).stat().st_size // 1024) if Path(output_path).exists() else 0
+        tracker.complete_step(
+            "step_4",
+            output_desc=f"Successfully assembled {len(target_prs.slides)} vector slides. Saved presentation to '{target_out_name}' ({out_size_kb} KB)."
+        )
+        log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
 
-    # ----------------------------------------------------
-    # Step 5: Verification & Automated SlideCheck QA Loop
-    # ----------------------------------------------------
-    log("[Step 5] Running Automated SlideCheck QA & Integrity Verification Loop...")
+        # ----------------------------------------------------
+        # Step 5: Verification & Automated SlideCheck QA Loop
+        # ----------------------------------------------------
+        log("[Step 5] Running Automated SlideCheck QA & Integrity Verification Loop...")
 
-    expected_tpl_fonts = []
-    if template_inventory and "template_fonts" in template_inventory[0]:
-        expected_tpl_fonts = template_inventory[0].get("template_fonts", [])
+        expected_tpl_fonts = []
+        if template_inventory and "template_fonts" in template_inventory[0]:
+            expected_tpl_fonts = template_inventory[0].get("template_fonts", [])
 
-    qa_report = run_slidecheck_qa(output_path, expected_fonts=expected_tpl_fonts, auto_heal=True)
-    if qa_report.get("overflow_issues_healed", 0) > 0:
-        log(f"[Step 5 QA] Auto-healed {qa_report['overflow_issues_healed']} overflowing text box(es).")
-    if qa_report.get("rtl_issues_healed", 0) > 0:
-        log(f"[Step 5 QA] Auto-healed {qa_report['rtl_issues_healed']} RTL/BiDi tags on runs/paragraphs.")
-    if qa_report.get("fonts_detected"):
-        log(f"[Step 5 QA] Verified fonts in presentation: {', '.join(qa_report['fonts_detected'])}")
+        tracker.start_step(
+            "step_5",
+            input_desc=f"File: '{target_out_name}', Expected fonts: {', '.join(expected_tpl_fonts) if expected_tpl_fonts else 'Auto-detect'}, Auto-heal: Enabled"
+        )
 
-    is_valid, final_path = verify_and_auto_heal_pptx(
-        output_path,
-        doc_structure=parsed_doc,
-        template_inventory=template_inventory,
-        log_cb=log
-    )
+        qa_report = run_slidecheck_qa(output_path, expected_fonts=expected_tpl_fonts, auto_heal=True)
+        if qa_report.get("overflow_issues_healed", 0) > 0:
+            log(f"[Step 5 QA] Auto-healed {qa_report['overflow_issues_healed']} overflowing text box(es).")
+        if qa_report.get("rtl_issues_healed", 0) > 0:
+            log(f"[Step 5 QA] Auto-healed {qa_report['rtl_issues_healed']} RTL/BiDi tags on runs/paragraphs.")
+        if qa_report.get("fonts_detected"):
+            log(f"[Step 5 QA] Verified fonts in presentation: {', '.join(qa_report['fonts_detected'])}")
 
-    if not is_valid:
-        log(f"[Step 5 Warning] Final PPTX file might contain remaining non-fatal notices.")
-    else:
-        log(f"[Step 5] PPTX Verification PASSED: File is clean, valid, and fully openable.")
+        is_valid, final_path = verify_and_auto_heal_pptx(
+            output_path,
+            doc_structure=parsed_doc,
+            template_inventory=template_inventory,
+            log_cb=log
+        )
 
-    # Render Visual Preview QA
-    try:
-        preview_imgs = render_pptx_file_previews(output_path, target_width_px=650)
-        log(f"[Step 5] Rendered {len(preview_imgs)} slide previews. Verification complete.")
-    except Exception as qa_ex:
-        log(f"[Step 5 Warning] QA preview render warning: {qa_ex}")
+        qa_healed_txt = qa_report.get('overflow_issues_healed', 0)
+        qa_healed_rtl = qa_report.get('rtl_issues_healed', 0)
+        qa_fonts = ', '.join(qa_report.get('fonts_detected', [])) or 'Standard'
+        valid_str = 'Verified PASSED (clean & valid)' if is_valid else 'Verified with notices auto-healed'
+        tracker.complete_step(
+            "step_5",
+            output_desc=f"Integrity Check: {valid_str}. Auto-healed: {qa_healed_txt} overflow text box(es), {qa_healed_rtl} RTL run(s). Verified fonts in presentation: {qa_fonts}."
+        )
 
-    return str(output_path)
+        if not is_valid:
+            log(f"[Step 5 Warning] Final PPTX file might contain remaining non-fatal notices.")
+        else:
+            log(f"[Step 5] PPTX Verification PASSED: File is clean, valid, and fully openable.")
+
+        # Render Visual Preview QA
+        try:
+            preview_imgs = render_pptx_file_previews(output_path, target_width_px=650)
+            log(f"[Step 5] Rendered {len(preview_imgs)} slide previews. Verification complete.")
+        except Exception as qa_ex:
+            log(f"[Step 5 Warning] QA preview render warning: {qa_ex}")
+
+        return str(output_path)
+    except Exception as e:
+        tracker.fail_active(str(e))
+        raise
 
 def run_slidecheck_qa(
     pptx_path: str | Path,

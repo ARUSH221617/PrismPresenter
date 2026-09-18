@@ -53,3 +53,20 @@ def test_config_api(client):
     assert data["success"] is True
     assert "config" in data
     assert "NINEROUTER_URL" in data["config"]
+
+def test_generator_diagnostics_api(client):
+    res = client.get("/api/generator/diagnostics")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "diagnostics" in data
+    assert isinstance(data["diagnostics"], list)
+    assert len(data["diagnostics"]) == 7
+    # Check that each diagnostic item has status, input, output
+    for step in data["diagnostics"]:
+        assert "id" in step
+        assert "name" in step
+        assert "status" in step
+        assert "input" in step
+        assert "output" in step
+        assert step["status"] == "pending"

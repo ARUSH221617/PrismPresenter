@@ -11,6 +11,7 @@ let visualSlideIdx = 0;
 let aiTestImages = [];
 let aiTestIdx = 0;
 let genSourceFiles = [];
+let genDiagnosticsSteps = [];
 
 // Storyboard Structure State
 let structuresList = [];
@@ -331,6 +332,7 @@ async function loadInitialData() {
     loadGeneratorTemplates();
     loadGeneratorStructures();
     loadConfigBadge();
+    loadGeneratorDiagnostics();
   } catch (err) {
     console.error('Error loading initial data', err);
   }
@@ -414,8 +416,240 @@ async function refreshModelMetadataUI() {
 }
 
 // -------------------------------------------------------------
-// 1. SLIDE GENERATOR
+// 1. SLIDE GENERATOR & PIPELINE DIAGNOSTICS
 // -------------------------------------------------------------
+function getDefaultDiagnosticsSteps() {
+  return [
+    {
+      id: "step_1",
+      name: "Step 1: Scan & Inspect Templates",
+      status: "pending",
+      input: "Template catalog (data/), selected template style, visual slide screenshots",
+      output: "Awaiting template inspection...",
+      duration: null
+    },
+    {
+      id: "step_1_5",
+      name: "Step 1.5: Storyboard Schema Resolution",
+      status: "pending",
+      input: "Storyboard schema (.md) for detection, restructuring, and layout blueprints",
+      output: "Awaiting schema resolution...",
+      duration: null
+    },
+    {
+      id: "step_2",
+      name: "Step 2: Ingest & Parse Source Content",
+      status: "pending",
+      input: "Source documents (Word .docx, PPTX, MD, TXT, Images, Audio) and direct notes",
+      output: "Awaiting content ingestion...",
+      duration: null
+    },
+    {
+      id: "step_2_5",
+      name: "Step 2.5: Storyboard Restructuring (AI Agent)",
+      status: "pending",
+      input: "Extracted document sections & active restructure schema rules",
+      output: "Awaiting restructure agent...",
+      duration: null
+    },
+    {
+      id: "step_3",
+      name: "Step 3: Vision AI Reasoning & Slide Selection",
+      status: "pending",
+      input: "Template slide screenshots, content sections, schema archetype rules",
+      output: "Awaiting AI reasoning and slide selection...",
+      duration: null
+    },
+    {
+      id: "step_4",
+      name: "Step 4: Deck Assembly & Slide Cloning",
+      status: "pending",
+      input: "AI synthesis plan, source template slides, target layout parameters",
+      output: "Awaiting presentation assembly...",
+      duration: null
+    },
+    {
+      id: "step_5",
+      name: "Step 5: SlideCheck QA & Integrity Verification",
+      status: "pending",
+      input: "Assembled PPTX presentation, template typography, geometry boundaries",
+      output: "Awaiting SlideCheck QA & font auto-healing...",
+      duration: null
+    }
+  ];
+}
+
+async function loadGeneratorDiagnostics(jobId = null) {
+  try {
+    const url = jobId ? `/api/generator/diagnostics?job_id=${encodeURIComponent(jobId)}` : '/api/generator/diagnostics';
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.diagnostics) && data.diagnostics.length > 0) {
+      genDiagnosticsSteps = data.diagnostics;
+    } else if (genDiagnosticsSteps.length === 0) {
+      genDiagnosticsSteps = getDefaultDiagnosticsSteps();
+    }
+  } catch (e) {
+    if (genDiagnosticsSteps.length === 0) {
+      genDiagnosticsSteps = getDefaultDiagnosticsSteps();
+    }
+  }
+  renderGenDiagnostics();
+}
+
+function refreshDiagnostics() {
+  loadGeneratorDiagnostics();
+  showToast('Diagnostics refreshed', 'info');
+}
+
+function resetGenDiagnostics() {
+  genDiagnosticsSteps = getDefaultDiagnosticsSteps();
+  renderGenDiagnostics();
+}
+
+function setGenDiagnostics(steps) {
+  if (Array.isArray(steps) && steps.length > 0) {
+    genDiagnosticsSteps = steps;
+    renderGenDiagnostics();
+  }
+}
+
+function updateGenStep(stepData) {
+  if (!stepData || !stepData.id) return;
+  const idx = genDiagnosticsSteps.findIndex(s => s.id === stepData.id);
+  if (idx !== -1) {
+    genDiagnosticsSteps[idx] = { ...genDiagnosticsSteps[idx], ...stepData };
+  } else {
+    genDiagnosticsSteps.push(stepData);
+  }
+  renderGenDiagnostics();
+}
+
+function markActiveGenStepFailed(errorMsg) {
+  const activeStep = genDiagnosticsSteps.find(s => s.status === 'running');
+  if (activeStep) {
+    activeStep.status = 'failed';
+    activeStep.output = `Error: ${errorMsg || 'Pipeline terminated with error'}`;
+  }
+  renderGenDiagnostics();
+}
+
+function getStatusBadgeHtml(status, duration) {
+  const durStr = duration ? `<span class="text-[10px] opacity-80 font-normal ml-0.5">(${escapeHtml(duration)})</span>` : '';
+  switch (status) {
+    case 'completed':
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm"><i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i> Completed ${durStr}</span>`;
+    case 'running':
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse shadow-sm"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin text-amber-400"></i> Running...</span>`;
+    case 'skipped':
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-secondary text-muted-foreground border border-border"><i data-lucide="fast-forward" class="w-3.5 h-3.5"></i> Skipped ${durStr}</span>`;
+    case 'failed':
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-destructive/20 text-destructive border border-destructive/40 shadow-sm"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-destructive"></i> Failed ${durStr}</span>`;
+    case 'pending':
+    default:
+      return `<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-secondary/50 text-muted-foreground border border-border/60"><i data-lucide="clock" class="w-3.5 h-3.5"></i> Pending</span>`;
+  }
+}
+
+function renderDiagnosticsSummaryPills(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const total = genDiagnosticsSteps.length;
+  const completed = genDiagnosticsSteps.filter(s => s.status === 'completed').length;
+  const running = genDiagnosticsSteps.filter(s => s.status === 'running').length;
+  const failed = genDiagnosticsSteps.filter(s => s.status === 'failed').length;
+  const skipped = genDiagnosticsSteps.filter(s => s.status === 'skipped').length;
+  const pending = genDiagnosticsSteps.filter(s => s.status === 'pending').length;
+
+  container.innerHTML = `
+    <span class="px-2 py-0.5 rounded bg-secondary text-foreground text-[10px] border border-border">Total: ${total}</span>
+    <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] border border-emerald-500/30 font-bold">✓ ${completed} Done</span>
+    ${running > 0 ? `<span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px] border border-amber-500/30 font-bold animate-pulse">⚡ ${running} Active</span>` : ''}
+    ${failed > 0 ? `<span class="px-2 py-0.5 rounded bg-destructive/20 text-destructive text-[10px] border border-destructive/40 font-bold">✗ ${failed} Failed</span>` : ''}
+    ${skipped > 0 ? `<span class="px-2 py-0.5 rounded bg-muted/40 text-muted-foreground text-[10px] border border-border/50">⏭ ${skipped} Skipped</span>` : ''}
+    ${pending > 0 ? `<span class="px-2 py-0.5 rounded bg-secondary/60 text-muted-foreground text-[10px] border border-border/50">⏳ ${pending} Queued</span>` : ''}
+  `;
+}
+
+function renderStepCardHtml(step, index) {
+  const isRunning = step.status === 'running';
+  const isCompleted = step.status === 'completed';
+  const isFailed = step.status === 'failed';
+
+  const borderClass = isRunning
+    ? 'border-amber-500/60 bg-amber-950/10 shadow-md shadow-amber-500/5 ring-1 ring-amber-500/30'
+    : isCompleted
+      ? 'border-emerald-500/30 bg-card/50'
+      : isFailed
+        ? 'border-destructive/60 bg-destructive/5'
+        : 'border-border/60 bg-card/30';
+
+  return `
+    <div class="rounded-lg border ${borderClass} p-3.5 transition duration-200">
+      <div class="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-border/40">
+        <div class="flex items-center gap-2">
+          <span class="w-6 h-6 rounded-md bg-secondary border border-border/80 flex items-center justify-center font-mono text-[11px] font-bold text-foreground">
+            ${index + 1}
+          </span>
+          <span class="font-semibold text-xs text-foreground tracking-tight">${escapeHtml(step.name || '')}</span>
+        </div>
+        <div>
+          ${getStatusBadgeHtml(step.status, step.duration)}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-2.5 text-xs">
+        <!-- INPUT BLOCK -->
+        <div class="rounded-md border border-border/50 bg-background/80 p-2.5 flex flex-col">
+          <div class="flex items-center gap-1.5 text-[11px] font-semibold text-primary mb-1">
+            <i data-lucide="arrow-down-right" class="w-3.5 h-3.5 text-primary"></i>
+            <span>Input</span>
+          </div>
+          <div class="text-[11px] font-mono text-muted-foreground/90 whitespace-pre-wrap leading-relaxed flex-1 overflow-x-auto select-text">
+            ${escapeHtml(step.input || 'No input defined.')}
+          </div>
+        </div>
+
+        <!-- OUTPUT BLOCK -->
+        <div class="rounded-md border border-border/50 bg-background/80 p-2.5 flex flex-col">
+          <div class="flex items-center gap-1.5 text-[11px] font-semibold ${isCompleted ? 'text-emerald-400' : isFailed ? 'text-destructive' : 'text-cyan-400'} mb-1">
+            <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+            <span>Output</span>
+          </div>
+          <div class="text-[11px] font-mono ${isCompleted ? 'text-foreground/90' : isFailed ? 'text-destructive/90 font-bold' : 'text-muted-foreground/90'} whitespace-pre-wrap leading-relaxed flex-1 overflow-x-auto select-text">
+            ${escapeHtml(step.output || 'Pending execution...')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGenDiagnostics() {
+  const mainList = document.getElementById('gen-diagnostics-steps-list');
+  const subList = document.getElementById('gen-subtab-diagnostics-steps-list');
+
+  if (genDiagnosticsSteps.length === 0) {
+    genDiagnosticsSteps = getDefaultDiagnosticsSteps();
+  }
+
+  const cardsHtml = genDiagnosticsSteps.map((step, idx) => renderStepCardHtml(step, idx)).join('');
+
+  if (mainList) {
+    mainList.innerHTML = cardsHtml;
+  }
+  if (subList) {
+    subList.innerHTML = cardsHtml;
+  }
+
+  renderDiagnosticsSummaryPills('diag-summary-pills');
+  renderDiagnosticsSummaryPills('gen-subtab-diag-summary-pills');
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
 async function loadGeneratorTemplates() {
   try {
     const res = await fetch('/api/generator/templates');
@@ -1316,6 +1550,7 @@ async function startPresentationGeneration() {
   }
 
   const timeoutVal = parseInt(document.getElementById('gen-timeout-input')?.value || '300', 10);
+  resetGenDiagnostics();
 
   try {
     const res = await fetch('/api/generator/generate', {
@@ -1364,6 +1599,13 @@ function listenToGenerationSSE(jobId) {
     appendGenLog(d.message);
   });
 
+  evtSource.addEventListener('step_update', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      updateGenStep(d);
+    } catch (_) {}
+  });
+
   evtSource.addEventListener('ai_images', (e) => {
     const d = JSON.parse(e.data);
     aiTestImages = d.images || [];
@@ -1378,6 +1620,10 @@ function listenToGenerationSSE(jobId) {
     genSlideIdx = 0;
     visualSlides = [...genSlides];
     visualSlideIdx = 0;
+
+    if (d.diagnostics && Array.isArray(d.diagnostics)) {
+      setGenDiagnostics(d.diagnostics);
+    }
 
     updateGenSlideDisplay(d.engine_name);
     updateVisualSlideDisplay();
@@ -1396,7 +1642,14 @@ function listenToGenerationSSE(jobId) {
     try {
       const d = JSON.parse(e.data);
       appendGenLog(`[!] Error: ${d.error}`);
-    } catch (_) {}
+      if (d.diagnostics && Array.isArray(d.diagnostics)) {
+        setGenDiagnostics(d.diagnostics);
+      } else {
+        markActiveGenStepFailed(d.error);
+      }
+    } catch (_) {
+      markActiveGenStepFailed('Generation job encountered an unhandled error.');
+    }
     setSystemStatus('ERROR');
     btnGen.disabled = false;
     showToast('Slide generation failed.', 'error');

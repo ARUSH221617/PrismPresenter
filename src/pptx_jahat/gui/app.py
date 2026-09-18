@@ -9,8 +9,9 @@ import json
 import time
 from typing import Optional, List, Dict, Any
 from PIL import Image, ImageTk, ImageDraw
+from pptx import Presentation
 
-from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR
+from pptx_jahat.config import Config, DATA_DIR, OUTPUT_DIR, COMPONENTS_DIR, STRUCTURES_DIR
 from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
 from pptx_jahat.tools.pptx_builder import build_pptx_with_agent, verify_and_auto_heal_pptx
 from pptx_jahat.tools.preview import render_pptx_file_previews
@@ -272,6 +273,51 @@ class PPTXJahatApp(tk.Tk):
         )
         btn_jump_analyze.pack(side=tk.LEFT, padx=(4, 0))
 
+        # Row 2.5: Storyboard Schema (.md) for Detection & Restructure
+        r_struct = tk.Frame(gen_card.body, bg=Theme.BG_SURFACE)
+        r_struct.pack(fill=tk.X, pady=4)
+        tk.Label(r_struct, text="Storyboard Schema (.md):", bg=Theme.BG_SURFACE, fg=Theme.TEXT_MAIN, font=Theme.FONT_BODY_BOLD, width=20, anchor="w").pack(side=tk.LEFT)
+        self.structure_choice_var = tk.StringVar()
+        self.structure_combo = ttk.Combobox(r_struct, textvariable=self.structure_choice_var, state="readonly")
+        self.structure_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
+        self.structure_combo.bind("<<ComboboxSelected>>", self._on_structure_combo_change)
+        btn_browse_struct = ttk.Button(r_struct, text="Browse", style="Secondary.TButton", command=self._browse_structure)
+        btn_browse_struct.pack(side=tk.LEFT)
+        btn_refresh_struct = ttk.Button(r_struct, text="Refresh", style="Secondary.TButton", command=self._refresh_structures)
+        btn_refresh_struct.pack(side=tk.LEFT, padx=(4, 0))
+
+        # Row 2.6: Detection & Restructure Checkboxes
+        r_opts = tk.Frame(gen_card.body, bg=Theme.BG_SURFACE)
+        r_opts.pack(fill=tk.X, pady=(2, 4))
+        tk.Label(r_opts, text="", bg=Theme.BG_SURFACE, width=20).pack(side=tk.LEFT)
+        self.enable_detect_var = tk.BooleanVar(value=True)
+        chk_detect = tk.Checkbutton(
+            r_opts,
+            text="Detect via Schema (OCR)",
+            variable=self.enable_detect_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_MAIN,
+            selectcolor=Theme.BG_SURFACE_HOVER,
+            activebackground=Theme.BG_SURFACE,
+            activeforeground=Theme.TEXT_MAIN,
+            font=Theme.FONT_CAPTION
+        )
+        chk_detect.pack(side=tk.LEFT, padx=(6, 12))
+
+        self.enable_restructure_var = tk.BooleanVar(value=True)
+        chk_restruct = tk.Checkbutton(
+            r_opts,
+            text="Restructure Agent (Rewrite)",
+            variable=self.enable_restructure_var,
+            bg=Theme.BG_SURFACE,
+            fg=Theme.TEXT_MAIN,
+            selectcolor=Theme.BG_SURFACE_HOVER,
+            activebackground=Theme.BG_SURFACE,
+            activeforeground=Theme.TEXT_MAIN,
+            font=Theme.FONT_CAPTION
+        )
+        chk_restruct.pack(side=tk.LEFT)
+
         # Row 3: Output PPTX Destination
         r3 = tk.Frame(gen_card.body, bg=Theme.BG_SURFACE)
         r3.pack(fill=tk.X, pady=4)
@@ -340,6 +386,7 @@ class PPTXJahatApp(tk.Tk):
         self._setup_subtab_ai_test_images()
 
         self._refresh_templates()
+        self._refresh_structures()
 
     def _setup_subtab_deck_preview(self):
         # Nav & Controls Toolbar
@@ -551,6 +598,44 @@ class PPTXJahatApp(tk.Tk):
             self.template_combo.current(0)
         else:
             self.template_choice_var.set("No templates found in data/")
+
+    def _refresh_structures(self):
+        STRUCTURES_DIR.mkdir(parents=True, exist_ok=True)
+        md_files = [f.name for f in sorted(list(STRUCTURES_DIR.glob("*.md")))]
+        vals = ["✨ None (Direct Extraction)"] + md_files
+        self.structure_combo["values"] = vals
+        cur = self.structure_choice_var.get()
+        if not cur or cur not in vals:
+            if "pptx-structure-yosefzadeh.md" in md_files:
+                self.structure_choice_var.set("pptx-structure-yosefzadeh.md")
+                self.enable_restructure_var.set(True)
+            elif md_files:
+                self.structure_choice_var.set(md_files[0])
+                self.enable_restructure_var.set(True)
+            else:
+                self.structure_choice_var.set(vals[0])
+
+    def _browse_structure(self):
+        f = filedialog.askopenfilename(
+            title="Select Storyboard Schema (.md)",
+            filetypes=[("Markdown Files", "*.md"), ("All Files", "*.*")]
+        )
+        if f:
+            p = Path(f)
+            vals = list(self.structure_combo["values"])
+            val_to_set = p.name if p.parent.resolve() == STRUCTURES_DIR.resolve() else str(p.resolve())
+            if val_to_set not in vals:
+                vals.append(val_to_set)
+                self.structure_combo["values"] = vals
+            self.structure_choice_var.set(val_to_set)
+            self.enable_restructure_var.set(True)
+
+    def _on_structure_combo_change(self, event=None):
+        val = self.structure_choice_var.get()
+        if val and "None" not in val:
+            self.enable_restructure_var.set(True)
+        else:
+            self.enable_restructure_var.set(False)
 
     def _open_in_powerpoint(self):
         if not self.current_generated_pptx or not Path(self.current_generated_pptx).exists():
@@ -806,6 +891,11 @@ class PPTXJahatApp(tk.Tk):
         tpl = self.template_choice_var.get()
         tpl_name = None if "All Templates" in tpl or "No templates" in tpl else tpl
 
+        struct_val = self.structure_choice_var.get().strip()
+        struct_name = None if not struct_val or "None" in struct_val else struct_val
+        enable_restruct = self.enable_restructure_var.get()
+        enable_det = self.enable_detect_var.get()
+
         self.btn_generate.set_state("disabled")
         self.btn_open_pptx.set_state("disabled")
         self.badge_status.set_text("● GENERATING...", fg_color=Theme.TEXT_WHITE, bg_color=Theme.RED_PRIMARY)
@@ -820,12 +910,20 @@ class PPTXJahatApp(tk.Tk):
 
             try:
                 self.gen_console.log(f"Starting PPTX generation pipeline for '{Path(docx_p).name}'", "accent")
+                if struct_name:
+                    if enable_det:
+                        self.gen_console.log(f"Detection Schema active: '{Path(struct_name).name}'", "info")
+                    if enable_restruct:
+                        self.gen_console.log(f"Restructure Agent active: Conforming to '{Path(struct_name).name}'", "info")
                 res = build_pptx_with_agent(
                     docx_p,
                     out_p,
                     tpl_name,
                     log_callback=log_fn,
-                    on_ai_images_ready=ai_images_cb
+                    on_ai_images_ready=ai_images_cb,
+                    structure_name=struct_name,
+                    enable_restructure=enable_restruct,
+                    enable_detection=enable_det
                 )
                 self.current_generated_pptx = res
                 self.gen_console.log(f"SUCCESS: Generated PPTX saved at {res}", "success")

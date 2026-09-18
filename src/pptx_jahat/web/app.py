@@ -163,7 +163,12 @@ def create_app() -> Flask:
         raw_text = data.get("raw_text", "").strip()
         template_name = data.get("template_name", None)
         structure_name = data.get("structure_name", None)
+        detection_structure_name = data.get("detection_structure_name", None)
+        restructure_structure_name = data.get("restructure_structure_name", None)
+        blueprint_structure_name = data.get("blueprint_structure_name", None)
+        enable_detection = bool(data.get("enable_detection", True))
         enable_restructure = bool(data.get("enable_restructure", False))
+        enable_blueprint = bool(data.get("enable_blueprint", True))
         output_path = data.get("output_path", "").strip()
         timeout_val = data.get("timeout", None)
 
@@ -184,8 +189,18 @@ def create_app() -> Flask:
         if template_name and ("All Templates" in template_name or "No templates" in template_name):
             template_name = None
 
-        if structure_name and ("None" in structure_name or "Select" in structure_name or "none" == structure_name.lower()):
-            structure_name = None
+        def _clean_struct_name(val):
+            if not val:
+                return None
+            s = str(val).strip()
+            if not s or "none" in s.lower() or "select" in s.lower():
+                return None
+            return s
+
+        structure_name = _clean_struct_name(structure_name)
+        detection_structure_name = _clean_struct_name(detection_structure_name)
+        restructure_structure_name = _clean_struct_name(restructure_structure_name)
+        blueprint_structure_name = _clean_struct_name(blueprint_structure_name)
 
         if not output_path:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,7 +250,12 @@ def create_app() -> Flask:
                     structure_name=structure_name,
                     raw_text=raw_text,
                     enable_restructure=enable_restructure,
-                    timeout=req_timeout
+                    timeout=req_timeout,
+                    detection_structure_name=detection_structure_name,
+                    restructure_structure_name=restructure_structure_name,
+                    blueprint_structure_name=blueprint_structure_name,
+                    enable_detection=enable_detection,
+                    enable_blueprint=enable_blueprint
                 )
 
                 # Pre-render slides for instant UI loading
@@ -459,6 +479,43 @@ def create_app() -> Flask:
             return jsonify(res)
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/structure/upload", methods=["POST"])
+    def api_upload_structure():
+        files = request.files.getlist("files")
+        if not files and "file" in request.files:
+            files = [request.files["file"]]
+
+        if not files:
+            return jsonify({"success": False, "error": "No structure files uploaded."}), 400
+
+        STRUCTURES_DIR.mkdir(parents=True, exist_ok=True)
+        results = []
+        for file in files:
+            if not file or not file.filename:
+                continue
+            fname = Path(file.filename).name
+            if not fname.lower().endswith(".md"):
+                fname += ".md"
+            target = STRUCTURES_DIR / fname
+            file.save(str(target))
+            stat = target.stat()
+            results.append({
+                "filename": target.name,
+                "name": target.stem,
+                "path": str(target.resolve()),
+                "size": f"{round(stat.st_size / 1024, 1)} KB",
+                "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime))
+            })
+
+        if not results:
+            return jsonify({"success": False, "error": "No valid Markdown (.md) structure files uploaded."}), 400
+
+        return jsonify({
+            "success": True,
+            "structures": results,
+            "uploaded": results[0]
+        })
 
     @app.route("/api/structure/delete", methods=["DELETE"])
     def api_delete_structure():

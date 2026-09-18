@@ -217,7 +217,7 @@ def analyze_template(
     effective_timeout = float(timeout or Config.LLM_TIMEOUT)
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 

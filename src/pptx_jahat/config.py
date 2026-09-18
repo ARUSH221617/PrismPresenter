@@ -43,6 +43,14 @@ class Config:
     _models_cache_time: float = 0.0
 
     @classmethod
+    def get_openai_base_url(cls) -> str:
+        """Returns normalized base URL for OpenAI client, guaranteeing a clean single /v1 endpoint."""
+        url = (cls.NINEROUTER_URL or "http://localhost:20128").strip().rstrip('/')
+        if not url.endswith('/v1'):
+            url = f"{url}/v1"
+        return url
+
+    @classmethod
     def get_model_metadata(cls, model_id: Optional[str] = None) -> dict:
         """
         Queries 9Router /v1/models to detect context length, max tokens, and capabilities.

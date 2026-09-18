@@ -482,13 +482,19 @@
               </div>
 
               <!-- Detection & Storyboard Schema Selection (structure.md) -->
-              <div>
-                <div class="flex items-center justify-between mb-1.5">
-                  <label class="block font-medium text-foreground">Detection & Storyboard Schema (`structure.md`):</label>
+              <div class="space-y-2 p-3 rounded-lg border border-border/70 bg-card/40">
+                <!-- Header with Title, Mode Switcher, and Actions -->
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-1.5">
+                    <i data-lucide="layers" class="w-4 h-4 text-primary"></i>
+                    <label class="font-medium text-foreground text-xs">Storyboard & Detection Schema (`structure.md`):</label>
+                  </div>
                   <div class="flex items-center gap-2">
-                    <button type="button" onclick="previewCurrentSelectedStructure()" id="btn-preview-structure"
-                      class="text-primary hover:underline text-[11px] flex items-center gap-1">
-                      <i data-lucide="eye" class="w-3 h-3"></i> View Schema
+                    <input type="file" id="gen-upload-structure-input" accept=".md" class="hidden" onchange="handleUploadStructureFile(event)">
+                    <button type="button" onclick="triggerUploadStructure()"
+                      class="text-muted-foreground hover:text-primary text-[11px] flex items-center gap-1 bg-secondary/60 hover:bg-secondary px-2 py-0.5 rounded transition"
+                      title="Upload custom structure.md from disk">
+                      <i data-lucide="upload" class="w-3 h-3"></i> Import .md
                     </button>
                     <button type="button" onclick="loadGeneratorStructures()"
                       class="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1"
@@ -497,23 +503,149 @@
                     </button>
                   </div>
                 </div>
-                <select id="gen-structure-select" onchange="onGeneratorStructureChange()"
-                  class="shadcn-input cursor-pointer font-mono text-xs">
-                  <option value="">✨ None (Leave empty for Auto-Detection / Direct Extraction)</option>
-                </select>
 
-                <!-- Restructure & Detection Guidance Card -->
-                <div class="mt-2 p-2.5 rounded-md bg-secondary/40 border border-border flex items-start gap-2.5">
-                  <input type="checkbox" id="gen-enable-restructure"
-                    class="mt-0.5 rounded cursor-pointer text-primary h-4 w-4">
-                  <label for="gen-enable-restructure" class="cursor-pointer">
-                    <div class="font-medium text-foreground text-xs flex items-center gap-1.5">
-                      <i data-lucide="scan-text" class="w-3.5 h-3.5 text-primary"></i> Detect & Restructure Slides via Schema
+                <!-- Mode Switcher: Unified vs Dedicated -->
+                <div class="flex items-center gap-1 p-0.5 rounded-md bg-secondary/50 border border-border/50 text-[11px]">
+                  <button type="button" id="mode-btn-unified" onclick="setStructureSelectionMode('unified')"
+                    class="flex-1 py-1 px-2 rounded font-medium text-center transition bg-primary text-primary-foreground shadow-sm">
+                    Unified Schema
+                  </button>
+                  <button type="button" id="mode-btn-dedicated" onclick="setStructureSelectionMode('dedicated')"
+                    class="flex-1 py-1 px-2 rounded font-medium text-center text-muted-foreground hover:text-foreground transition">
+                    Dedicated (Detect, Restructure, etc.)
+                  </button>
+                </div>
+
+                <!-- 1. UNIFIED SCHEMA MODE CONTAINER -->
+                <div id="gen-struct-unified-box" class="space-y-2">
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-[11px] text-muted-foreground">Select schema for all active stages:</span>
+                      <button type="button" onclick="previewCurrentSelectedStructure('unified')"
+                        class="text-primary hover:underline text-[11px] flex items-center gap-1">
+                        <i data-lucide="eye" class="w-3 h-3"></i> View Schema
+                      </button>
                     </div>
-                    <p class="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                      Guides Vision OCR and the Restructure Agent to detect quadrants (TR, TL, BR, BL), circled steps (①, ②, ③...), LaTeX formulas, and teacher callouts directly from your files.
+                    <select id="gen-structure-select" onchange="onGeneratorStructureChange()"
+                      class="shadcn-input cursor-pointer font-mono text-xs">
+                      <option value="">✨ None (Standard Direct Generation - No Schema Restructuring)</option>
+                    </select>
+                  </div>
+
+                  <!-- Unified Phase Toggles -->
+                  <div class="p-2.5 rounded-md bg-secondary/30 border border-border/60 space-y-2 text-xs">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                      <input type="checkbox" id="gen-enable-detect" checked
+                        class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                      <div>
+                        <span class="font-medium text-foreground">Detect via Schema (OCR & Quadrants)</span>
+                        <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                          Guides Vision OCR to identify quadrants (TR, TL, BR, BL), circled steps (①, ②, ③...), formulas, and teacher callouts in source files.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label class="flex items-start gap-2 cursor-pointer border-t border-border/40 pt-2">
+                      <input type="checkbox" id="gen-enable-restructure"
+                        class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                      <div>
+                        <span class="font-medium text-foreground">Restructure Agent (Rewrite Slides)</span>
+                        <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                          Autonomous AI Restructure Agent rewrites, partitions, and formats slides strictly conforming to the chosen schema.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label class="flex items-start gap-2 cursor-pointer border-t border-border/40 pt-2">
+                      <input type="checkbox" id="gen-enable-blueprint" checked
+                        class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                      <div>
+                        <span class="font-medium text-foreground">Template Blueprint & Layout Rhythm</span>
+                        <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                          Guides Vision AI template reasoning and slide archetype selection based on schema structure.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- 2. DEDICATED (PER PHASE) MODE CONTAINER -->
+                <div id="gen-struct-dedicated-box" class="hidden space-y-2.5">
+                  <div class="text-[11px] text-muted-foreground pb-0.5">
+                    Select tailored <code class="font-mono text-foreground bg-muted px-1 py-0.5 rounded text-[10px]">structure.md</code> files independently for detection, restructuring, and layout matching:
+                  </div>
+
+                  <!-- Slot A: Detection Schema -->
+                  <div class="p-2.5 rounded-md bg-secondary/30 border border-border/60 space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="gen-detect-dedicated-enable" checked
+                          class="rounded cursor-pointer text-primary h-3.5 w-3.5">
+                        <span class="font-medium text-foreground text-xs flex items-center gap-1">
+                          <i data-lucide="scan-line" class="w-3 h-3 text-primary"></i> 1. Detection Schema (OCR & Quadrants)
+                        </span>
+                      </label>
+                      <button type="button" onclick="previewCurrentSelectedStructure('detect')"
+                        class="text-primary hover:underline text-[11px] flex items-center gap-1">
+                        <i data-lucide="eye" class="w-3 h-3"></i> View
+                      </button>
+                    </div>
+                    <select id="gen-detect-structure-select" onchange="onDedicatedStructureChange('detect')"
+                      class="shadcn-input cursor-pointer font-mono text-xs">
+                      <option value="">✨ Auto / None (Standard Extraction)</option>
+                    </select>
+                    <p class="text-[10px] text-muted-foreground leading-normal">
+                      Applied in Step 2 to detect quadrants (TR, TL, BR, BL), circled steps, formulas, and callouts from worksheets and notes.
                     </p>
-                  </label>
+                  </div>
+
+                  <!-- Slot B: Restructure Schema -->
+                  <div class="p-2.5 rounded-md bg-secondary/30 border border-border/60 space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="gen-restructure-dedicated-enable" checked
+                          class="rounded cursor-pointer text-primary h-3.5 w-3.5">
+                        <span class="font-medium text-foreground text-xs flex items-center gap-1">
+                          <i data-lucide="scan-text" class="w-3 h-3 text-amber-400"></i> 2. Restructure Schema (Rewrite Agent)
+                        </span>
+                      </label>
+                      <button type="button" onclick="previewCurrentSelectedStructure('restructure')"
+                        class="text-primary hover:underline text-[11px] flex items-center gap-1">
+                        <i data-lucide="eye" class="w-3 h-3"></i> View
+                      </button>
+                    </div>
+                    <select id="gen-restructure-structure-select" onchange="onDedicatedStructureChange('restructure')"
+                      class="shadcn-input cursor-pointer font-mono text-xs">
+                      <option value="">✨ None (Keep Original Document Sections)</option>
+                    </select>
+                    <p class="text-[10px] text-muted-foreground leading-normal">
+                      Applied in Step 2.5 by AI Restructure Agent to rewrite, synthesize, and format slides into storyboard blocks.
+                    </p>
+                  </div>
+
+                  <!-- Slot C: Blueprint & Layout Schema -->
+                  <div class="p-2.5 rounded-md bg-secondary/30 border border-border/60 space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="gen-blueprint-dedicated-enable" checked
+                          class="rounded cursor-pointer text-primary h-3.5 w-3.5">
+                        <span class="font-medium text-foreground text-xs flex items-center gap-1">
+                          <i data-lucide="layout-template" class="w-3 h-3 text-cyan-400"></i> 3. Blueprint Schema (Layout & Matching)
+                        </span>
+                      </label>
+                      <button type="button" onclick="previewCurrentSelectedStructure('blueprint')"
+                        class="text-primary hover:underline text-[11px] flex items-center gap-1">
+                        <i data-lucide="eye" class="w-3 h-3"></i> View
+                      </button>
+                    </div>
+                    <select id="gen-blueprint-structure-select" onchange="onDedicatedStructureChange('blueprint')"
+                      class="shadcn-input cursor-pointer font-mono text-xs">
+                      <option value="">✨ Inherit from Restructure / Detect Schema</option>
+                    </select>
+                    <p class="text-[10px] text-muted-foreground leading-normal">
+                      Applied in Step 3 to guide AI slide reasoning, template archetype matching, and slide count planning.
+                    </p>
+                  </div>
                 </div>
               </div>
 

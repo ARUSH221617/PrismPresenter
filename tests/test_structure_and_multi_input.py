@@ -218,5 +218,51 @@ def test_upload_samples_and_build_endpoints(client):
     assert d2["success"] is True
     assert "job_id" in d2
 
+def test_structure_direct_path_and_upload(client):
+    import io
+    # 1. Direct path reading
+    sample_file = STRUCTURES_DIR / "pptx-structure-yosefzadeh.md"
+    content_from_direct_path = get_structure_content(str(sample_file))
+    assert "Slide Storyboard Specification Schema" in content_from_direct_path
+
+    # 2. Test /api/structure/upload
+    uploaded_name = "test-custom-upload-schema.md"
+    upload_data = {
+        "file": (io.BytesIO(b"# Custom Uploaded Storyboard\n## 1. Metadata\n"), uploaded_name)
+    }
+    res = client.post("/api/structure/upload", data=upload_data, content_type="multipart/form-data")
+    assert res.status_code == 200
+    d = res.get_json()
+    assert d["success"] is True
+    assert len(d["structures"]) >= 1
+    assert d["uploaded"]["filename"] == uploaded_name
+
+    # Verify content was written and can be retrieved
+    retrieved = get_structure_content(uploaded_name)
+    assert "Custom Uploaded Storyboard" in retrieved
+
+    # Clean up
+    delete_structure_file(uploaded_name)
+
+def test_generate_endpoint_with_different_structures(client):
+    # Test generator endpoint accepts detection, restructure, blueprint schemas
+    payload = {
+        "raw_text": "Quantum computing uses qubits instead of classical bits.",
+        "template_name": "All Templates",
+        "structure_name": "pptx-structure-yosefzadeh.md",
+        "detection_structure_name": "T711-structure.md",
+        "restructure_structure_name": "pptx-structure-yosefzadeh.md",
+        "blueprint_structure_name": "T711-structure.md",
+        "enable_detection": True,
+        "enable_restructure": False,
+        "enable_blueprint": True
+    }
+    res = client.post("/api/generator/generate", json=payload)
+    assert res.status_code == 200
+    d = res.get_json()
+    assert d["success"] is True
+    assert "job_id" in d
+
+
 
 

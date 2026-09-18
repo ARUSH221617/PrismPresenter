@@ -12,7 +12,8 @@ from pptx_jahat.tools.pptx_builder import (
     build_pptx_with_agent,
     verify_pptx_integrity,
     repair_pptx_package,
-    verify_and_auto_heal_pptx
+    verify_and_auto_heal_pptx,
+    run_slidecheck_qa
 )
 from pptx_jahat.tools.image_gen import generate_image
 from pptx_jahat.tools.template_analyzer import (
@@ -214,6 +215,20 @@ TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "slidecheck_qa",
+            "description": "Run automated SlideCheck Quality Assurance (font fidelity audit, text overflow detection & auto-healing, RTL/BiDi check) on a presentation",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the PPTX file to audit"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "analyze_pptx_template",
             "description": "Analyze a PPTX template file with AI, producing purpose, brief, ideas, style, and slide archetypes, and saving notes to data/NOTE.md",
             "parameters": {
@@ -339,6 +354,7 @@ TOOL_HANDLERS: Dict[str, Callable] = {
         "file_path": str(file_path),
         "status": "Verified OK" if verify_and_auto_heal_pptx(file_path)[0] else "Repairs applied"
     }),
+    "slidecheck_qa": lambda file_path: json.dumps(run_slidecheck_qa(file_path), indent=2, ensure_ascii=False),
     "analyze_pptx_template": lambda pptx_path: json.dumps(analyze_template(pptx_path), indent=2),
     "analyze_all_templates": lambda: analyze_all_templates(),
     "get_template_notes": lambda: load_notes(),
@@ -399,7 +415,7 @@ class AIAgent:
         return active_tools
 
     def _get_client(self) -> OpenAI:
-        base_url = f"{Config.NINEROUTER_URL.rstrip('/')}/v1"
+        base_url = Config.get_openai_base_url()
         api_key = Config.NINEROUTER_KEY or "dummy_key"
         return OpenAI(api_key=api_key, base_url=base_url, timeout=Config.LLM_TIMEOUT)
 

@@ -592,50 +592,180 @@ function toggleRawNotesInput() {
 // -------------------------------------------------------------
 // STORYBOARD SPECIFICATIONS (data/structure/*.md)
 // -------------------------------------------------------------
+let currentStructureMode = 'unified';
+
+function populateStructureSelect(selectEl, emptyLabel, selectedVal) {
+  if (!selectEl) return;
+  const prevVal = selectedVal !== undefined ? selectedVal : selectEl.value;
+  selectEl.innerHTML = `<option value="">${emptyLabel}</option>`;
+  structuresList.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.filename;
+    opt.innerText = `${s.filename} ${s.is_sample ? '★ (Sample Blueprint)' : ''} [${s.size}]`;
+    selectEl.appendChild(opt);
+  });
+  if (prevVal && structuresList.some(s => s.filename === prevVal)) {
+    selectEl.value = prevVal;
+  }
+}
+
 async function loadGeneratorStructures() {
   try {
     const res = await fetch('/api/structure/list');
     const data = await res.json();
     structuresList = data.structures || [];
 
-    const select = document.getElementById('gen-structure-select');
-    if (select) {
-      const prevVal = select.value;
-      select.innerHTML = '<option value="">✨ None (Standard Direct Generation - No Schema Restructuring)</option>';
-      structuresList.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.filename;
-        opt.innerText = `${s.filename} ${s.is_sample ? '★ (Sample Blueprint)' : ''} [${s.size}]`;
-        select.appendChild(opt);
-      });
-      if (prevVal && structuresList.some(s => s.filename === prevVal)) {
-        select.value = prevVal;
-      }
-    }
+    populateStructureSelect(
+      document.getElementById('gen-structure-select'),
+      '✨ None (Standard Direct Generation - No Schema Restructuring)'
+    );
+    populateStructureSelect(
+      document.getElementById('gen-detect-structure-select'),
+      '✨ Auto / None (Standard Extraction)'
+    );
+    populateStructureSelect(
+      document.getElementById('gen-restructure-structure-select'),
+      '✨ None (Keep Original Document Sections)'
+    );
+    populateStructureSelect(
+      document.getElementById('gen-blueprint-structure-select'),
+      '✨ Inherit from Restructure / Detect Schema'
+    );
 
     updateStructuresListUI();
+    if (window.lucide) lucide.createIcons();
   } catch (err) {
     console.error('Failed to load structures list', err);
   }
 }
 
+function setStructureSelectionMode(mode) {
+  currentStructureMode = mode;
+  const unifiedBox = document.getElementById('gen-struct-unified-box');
+  const dedicatedBox = document.getElementById('gen-struct-dedicated-box');
+  const btnUnified = document.getElementById('mode-btn-unified');
+  const btnDedicated = document.getElementById('mode-btn-dedicated');
+
+  if (mode === 'dedicated') {
+    if (unifiedBox) unifiedBox.classList.add('hidden');
+    if (dedicatedBox) dedicatedBox.classList.remove('hidden');
+
+    if (btnUnified) {
+      btnUnified.className = 'flex-1 py-1 px-2 rounded font-medium text-center text-muted-foreground hover:text-foreground transition';
+    }
+    if (btnDedicated) {
+      btnDedicated.className = 'flex-1 py-1 px-2 rounded font-medium text-center transition bg-primary text-primary-foreground shadow-sm';
+    }
+
+    const unifiedVal = document.getElementById('gen-structure-select')?.value;
+    if (unifiedVal) {
+      const dSel = document.getElementById('gen-detect-structure-select');
+      const rSel = document.getElementById('gen-restructure-structure-select');
+      if (dSel && !dSel.value) dSel.value = unifiedVal;
+      if (rSel && !rSel.value) rSel.value = unifiedVal;
+    }
+  } else {
+    if (unifiedBox) unifiedBox.classList.remove('hidden');
+    if (dedicatedBox) dedicatedBox.classList.add('hidden');
+
+    if (btnUnified) {
+      btnUnified.className = 'flex-1 py-1 px-2 rounded font-medium text-center transition bg-primary text-primary-foreground shadow-sm';
+    }
+    if (btnDedicated) {
+      btnDedicated.className = 'flex-1 py-1 px-2 rounded font-medium text-center text-muted-foreground hover:text-foreground transition';
+    }
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
 function onGeneratorStructureChange() {
   const sel = document.getElementById('gen-structure-select');
-  const chk = document.getElementById('gen-enable-restructure');
-  if (!sel || !chk) return;
+  const chkDetect = document.getElementById('gen-enable-detect');
+  const chkRestruct = document.getElementById('gen-enable-restructure');
+  const chkBlueprint = document.getElementById('gen-enable-blueprint');
+  if (!sel) return;
+
   if (sel.value) {
-    chk.checked = true;
+    if (chkDetect) chkDetect.checked = true;
+    if (chkRestruct) chkRestruct.checked = true;
+    if (chkBlueprint) chkBlueprint.checked = true;
     showToast(`Selected structure blueprint: ${sel.value}. Restructure Agent enabled.`, 'info');
   } else {
-    chk.checked = false;
+    if (chkRestruct) chkRestruct.checked = false;
   }
 }
 
-async function previewCurrentSelectedStructure() {
-  const sel = document.getElementById('gen-structure-select');
+function onDedicatedStructureChange(phase) {
+  if (phase === 'detect') {
+    const sel = document.getElementById('gen-detect-structure-select');
+    const chk = document.getElementById('gen-detect-dedicated-enable');
+    if (chk) chk.checked = Boolean(sel && sel.value);
+    if (sel && sel.value) showToast(`Detection schema: ${sel.value}`, 'info');
+  } else if (phase === 'restructure') {
+    const sel = document.getElementById('gen-restructure-structure-select');
+    const chk = document.getElementById('gen-restructure-dedicated-enable');
+    if (chk) chk.checked = Boolean(sel && sel.value);
+    if (sel && sel.value) showToast(`Restructure schema: ${sel.value}`, 'info');
+  } else if (phase === 'blueprint') {
+    const sel = document.getElementById('gen-blueprint-structure-select');
+    const chk = document.getElementById('gen-blueprint-dedicated-enable');
+    if (chk) chk.checked = Boolean(sel && sel.value);
+    if (sel && sel.value) showToast(`Blueprint schema: ${sel.value}`, 'info');
+  }
+}
+
+function triggerUploadStructure() {
+  const inp = document.getElementById('gen-upload-structure-input');
+  if (inp) inp.click();
+}
+
+async function handleUploadStructureFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    showToast(`Importing structure schema: ${file.name}...`, 'info');
+    const res = await fetch('/api/structure/upload', {
+      method: 'POST',
+      body: fd
+    });
+    const data = await res.json();
+    if (data.success && data.uploaded) {
+      const uploadedName = data.uploaded.filename;
+      await loadGeneratorStructures();
+
+      const uniSelect = document.getElementById('gen-structure-select');
+      if (uniSelect) uniSelect.value = uploadedName;
+      const detSelect = document.getElementById('gen-detect-structure-select');
+      if (detSelect) detSelect.value = uploadedName;
+      const restSelect = document.getElementById('gen-restructure-structure-select');
+      if (restSelect) restSelect.value = uploadedName;
+
+      onGeneratorStructureChange();
+      showToast(`Successfully imported structure: ${uploadedName}`, 'success');
+    } else {
+      showToast(data.error || 'Failed to upload structure file', 'error');
+    }
+  } catch (err) {
+    showToast(`Upload error: ${err.message}`, 'error');
+  } finally {
+    event.target.value = '';
+  }
+}
+
+async function previewCurrentSelectedStructure(targetType = 'unified') {
+  let selectId = 'gen-structure-select';
+  if (targetType === 'detect') selectId = 'gen-detect-structure-select';
+  else if (targetType === 'restructure') selectId = 'gen-restructure-structure-select';
+  else if (targetType === 'blueprint') selectId = 'gen-blueprint-structure-select';
+
+  const sel = document.getElementById(selectId);
   const name = sel ? sel.value : null;
   if (!name) {
-    showToast('Please select a structure blueprint from the dropdown to view.', 'warning');
+    showToast(`Please select a ${targetType} schema file from the dropdown to view.`, 'warning');
     return;
   }
   openPreviewStructureModal(name);
@@ -1127,8 +1257,29 @@ async function startPresentationGeneration() {
   const docxPath = document.getElementById('gen-docx-path')?.value.trim() || '';
   const rawText = document.getElementById('gen-raw-text-input')?.value.trim() || '';
   const templateName = document.getElementById('gen-template-select')?.value;
-  const structureName = document.getElementById('gen-structure-select')?.value || '';
-  const enableRestructure = document.getElementById('gen-enable-restructure')?.checked || false;
+  let structureName = '';
+  let detectionStructureName = '';
+  let restructureStructureName = '';
+  let blueprintStructureName = '';
+  let enableDetect = true;
+  let enableRestructure = false;
+  let enableBlueprint = true;
+
+  if (currentStructureMode === 'dedicated') {
+    detectionStructureName = document.getElementById('gen-detect-structure-select')?.value || '';
+    restructureStructureName = document.getElementById('gen-restructure-structure-select')?.value || '';
+    blueprintStructureName = document.getElementById('gen-blueprint-structure-select')?.value || '';
+    enableDetect = document.getElementById('gen-detect-dedicated-enable')?.checked ?? Boolean(detectionStructureName);
+    enableRestructure = document.getElementById('gen-restructure-dedicated-enable')?.checked ?? Boolean(restructureStructureName);
+    enableBlueprint = document.getElementById('gen-blueprint-dedicated-enable')?.checked ?? Boolean(blueprintStructureName);
+    structureName = restructureStructureName || detectionStructureName || blueprintStructureName;
+  } else {
+    structureName = document.getElementById('gen-structure-select')?.value || '';
+    enableDetect = document.getElementById('gen-enable-detect')?.checked ?? true;
+    enableRestructure = document.getElementById('gen-enable-restructure')?.checked ?? false;
+    enableBlueprint = document.getElementById('gen-enable-blueprint')?.checked ?? true;
+  }
+
   const outputPath = document.getElementById('gen-output-path')?.value.trim();
 
   if (sourceFiles.length === 0 && !docxPath && !rawText) {
@@ -1147,8 +1298,21 @@ async function startPresentationGeneration() {
   setSystemStatus('SYNTHESIZING...', true);
   const inputSummary = sourceFiles.length > 0 ? `${sourceFiles.length} source file(s)` : (docxPath ? docxPath.split(/[\\/]/).pop() : 'Direct notes');
   appendGenLog(`\n[*] Starting presentation synthesis for ${inputSummary}`);
-  if (structureName && enableRestructure) {
-    appendGenLog(`[*] AI Storyboard Restructure Agent ACTIVE: Conforming to '${structureName}'`);
+
+  if (currentStructureMode === 'dedicated') {
+    if (detectionStructureName && enableDetect) {
+      appendGenLog(`[*] Detection Schema ACTIVE: '${detectionStructureName}' (Quadrant OCR & math extraction)`);
+    }
+    if (restructureStructureName && enableRestructure) {
+      appendGenLog(`[*] AI Storyboard Restructure Agent ACTIVE: Conforming to '${restructureStructureName}'`);
+    }
+    if (blueprintStructureName && enableBlueprint) {
+      appendGenLog(`[*] Slide Blueprint ACTIVE: Conforming to '${blueprintStructureName}'`);
+    }
+  } else if (structureName) {
+    if (enableDetect) appendGenLog(`[*] Detection Schema ACTIVE: '${structureName}'`);
+    if (enableRestructure) appendGenLog(`[*] AI Storyboard Restructure Agent ACTIVE: Conforming to '${structureName}'`);
+    if (enableBlueprint) appendGenLog(`[*] Slide Blueprint ACTIVE: Conforming to '${structureName}'`);
   }
 
   const timeoutVal = parseInt(document.getElementById('gen-timeout-input')?.value || '300', 10);
@@ -1163,7 +1327,12 @@ async function startPresentationGeneration() {
         raw_text: rawText,
         template_name: templateName,
         structure_name: structureName,
+        detection_structure_name: detectionStructureName,
+        restructure_structure_name: restructureStructureName,
+        blueprint_structure_name: blueprintStructureName,
+        enable_detection: enableDetect,
         enable_restructure: enableRestructure,
+        enable_blueprint: enableBlueprint,
         output_path: outputPath,
         timeout: timeoutVal
       })

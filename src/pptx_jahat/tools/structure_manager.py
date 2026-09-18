@@ -59,10 +59,15 @@ def list_structure_files() -> List[Dict[str, Any]]:
 
 def get_structure_content(name_or_filename: str) -> str:
     """
-    Reads the content of a structure.md file from data/structure/.
+    Reads the content of a structure.md file from data/structure/ or direct path.
     """
+    direct_p = Path(name_or_filename)
+    if direct_p.is_file():
+        with open(direct_p, "r", encoding="utf-8") as f:
+            return f.read()
+
     STRUCTURES_DIR.mkdir(parents=True, exist_ok=True)
-    clean_name = Path(name_or_filename).name
+    clean_name = direct_p.name
     if not clean_name.endswith(".md"):
         clean_name += ".md"
         
@@ -169,7 +174,7 @@ def build_structure_from_template(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 
@@ -332,7 +337,7 @@ def build_structure_from_sample_files(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 
@@ -376,12 +381,13 @@ Generate the full Markdown content for `{output_filename}`. Ensure it provides c
     user_content.insert(0, {"type": "text", "text": prompt_text})
 
     try:
+        messages_payload: Any = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
         response = client.chat.completions.create(
             model=Config.NINEROUTER_CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
+            messages=messages_payload,
             temperature=0.25,
             max_tokens=min(Config.get_model_metadata().get("max_tokens", 65536), 32768)
         )
@@ -577,7 +583,7 @@ def restructure_slides_with_agent(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 

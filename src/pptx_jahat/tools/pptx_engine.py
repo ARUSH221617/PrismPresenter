@@ -50,8 +50,44 @@ def _get_shape_line(shape: Any) -> Dict[str, Any]:
         pass
     return line_info
 
+def extract_template_fonts(prs: Presentation) -> List[str]:
+    """
+    Extracts all distinct font names used across slide shapes, paragraphs, and runs.
+    """
+    fonts = set()
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for p in shape.text_frame.paragraphs:
+                    for r in p.runs:
+                        if r.font and r.font.name:
+                            fonts.add(r.font.name)
+                    if hasattr(p, "_p"):
+                        pPr = p._p.find("{http://schemas.openxmlformats.org/drawingml/2006/main}pPr")
+                        if pPr is not None:
+                            defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
+                            if defRPr is not None:
+                                cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
+                                if cs is not None and cs.get("typeface"):
+                                    fonts.add(cs.get("typeface"))
+                                latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
+                                if latin is not None and latin.get("typeface"):
+                                    fonts.add(latin.get("typeface"))
+    return sorted(list(fonts))
+
+def _calculate_char_budget(width: Optional[int], height: Optional[int], font_size_pt: Optional[float]) -> int:
+    """
+    Calculates estimated text character capacity before overflow for a given shape bounding box.
+    """
+    font_sz = font_size_pt or 14.0
+    w_in = (width / 914400.0) if width else 4.0
+    h_in = (height / 914400.0) if height else 1.5
+    chars_per_line = max(10, int((w_in * 72.0) / (font_sz * 0.52)))
+    lines_count = max(1, int((h_in * 72.0) / (font_sz * 1.30)))
+    return chars_per_line * lines_count
+
 def _get_shape_font(shape: Any) -> Dict[str, Any]:
-    font_info = {"name": None, "size_pt": None, "bold": None, "italic": None, "color": None}
+    font_info: Dict[str, Any] = {"name": None, "size_pt": None, "bold": None, "italic": None, "color": None}
     try:
         if shape.has_text_frame and shape.text_frame.text:
             for p in shape.text_frame.paragraphs:
@@ -68,6 +104,27 @@ def _get_shape_font(shape: Any) -> Dict[str, Any]:
                             pass
                         if font_info["name"] or font_info["size_pt"]:
                             return font_info
+                # Check defRPr if font name or size not found on runs
+                if hasattr(p, "_p"):
+                    pPr = p._p.find("{http://schemas.openxmlformats.org/drawingml/2006/main}pPr")
+                    if pPr is not None:
+                        defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
+                        if defRPr is not None:
+                            if not font_info["name"]:
+                                cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
+                                if cs is not None and cs.get("typeface"):
+                                    font_info["name"] = cs.get("typeface")
+                                else:
+                                    latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
+                                    if latin is not None and latin.get("typeface"):
+                                        font_info["name"] = latin.get("typeface")
+                            if not font_info["size_pt"] and defRPr.get("sz"):
+                                try:
+                                    font_info["size_pt"] = int(defRPr.get("sz")) / 100.0
+                                except Exception:
+                                    pass
+                            if font_info["name"] or font_info["size_pt"]:
+                                return font_info
     except Exception:
         pass
     return font_info
@@ -280,6 +337,7 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
     prs = Presentation(str(path))
     slide_w = prs.slide_width
     slide_h = prs.slide_height
+    template_fonts = extract_template_fonts(prs)
     slides_summary = []
     
     # Pre-render slide screenshots in batch via COM if requested and available
@@ -296,12 +354,14 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
             logging.getLogger("pptx_engine").warning("Batch slide preview render failed for %s: %s", path.name, ex)
 
     for slide_idx, slide in enumerate(prs.slides):
-        slide_entry = {
+        slide_entry: Dict[str, Any] = {
             "template_file": path.name,
             "slide_index": slide_idx,
             "layout_name": slide.slide_layout.name if slide.slide_layout else f"Slide {slide_idx+1}",
             "slide_width": slide_w,
             "slide_height": slide_h,
+            "template_fonts": template_fonts,
+            "slide_fonts": [],
             "text_slots": []
         }
         
@@ -315,17 +375,41 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
                 except Exception:
                     slide_entry["screenshot_base64"] = None
         
+        slide_fonts = set()
         for shape_idx, shape in enumerate(slide.shapes):
             shape_type_name = str(shape.shape_type).replace("MSO_SHAPE_TYPE.", "")
+            ph_idx = None
+            ph_type = None
+            if getattr(shape, "is_placeholder", False):
+                try:
+                    ph_idx = shape.placeholder_format.idx
+                    ph_type = str(shape.placeholder_format.type).replace("PP_PLACEHOLDER.", "")
+                except Exception:
+                    pass
+
+            bounds = {
+                "left": shape.left,
+                "top": shape.top,
+                "width": shape.width,
+                "height": shape.height
+            }
+
             if shape.has_text_frame and shape.text_frame.text.strip():
                 sample_text = shape.text_frame.text.strip()
                 font_data = _get_shape_font(shape)
+                if font_data.get("name"):
+                    slide_fonts.add(font_data["name"])
+                char_budget = _calculate_char_budget(shape.width, shape.height, font_data.get("size_pt"))
                 slide_entry["text_slots"].append({
                     "shape_index": shape_idx,
+                    "placeholder_idx": ph_idx,
+                    "placeholder_type": ph_type,
                     "shape_name": shape.name,
                     "shape_type": shape_type_name,
                     "original_text": sample_text,
                     "font": font_data,
+                    "bounds": bounds,
+                    "char_budget": char_budget,
                     "is_title": (font_data.get("size_pt") or 14) >= 22 or "title" in shape.name.lower()
                 })
             elif shape.has_table:
@@ -335,22 +419,37 @@ def inspect_template_slides(pptx_path: Path | str, include_screenshots: bool = F
                     table_cells.append(row_texts)
                 slide_entry["text_slots"].append({
                     "shape_index": shape_idx,
+                    "placeholder_idx": ph_idx,
+                    "placeholder_type": ph_type,
                     "shape_name": shape.name,
                     "shape_type": "TABLE",
+                    "bounds": bounds,
                     "is_table": True,
                     "table_rows": len(shape.table.rows),
                     "table_cols": len(shape.table.columns),
                     "original_table_data": table_cells
                 })
             else:
-                # Other non-text shapes (cards, icons, pictures) that AI may decide to remove or keep
+                is_pic = (
+                    shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+                    or (ph_type in ["PICTURE", "BITMAP", "OBJECT"])
+                )
                 slide_entry["text_slots"].append({
                     "shape_index": shape_idx,
+                    "placeholder_idx": ph_idx,
+                    "placeholder_type": ph_type,
                     "shape_name": shape.name,
                     "shape_type": shape_type_name,
-                    "is_decorative": True
+                    "bounds": bounds,
+                    "is_picture_placeholder": is_pic,
+                    "is_decorative": not is_pic
                 })
                 
+        slide_entry["slide_fonts"] = sorted(list(slide_fonts))
+        slide_entry["primary_font"] = (
+            slide_entry["slide_fonts"][0] if slide_entry["slide_fonts"]
+            else (template_fonts[0] if template_fonts else None)
+        )
         # Classify semantic archetype
         slide_entry["archetype"] = classify_slide_archetype(slide, slide_idx, slide_entry["text_slots"])
         slides_summary.append(slide_entry)

@@ -330,7 +330,7 @@ def parse_image_content(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 
@@ -411,7 +411,7 @@ def parse_audio_content(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 

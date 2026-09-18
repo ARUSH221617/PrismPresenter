@@ -31,15 +31,47 @@ from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_
 from pptx_jahat.tools.template_analyzer import load_notes
 from openai import OpenAI
 
-def _set_paragraph_rtl_and_fonts(paragraph: Any, font_name: Optional[str] = "Vazirmatn") -> None:
+def _is_rtl_text(text: str) -> bool:
+    """
+    Returns True if text contains Persian, Arabic or other RTL Unicode characters.
+    """
+    if not text:
+        return True
+    return bool(re.search(r'[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]', text))
+
+def _set_run_rtl_and_fonts(run: Any, font_name: Optional[str] = None, is_rtl: bool = True) -> None:
+    """
+    Directly sets DrawingML run properties for true RTL and complex script / latin font typefaces.
+    """
+    try:
+        rPr = run._r.get_or_add_rPr()
+        if is_rtl:
+            rPr.set("rtl", "1")
+        if font_name:
+            cs = rPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
+            if cs is None:
+                cs = OxmlElement("a:cs")
+                rPr.append(cs)
+            cs.set("typeface", font_name)
+
+            latin = rPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
+            if latin is None:
+                latin = OxmlElement("a:latin")
+                rPr.append(latin)
+            latin.set("typeface", font_name)
+    except Exception:
+        pass
+
+def _set_paragraph_rtl_and_fonts(paragraph: Any, font_name: Optional[str] = None, is_rtl: bool = True) -> None:
     """
     Directly sets DrawingML paragraph properties for true RTL and complex script fonts.
     """
     try:
         pPr = paragraph._p.get_or_add_pPr()
-        pPr.set("rtl", "1")
-        pPr.set("algn", "r")
-        
+        if is_rtl:
+            pPr.set("rtl", "1")
+            pPr.set("algn", "r")
+
         # Set default complex script font
         if font_name:
             defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
@@ -51,39 +83,51 @@ def _set_paragraph_rtl_and_fonts(paragraph: Any, font_name: Optional[str] = "Vaz
                 cs = OxmlElement("a:cs")
                 defRPr.append(cs)
             cs.set("typeface", font_name)
+
+            latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
+            if latin is None:
+                latin = OxmlElement("a:latin")
+                defRPr.append(latin)
+            latin.set("typeface", font_name)
     except Exception:
         pass
 
 def _safe_update_text_frame(
     tf: Any,
     new_text: str,
-    is_rtl: bool = True,
+    is_rtl: Optional[bool] = None,
     max_box_width_emu: Optional[int] = None,
     max_box_height_emu: Optional[int] = None,
     font_override: Optional[str] = None
 ) -> None:
     """
     Updates text in a text_frame while:
-    1. Preserving run-level formatting (color, bold, italic).
-    2. Dynamic font auto-sizing based on character count and bounding box dimensions.
-    3. Applying true DrawingML RTL properties.
+    1. Preserving run-level formatting (color, bold, italic, font face).
+    2. Dynamic font auto-sizing based on character count, bounding box dimensions, and auto_fit.
+    3. Applying true DrawingML RTL properties on both paragraph and run levels.
+    4. Managing TextFrame.auto_fit and word_wrap to eliminate text overflow.
     """
     if not tf:
         return
-        
+
+    # Determine RTL based on content if not explicitly specified
+    if is_rtl is None:
+        is_rtl = _is_rtl_text(new_text)
+
     lines = [line for line in new_text.split("\n") if line.strip()]
     if not lines:
         lines = [new_text]
-        
-    # Capture style of first run if available
-    saved_font = {
+
+    # Capture style of first run and paragraph if available
+    saved_font: Dict[str, Any] = {
         "name": None,
         "size": None,
         "bold": None,
         "italic": None,
-        "color": None
+        "color": None,
+        "algn": None
     }
-    
+
     try:
         if tf.paragraphs:
             p0 = tf.paragraphs[0]
@@ -99,13 +143,36 @@ def _safe_update_text_frame(
                             saved_font["color"] = r0.font.color.rgb
                     except Exception:
                         pass
+            # If font name or size wasn't directly on run, inspect paragraph defRPr
+            if hasattr(p0, "_p"):
+                pPr = p0._p.find("{http://schemas.openxmlformats.org/drawingml/2006/main}pPr")
+                if pPr is not None:
+                    if pPr.get("algn"):
+                        saved_font["algn"] = pPr.get("algn")
+                    defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
+                    if defRPr is not None:
+                        if not saved_font["name"]:
+                            cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
+                            if cs is not None and cs.get("typeface"):
+                                saved_font["name"] = cs.get("typeface")
+                            else:
+                                latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
+                                if latin is not None and latin.get("typeface"):
+                                    saved_font["name"] = latin.get("typeface")
+                        if not saved_font["size"] and defRPr.get("sz"):
+                            try:
+                                saved_font["size"] = Pt(int(defRPr.get("sz")) / 100.0)
+                            except Exception:
+                                pass
     except Exception:
         pass
 
-    # Dynamic Font Auto-Sizing calculation
+    final_font_name = font_override or saved_font["name"]
+
+    # Dynamic Font Auto-Sizing calculation based on improve-workflow.pdf formula
     total_chars = sum(len(line) for line in lines)
     calculated_size_pt = None
-    
+
     if saved_font["size"]:
         orig_pt = saved_font["size"].pt
         if total_chars > 250:
@@ -116,21 +183,44 @@ def _safe_update_text_frame(
             calculated_size_pt = max(12, min(orig_pt, 18))
         else:
             calculated_size_pt = orig_pt
+    else:
+        if total_chars > 250:
+            calculated_size_pt = 11
+        elif total_chars > 120:
+            calculated_size_pt = 13
+        elif total_chars > 60:
+            calculated_size_pt = 16
+        else:
+            calculated_size_pt = 20
+
+    # Ensure word wrapping and auto-fit are enabled to prevent bounding box overflow
+    try:
+        from pptx.enum.text import MSO_AUTO_SIZE
+        tf.word_wrap = True
+        tf.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    except Exception:
+        pass
 
     # Clear old paragraphs and populate with new text lines
     tf.clear()
-    
+
     for idx, line in enumerate(lines):
         p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
         p.text = line
+
+        # Set alignment
         if is_rtl:
             p.alignment = PP_ALIGN.RIGHT
-            _set_paragraph_rtl_and_fonts(p, font_name=font_override or saved_font["name"] or "Vazirmatn")
-            
+        elif saved_font["algn"] == "ctr":
+            p.alignment = PP_ALIGN.CENTER
+
+        _set_paragraph_rtl_and_fonts(p, font_name=final_font_name, is_rtl=is_rtl)
+
         # Apply preserved/adjusted font styling to runs
         if p.runs:
             for run in p.runs:
-                run.font.name = font_override or saved_font["name"] or "Vazirmatn"
+                if final_font_name:
+                    run.font.name = final_font_name
                 if calculated_size_pt:
                     run.font.size = Pt(calculated_size_pt)
                 elif saved_font["size"]:
@@ -141,19 +231,30 @@ def _safe_update_text_frame(
                     run.font.italic = saved_font["italic"]
                 if saved_font["color"]:
                     run.font.color.rgb = saved_font["color"]
+                _set_run_rtl_and_fonts(run, font_name=final_font_name, is_rtl=is_rtl)
 
 def _replace_image_in_shape(shape: Any, new_image_path: Path | str) -> bool:
     """
-    Replaces the image blob in a picture shape with a newly generated or selected image.
+    Replaces the image in a picture shape or picture placeholder with a newly generated or selected image,
+    preserving template masks, cropping, and aspect bounds.
     """
     try:
         img_path = Path(new_image_path)
         if not img_path.exists():
             return False
-            
+
+        # 1. If it's a placeholder (picture/bitmap/content), use native insert_picture
+        if getattr(shape, "is_placeholder", False):
+            try:
+                shape.insert_picture(str(img_path))
+                return True
+            except Exception:
+                pass
+
+        # 2. If it's an existing picture shape, update the underlying image blob
         with open(img_path, "rb") as f:
             new_blob = f.read()
-            
+
         if hasattr(shape, "image"):
             # Update image part blob
             shape.image._blob = new_blob
@@ -312,7 +413,7 @@ def generate_slide_replacements_with_ai(
 
     client = OpenAI(
         api_key=Config.NINEROUTER_KEY or "dummy_key",
-        base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
+        base_url=Config.get_openai_base_url(),
         timeout=effective_timeout
     )
 
@@ -351,46 +452,131 @@ The presentation follows this structured pedagogical schema. Incorporate numbere
 {structure_blueprint[:2000]}
 """
 
-    # Prepare slot descriptions (without heavy base64 strings in the JSON text prompt)
+    # Prepare compact, token-efficient slot descriptions (filtering out empty decorative shapes)
     inventory_summary = []
     for s in template_inventory:
-        summary_entry = {
+        slots = []
+        for slot in s.get("text_slots", []):
+            orig = (slot.get("original_text") or "").strip()
+            is_ph = slot.get("is_picture_placeholder", False)
+            is_tbl = slot.get("is_table", False)
+            is_title = slot.get("is_title", False)
+            # Skip purely decorative empty shapes to keep prompt compact and prevent timeouts
+            if not orig and not is_ph and not is_tbl and not is_title:
+                continue
+
+            entry: Dict[str, Any] = {"shape_index": slot.get("shape_index")}
+            if slot.get("placeholder_idx") is not None:
+                entry["placeholder_idx"] = slot.get("placeholder_idx")
+            if orig:
+                entry["sample_text"] = orig[:60]
+            if slot.get("char_budget"):
+                entry["char_budget"] = slot.get("char_budget")
+            if is_title:
+                entry["is_title"] = True
+            if is_tbl:
+                entry["is_table"] = True
+                if slot.get("table_rows") and slot.get("table_cols"):
+                    entry["table_shape"] = f"{slot.get('table_rows')}x{slot.get('table_cols')}"
+            if is_ph:
+                entry["is_picture"] = True
+            slots.append(entry)
+
+        summary_entry: Dict[str, Any] = {
             "template_file": s.get("template_file"),
             "slide_index": s.get("slide_index"),
-            "layout_name": s.get("layout_name"),
             "archetype": s.get("archetype", "content_bullets"),
-            "text_slots": [
-                {
-                    "shape_index": slot.get("shape_index"),
-                    "shape_name": slot.get("shape_name"),
-                    "shape_type": slot.get("shape_type"),
-                    "original_text": slot.get("original_text", "")[:120],
-                    "is_title": slot.get("is_title", False),
-                    "is_table": slot.get("is_table", False),
-                    "table_shape": f"{slot.get('table_rows')}x{slot.get('table_cols')}" if slot.get("is_table") else None,
-                    "is_decorative": slot.get("is_decorative", False)
-                }
-                for slot in s.get("text_slots", [])
-            ]
+            "slots": slots
         }
+        if s.get("primary_font"):
+            summary_entry["primary_font"] = s.get("primary_font")
         inventory_summary.append(summary_entry)
 
-    # Build multimodal user message content array
-    user_content: List[Dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": f"""
+    # Prepare clean, compact document content (prioritizing restructured slides and stripping raw OCR blobs)
+    clean_doc: Dict[str, Any] = {
+        "document_title": doc_structure.get("document_title", "Presentation")
+    }
+    if doc_structure.get("restructured_slides"):
+        clean_doc["target_slides"] = [
+            {
+                "slide_number": sl.get("slide_number"),
+                "title": sl.get("title"),
+                "quadrant": sl.get("quadrant"),
+                "slide_type": sl.get("slide_type"),
+                "core_concept": sl.get("core_concept"),
+                "key_bullets": sl.get("rewritten_bullets", [])[:4],
+                "formulas": sl.get("mathematical_elements", {}).get("formulas") if isinstance(sl.get("mathematical_elements"), dict) else None,
+                "callouts": sl.get("visual_annotations", {}).get("teacher_callouts") if isinstance(sl.get("visual_annotations"), dict) else None,
+                "speaker_notes": (sl.get("speaker_notes") or "")[:200]
+            }
+            for sl in doc_structure["restructured_slides"]
+        ]
+    elif doc_structure.get("sections"):
+        clean_doc["sections"] = [
+            {
+                "title": sec.get("title", f"Section {i+1}"),
+                "bullets": sec.get("bullets", [])[:5],
+                "summary": " ".join(sec.get("paragraphs", []))[:250]
+            }
+            for i, sec in enumerate(doc_structure["sections"][:12])
+        ]
+    else:
+        clean_doc["raw_summary"] = (doc_structure.get("raw_text") or "")[:2000]
+
+    # Select up to 6 diverse candidate slides with screenshots covering distinct archetypes
+    priority_archetypes = [
+        "title_cover",
+        "content_bullets",
+        "multi_column",
+        "table_matrix",
+        "process_timeline",
+        "metrics_stats",
+        "conclusion_quote"
+    ]
+    diverse_candidates: List[Dict[str, Any]] = []
+    for target_arch in priority_archetypes:
+        for s in template_inventory:
+            if s.get("archetype") == target_arch and s.get("screenshot_base64"):
+                if s not in diverse_candidates:
+                    diverse_candidates.append(s)
+                    break
+        if len(diverse_candidates) >= 6:
+            break
+
+    # If fewer than 4 diverse, pad with remaining available slides that have screenshots
+    if len(diverse_candidates) < 4:
+        for s in template_inventory:
+            if len(diverse_candidates) >= 6:
+                break
+            if s.get("screenshot_base64") and s not in diverse_candidates:
+                diverse_candidates.append(s)
+
+    # Deliver visual previews to UI for user feedback
+    ai_sent_images: List[Dict[str, Any]] = []
+    for s in diverse_candidates:
+        ai_sent_images.append({
+            "template_file": s.get("template_file"),
+            "slide_index": s.get("slide_index"),
+            "archetype": s.get("archetype", "content_bullets"),
+            "base64": s.get("screenshot_base64")
+        })
+
+    if on_ai_images_ready:
+        try:
+            on_ai_images_ready(ai_sent_images)
+        except Exception:
+            pass
+
+    # Build the core prompt text
+    text_prompt = f"""
 {notes_prompt_block}
 {structure_prompt_block}
 
-Step 1 - Available Slide Blueprints, Archetypes & Slots:
-{json.dumps(inventory_summary, ensure_ascii=False, indent=2)}
+Step 1 - Available Slide Blueprints & Slots across Templates:
+{json.dumps(inventory_summary, ensure_ascii=False)}
 
-Step 2 - Input Word Document Outline & Content:
-{json.dumps(doc_structure, ensure_ascii=False, indent=2)}
-
-Visual Screenshots of Candidate Template Slides:
-(See attached images corresponding to the candidate slides above)
+Step 2 - Target Content & Slide Requirements:
+{json.dumps(clean_doc, ensure_ascii=False)}
 
 Instructions:
 1. Construct a cohesive presentation sequence matching the document flow (Title slide, Content/Topic slides, Metric slides, Summary).
@@ -399,14 +585,15 @@ Instructions:
    - "source_slide_index": Index of slide in that template
    - "target_section": Name of document section this slide covers
    - "speaker_notes": Detailed explanatory talking points for the presenter
-   - "shape_replacements": List of {{"shape_index": int, "text": str}} mapping new adapted text into slots
+   - "shape_replacements": List of {{"shape_index": int, "placeholder_idx": int (optional), "text": str}} mapping new adapted text into slots.
+     CRITICAL: Respect the 'char_budget' for each slot to prevent text overflow and clipping.
    - "shapes_to_remove": List of shape indices [int] that should be pruned/deleted from the slide
-   - "table_replacements": List of {{"shape_index": int, "table_data": [["cell", ...], ...]}}
+   - "table_replacements": List of {{"shape_index": int, "table_data": [["cell", ...], ...]}} (for slots with is_table: true)
    - "image_replacements": Optional list of {{"shape_index": int, "image_prompt": "detailed prompt for slide visual"}}
 
 Return a JSON object with this exact schema:
 {{
-  "deck_title": "Presentation Title",
+  "deck_title": "{clean_doc.get('document_title', 'Presentation')}",
   "slides": [
     {{
       "source_template": "sample_template.pptx",
@@ -426,53 +613,118 @@ Return a JSON object with this exact schema:
   ]
 }}
 """
-        }
+
+    def _normalize_plan(raw_plan: Any) -> Optional[Dict[str, Any]]:
+        if not raw_plan:
+            return None
+        if isinstance(raw_plan, list):
+            return {"slides": raw_plan, "deck_title": clean_doc.get("document_title", "Presentation")}
+        if isinstance(raw_plan, dict):
+            if "slides" in raw_plan and isinstance(raw_plan["slides"], list) and len(raw_plan["slides"]) > 0:
+                return raw_plan
+            for k in ["presentation", "deck", "presentation_plan", "data"]:
+                sub = raw_plan.get(k)
+                if isinstance(sub, dict) and "slides" in sub and isinstance(sub["slides"], list):
+                    return sub
+                elif isinstance(sub, list) and len(sub) > 0:
+                    return {"slides": sub, "deck_title": raw_plan.get("deck_title", "Presentation")}
+        return None
+
+    # Meta limits
+    meta = Config.get_model_metadata()
+    max_output = min(meta.get("max_tokens", 65536), 16384)
+
+    # -------------------------------------------------------------
+    # Tier 1: Multimodal Vision Reasoning (with top 4-6 diverse previews)
+    # -------------------------------------------------------------
+    user_content_multimodal: List[Dict[str, Any]] = [
+        {"type": "text", "text": text_prompt}
     ]
-
-    # Attach slide screenshots as multimodal image parts (limit to top 15 candidate slides to preserve tokens)
-    attached_count = 0
-    ai_sent_images: List[Dict[str, Any]] = []
-    for s in template_inventory:
+    for s in diverse_candidates:
         b64 = s.get("screenshot_base64")
-        if b64 and attached_count < 15:
-            user_content.append({
+        if b64:
+            user_content_multimodal.append({
                 "type": "image_url",
-                "image_url": {
-                    "url": b64
-                }
+                "image_url": {"url": b64}
             })
-            ai_sent_images.append({
-                "template_file": s.get("template_file"),
-                "slide_index": s.get("slide_index"),
-                "archetype": s.get("archetype", "content_bullets"),
-                "base64": b64
-            })
-            attached_count += 1
 
-    if on_ai_images_ready:
-        try:
-            on_ai_images_ready(ai_sent_images)
-        except Exception:
-            pass
-
-    log(f"[Step 3] Sending prompt with {attached_count} visual slide previews to 9Router AI...")
-
+    log(f"[Step 3] Sending prompt with {len(diverse_candidates)} visual slide previews to 9Router AI '{Config.NINEROUTER_CHAT_MODEL}'...")
     try:
+        messages_vision: Any = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content_multimodal}
+        ]
         response = client.chat.completions.create(
             model=Config.NINEROUTER_CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            temperature=0.3
+            messages=messages_vision,
+            temperature=0.25,
+            max_tokens=max_output,
+            timeout=min(effective_timeout, 70.0)
         )
         content = response.choices[0].message.content or "{}"
-        plan = safe_json_loads(content)
-        log("[Step 3] AI Vision Agent generated presentation plan successfully.")
-        return plan
-    except Exception as e:
-        log(f"[Step 3 Warning] AI reasoning exception ({e}), using fallback multi-template mapper.")
-        return None
+        plan = _normalize_plan(safe_json_loads(content))
+        if plan:
+            log(f"[✓] Step 3 AI Vision Agent generated presentation plan with {len(plan['slides'])} slides successfully.")
+            return plan
+        log("[Step 3 Notice] Multimodal response lacked slides structure. Retrying with high-speed text blueprint reasoning...")
+    except Exception as e_vision:
+        log(f"[Step 3 Notice] Multimodal visual reasoning notice ({e_vision}). Retrying with high-speed text blueprint reasoning...")
+
+    # -------------------------------------------------------------
+    # Tier 2: High-Speed Text Blueprint Reasoning (Zero image overhead, ultra-fast & immune to gateway timeouts)
+    # -------------------------------------------------------------
+    log(f"[Step 3] Dispatching high-speed text blueprint reasoning to '{Config.NINEROUTER_CHAT_MODEL}'...")
+    try:
+        messages_text: Any = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text_prompt}
+        ]
+        response = client.chat.completions.create(
+            model=Config.NINEROUTER_CHAT_MODEL,
+            messages=messages_text,
+            temperature=0.2,
+            max_tokens=max_output,
+            timeout=min(effective_timeout, 85.0)
+        )
+        content = response.choices[0].message.content or "{}"
+        plan = _normalize_plan(safe_json_loads(content))
+        if plan:
+            log(f"[✓] Step 3 AI Agent generated presentation plan ({len(plan['slides'])} slides) via blueprint reasoning.")
+            return plan
+    except Exception as e_text:
+        log(f"[Step 3 Notice] Primary model blueprint reasoning notice ({e_text}). Trying alternative fast model...")
+
+    # -------------------------------------------------------------
+    # Tier 3: Alternative Model Fallback
+    # -------------------------------------------------------------
+    candidate_alt_models = [
+        m for m in ["gemini/gemini-3.8-flash", "aval/gemini-3.8-flash", "ag/gemini-3.7-flash-high"]
+        if m != Config.NINEROUTER_CHAT_MODEL
+    ]
+    for alt_model in candidate_alt_models:
+        try:
+            log(f"[Step 3] Trying alternative AI model '{alt_model}'...")
+            messages_alt: Any = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text_prompt}
+            ]
+            response = client.chat.completions.create(
+                model=alt_model,
+                messages=messages_alt,
+                temperature=0.2,
+                max_tokens=max_output,
+                timeout=50.0
+            )
+            content = response.choices[0].message.content or "{}"
+            plan = _normalize_plan(safe_json_loads(content))
+            if plan:
+                log(f"[✓] Step 3 AI Agent successfully generated presentation plan ({len(plan['slides'])} slides) with '{alt_model}'!")
+                return plan
+        except Exception as e_alt:
+            log(f"[Step 3 Notice] Alternative model '{alt_model}' notice: {e_alt}")
+
+    log("[Step 3 Warning] All AI reasoning tiers exhausted, proceeding with multi-template algorithmic fallback.")
+    return None
 
 def build_pptx_with_agent(
     docx_path: Optional[str | Path | Sequence[str | Path]] = None,
@@ -483,7 +735,12 @@ def build_pptx_with_agent(
     structure_name: Optional[str] = None,
     raw_text: Optional[str] = None,
     enable_restructure: bool = False,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
+    detection_structure_name: Optional[str] = None,
+    restructure_structure_name: Optional[str] = None,
+    blueprint_structure_name: Optional[str] = None,
+    enable_detection: bool = True,
+    enable_blueprint: bool = True
 ) -> str:
     """
     Multi-Template & Storyboard-Guided Presentation Generation:
@@ -532,39 +789,53 @@ def build_pptx_with_agent(
     # ----------------------------------------------------
     # Step 1.5: Pre-load Detection / Storyboard Schema if specified
     # ----------------------------------------------------
-    structure_blueprint = None
-    if structure_name and "none" not in str(structure_name).lower():
+    def _resolve_blueprint(name: Optional[str], label: str) -> Optional[str]:
+        if not name or "none" in str(name).lower():
+            return None
         try:
-            log(f"[*] Loading Detection / Storyboard Schema: {structure_name}...")
-            structure_blueprint = get_structure_content(structure_name)
-            log(f"[✓] Active Schema: {Path(structure_name).name} guiding detection & extraction.")
-        except Exception as st_ex:
-            log(f"[!] Schema notice: {st_ex}. Proceeding with standard detection.")
+            log(f"[*] Loading {label} Schema: {name}...")
+            content = get_structure_content(name)
+            log(f"[✓] Active {label} Schema: {Path(name).name}")
+            return content
+        except Exception as ex:
+            log(f"[!] {label} Schema notice: {ex}. Proceeding without this schema.")
+            return None
+
+    det_target = detection_structure_name or structure_name
+    detection_blueprint = _resolve_blueprint(det_target, "Detection") if (enable_detection and det_target) else None
+
+    restruct_target = restructure_structure_name or structure_name
+    restructure_blueprint = _resolve_blueprint(restruct_target, "Restructure") if (enable_restructure and restruct_target) else None
+
+    bp_target = blueprint_structure_name or structure_name
+    blueprint_blueprint = _resolve_blueprint(bp_target, "Slide Blueprint") if (enable_blueprint and bp_target) else None
+
+    structure_blueprint = blueprint_blueprint or restructure_blueprint or detection_blueprint
 
     # ----------------------------------------------------
     # Step 2: Read & parse input sources (Word, PPTX, Text, Image, Audio)
     # ----------------------------------------------------
     if len(input_paths) > 1 or any(p.suffix.lower() != ".docx" for p in input_paths) or raw_text:
         log(f"[Step 2] Reading multi-modal sources ({len(input_paths)} files + direct notes)...")
-        parsed_doc = parse_multiple_sources(input_paths, raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=structure_blueprint)
+        parsed_doc = parse_multiple_sources(input_paths, raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
     elif input_paths and input_paths[0].exists():
         docx_file = input_paths[0]
         log(f"[Step 2] Reading Word document: {docx_file.name}...")
         parsed_doc = parse_docx(docx_file)
     else:
         log("[Step 2] Parsing direct text input...")
-        parsed_doc = parse_multiple_sources([], raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=structure_blueprint)
+        parsed_doc = parse_multiple_sources([], raw_text=raw_text, log_cb=log, timeout=effective_timeout, structure_blueprint=detection_blueprint)
 
     log(f"[Step 2] Extracted {parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))} content sections.")
 
     # ----------------------------------------------------
     # Step 2.5: Restructure & Rewrite Slides base on structure.md (Optional)
     # ----------------------------------------------------
-    if structure_blueprint and (enable_restructure or True):
+    if restructure_blueprint and enable_restructure:
         try:
-            name_display = Path(structure_name).name if structure_name else "structure.md"
+            name_display = Path(restruct_target).name if restruct_target else "structure.md"
             log(f"[Step 2.5] Autonomous Restructure Agent rewriting & structuring slides based on {name_display}...")
-            restructured = restructure_slides_with_agent(parsed_doc, structure_blueprint, log_cb=log, timeout=effective_timeout)
+            restructured = restructure_slides_with_agent(parsed_doc, restructure_blueprint, log_cb=log, timeout=effective_timeout)
             if restructured and restructured.get("slides"):
                 parsed_doc["restructured_slides"] = restructured.get("slides", [])
                 parsed_doc["sections"] = convert_restructured_to_sections(restructured)
@@ -576,12 +847,13 @@ def build_pptx_with_agent(
     # ----------------------------------------------------
     # Step 3: AI Vision Agent writes texts and selects slides
     # ----------------------------------------------------
+    active_bp_for_gen = blueprint_blueprint or restructure_blueprint or detection_blueprint
     ai_plan = generate_slide_replacements_with_ai(
         template_inventory,
         parsed_doc,
         log_cb=log,
         on_ai_images_ready=on_ai_images_ready,
-        structure_blueprint=structure_blueprint,
+        structure_blueprint=active_bp_for_gen,
         timeout=effective_timeout
     )
 
@@ -626,45 +898,109 @@ def build_pptx_with_agent(
             # Clone slide across presentation
             target_slide = clone_slide_across_presentations(src_prs, target_prs, src_idx)
             
-            # In-place text replacements
-            replacements = {r.get("shape_index"): r.get("text") for r in s_plan.get("shape_replacements", [])}
+            # In-place text replacements (supporting both shape_index and placeholder_idx)
+            replacements_by_sh_idx = {}
+            replacements_by_ph_idx = {}
+            for r in s_plan.get("shape_replacements", []):
+                txt = r.get("text")
+                if txt is not None:
+                    if r.get("shape_index") is not None:
+                        replacements_by_sh_idx[r["shape_index"]] = txt
+                    if r.get("placeholder_idx") is not None:
+                        replacements_by_ph_idx[r["placeholder_idx"]] = txt
+
             for shape_idx, shape in enumerate(target_slide.shapes):
-                if shape_idx in replacements and shape.has_text_frame:
-                    new_text = replacements[shape_idx]
-                    if new_text is not None:
-                        _safe_update_text_frame(
-                            shape.text_frame,
-                            str(new_text),
-                            is_rtl=True,
-                            max_box_width_emu=getattr(shape, "width", None),
-                            max_box_height_emu=getattr(shape, "height", None)
-                        )
-                        
-            # Table replacements
-            table_replacements = {t.get("shape_index"): t.get("table_data") for t in s_plan.get("table_replacements", [])}
+                new_text = None
+                if shape_idx in replacements_by_sh_idx:
+                    new_text = replacements_by_sh_idx[shape_idx]
+                elif getattr(shape, "is_placeholder", False):
+                    try:
+                        ph_i = shape.placeholder_format.idx
+                        if ph_i in replacements_by_ph_idx:
+                            new_text = replacements_by_ph_idx[ph_i]
+                    except Exception:
+                        pass
+
+                if new_text is not None and shape.has_text_frame:
+                    _safe_update_text_frame(
+                        shape.text_frame,
+                        str(new_text),
+                        is_rtl=None,
+                        max_box_width_emu=getattr(shape, "width", None),
+                        max_box_height_emu=getattr(shape, "height", None)
+                    )
+
+            # Table replacements (supporting both shape_index and placeholder_idx)
+            table_repl_by_sh = {}
+            table_repl_by_ph = {}
+            for t in s_plan.get("table_replacements", []):
+                tdata = t.get("table_data")
+                if tdata:
+                    if t.get("shape_index") is not None:
+                        table_repl_by_sh[t["shape_index"]] = tdata
+                    if t.get("placeholder_idx") is not None:
+                        table_repl_by_ph[t["placeholder_idx"]] = tdata
+
             for shape_idx, shape in enumerate(target_slide.shapes):
-                if shape_idx in table_replacements and shape.has_table:
-                    tdata = table_replacements[shape_idx]
-                    if tdata:
-                        for r_i, row in enumerate(tdata):
-                            if r_i < len(shape.table.rows):
-                                for c_i, cell_val in enumerate(row):
-                                    if c_i < len(shape.table.columns):
-                                        shape.table.cell(r_i, c_i).text = str(cell_val)
-                                        
-            # Image replacements via Image Gen API
-            image_replacements = {img.get("shape_index"): img.get("image_prompt") for img in s_plan.get("image_replacements", [])}
+                tdata = None
+                if shape_idx in table_repl_by_sh:
+                    tdata = table_repl_by_sh[shape_idx]
+                elif getattr(shape, "is_placeholder", False):
+                    try:
+                        ph_i = shape.placeholder_format.idx
+                        if ph_i in table_repl_by_ph:
+                            tdata = table_repl_by_ph[ph_i]
+                    except Exception:
+                        pass
+
+                if tdata and shape.has_table:
+                    for r_i, row in enumerate(tdata):
+                        if r_i < len(shape.table.rows):
+                            for c_i, cell_val in enumerate(row):
+                                if c_i < len(shape.table.columns):
+                                    cell = shape.table.cell(r_i, c_i)
+                                    cell.text = str(cell_val)
+                                    if cell.text_frame and cell.text_frame.paragraphs:
+                                        p = cell.text_frame.paragraphs[0]
+                                        _set_paragraph_rtl_and_fonts(p, is_rtl=_is_rtl_text(str(cell_val)))
+                                        if p.runs:
+                                            _set_run_rtl_and_fonts(p.runs[0], is_rtl=_is_rtl_text(str(cell_val)))
+
+            # Image replacements via Image Gen API (supporting pictures and image placeholders)
+            image_repl_by_sh = {}
+            image_repl_by_ph = {}
+            for img in s_plan.get("image_replacements", []):
+                prompt = img.get("image_prompt")
+                if prompt:
+                    if img.get("shape_index") is not None:
+                        image_repl_by_sh[img["shape_index"]] = prompt
+                    if img.get("placeholder_idx") is not None:
+                        image_repl_by_ph[img["placeholder_idx"]] = prompt
+
             for shape_idx, shape in enumerate(target_slide.shapes):
-                if shape_idx in image_replacements and shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                    prompt = image_replacements[shape_idx]
-                    if prompt:
-                        try:
-                            log(f"[Step 4] Generating AI image for slide slot #{shape_idx}: '{prompt[:40]}...'")
-                            img_file = generate_image(prompt)
-                            if img_file and not img_file.startswith("Error"):
-                                _replace_image_in_shape(shape, img_file)
-                        except Exception as e:
-                            log(f"[Step 4 Warning] Image generation skipped: {e}")
+                prompt = None
+                if shape_idx in image_repl_by_sh:
+                    prompt = image_repl_by_sh[shape_idx]
+                elif getattr(shape, "is_placeholder", False):
+                    try:
+                        ph_i = shape.placeholder_format.idx
+                        if ph_i in image_repl_by_ph:
+                            prompt = image_repl_by_ph[ph_i]
+                    except Exception:
+                        pass
+
+                is_img_target = (
+                    shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+                    or getattr(shape, "is_placeholder", False)
+                )
+                if prompt and is_img_target:
+                    try:
+                        log(f"[Step 4] Generating AI image for slide slot #{shape_idx}: '{prompt[:40]}...'")
+                        img_file = generate_image(prompt)
+                        if img_file and not img_file.startswith("Error"):
+                            _replace_image_in_shape(shape, img_file)
+                    except Exception as e:
+                        log(f"[Step 4 Warning] Image generation skipped: {e}")
 
             # Speaker Notes
             notes_text = s_plan.get("speaker_notes")
@@ -691,7 +1027,12 @@ def build_pptx_with_agent(
         title_slide = clone_slide_across_presentations(base_prs, target_prs, 0)
         for shape in title_slide.shapes:
             if shape.has_text_frame and shape.text_frame.text.strip():
-                _safe_update_text_frame(shape.text_frame, parsed_doc.get("document_title", "Presentation"))
+                _safe_update_text_frame(
+                    shape.text_frame,
+                    parsed_doc.get("document_title", "Presentation"),
+                    max_box_width_emu=getattr(shape, "width", None),
+                    max_box_height_emu=getattr(shape, "height", None)
+                )
                 break
                 
         # 2. Content Slides per Section
@@ -704,10 +1045,20 @@ def build_pptx_with_agent(
             text_shapes = [sh for sh in c_slide.shapes if sh.has_text_frame and sh.text_frame.text.strip()]
             
             if text_shapes:
-                _safe_update_text_frame(text_shapes[0].text_frame, section.get("title", ""))
+                _safe_update_text_frame(
+                    text_shapes[0].text_frame,
+                    section.get("title", ""),
+                    max_box_width_emu=getattr(text_shapes[0], "width", None),
+                    max_box_height_emu=getattr(text_shapes[0], "height", None)
+                )
                 if len(text_shapes) > 1:
                     body = "\n".join(section.get("paragraphs", []) + [f"• {b}" for b in section.get("bullets", [])])
-                    _safe_update_text_frame(text_shapes[1].text_frame, body)
+                    _safe_update_text_frame(
+                        text_shapes[1].text_frame,
+                        body,
+                        max_box_width_emu=getattr(text_shapes[1], "width", None),
+                        max_box_height_emu=getattr(text_shapes[1], "height", None)
+                    )
 
     if not output_path:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -721,9 +1072,22 @@ def build_pptx_with_agent(
     log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
 
     # ----------------------------------------------------
-    # Step 5: Verification & AI Agent Self-Correction QA Loop
+    # Step 5: Verification & Automated SlideCheck QA Loop
     # ----------------------------------------------------
-    log("[Step 5] Running PPTX File Integrity Verification & AI Agent Self-Correction Loop...")
+    log("[Step 5] Running Automated SlideCheck QA & Integrity Verification Loop...")
+
+    expected_tpl_fonts = []
+    if template_inventory and "template_fonts" in template_inventory[0]:
+        expected_tpl_fonts = template_inventory[0].get("template_fonts", [])
+
+    qa_report = run_slidecheck_qa(output_path, expected_fonts=expected_tpl_fonts, auto_heal=True)
+    if qa_report.get("overflow_issues_healed", 0) > 0:
+        log(f"[Step 5 QA] Auto-healed {qa_report['overflow_issues_healed']} overflowing text box(es).")
+    if qa_report.get("rtl_issues_healed", 0) > 0:
+        log(f"[Step 5 QA] Auto-healed {qa_report['rtl_issues_healed']} RTL/BiDi tags on runs/paragraphs.")
+    if qa_report.get("fonts_detected"):
+        log(f"[Step 5 QA] Verified fonts in presentation: {', '.join(qa_report['fonts_detected'])}")
+
     is_valid, final_path = verify_and_auto_heal_pptx(
         output_path,
         doc_structure=parsed_doc,
@@ -744,6 +1108,133 @@ def build_pptx_with_agent(
         log(f"[Step 5 Warning] QA preview render warning: {qa_ex}")
 
     return str(output_path)
+
+def run_slidecheck_qa(
+    pptx_path: str | Path,
+    expected_fonts: Optional[List[str]] = None,
+    auto_heal: bool = True
+) -> Dict[str, Any]:
+    """
+    Automated SlideCheck Quality Assurance Layer (inspired by slidecheck & PPTX-HTML Fidelity Audit):
+    1. Font Verification: Audits detected fonts against expected template fonts.
+    2. Text Overflow Detection & Healing: Flags shapes where text exceeds bounding box capacity and auto-shrinks.
+    3. RTL & BiDi Verification: Ensures Persian/Arabic runs and paragraphs have DrawingML rtl="1".
+    4. Alignment Consistency: Flags shapes placed beyond slide bounds.
+    """
+    p = Path(pptx_path)
+    report: Dict[str, Any] = {
+        "passed": True,
+        "total_slides": 0,
+        "fonts_detected": [],
+        "overflow_issues_healed": 0,
+        "rtl_issues_healed": 0,
+        "alignment_warnings": [],
+        "warnings": []
+    }
+
+    if not p.exists():
+        report["passed"] = False
+        report["warnings"].append(f"File not found: {p}")
+        return report
+
+    try:
+        prs = Presentation(str(p))
+    except Exception as ex:
+        report["passed"] = False
+        report["warnings"].append(f"Cannot open presentation for SlideCheck QA: {ex}")
+        return report
+
+    report["total_slides"] = len(prs.slides)
+    fonts_found = set()
+    needs_save = False
+
+    for s_idx, slide in enumerate(prs.slides):
+        for shape in slide.shapes:
+            # 1. Alignment check: off-canvas bounds
+            if shape.left is not None and shape.top is not None:
+                if shape.left < 0 or shape.top < 0:
+                    report["alignment_warnings"].append(
+                        f"Slide {s_idx+1}: Shape '{shape.name}' has negative coordinates ({shape.left}, {shape.top})"
+                    )
+
+            if shape.has_text_frame:
+                tf = getattr(shape, "text_frame", None)
+                if not tf:
+                    continue
+                text = tf.text.strip()
+                if not text:
+                    continue
+
+                # 2. Font check & RTL check across paragraphs & runs
+                for p_idx, para in enumerate(tf.paragraphs):
+                    para_text = para.text.strip()
+                    is_rtl = _is_rtl_text(para_text)
+
+                    # Verify paragraph RTL
+                    if is_rtl and hasattr(para, "_p"):
+                        pPr = para._p.get_or_add_pPr()
+                        if pPr.get("rtl") != "1":
+                            pPr.set("rtl", "1")
+                            pPr.set("algn", "r")
+                            report["rtl_issues_healed"] += 1
+                            needs_save = True
+
+                    for run in para.runs:
+                        if run.font and run.font.name:
+                            fonts_found.add(run.font.name)
+
+                        # Verify run-level RTL
+                        if is_rtl:
+                            rPr = run._r.get_or_add_rPr()
+                            if rPr.get("rtl") != "1":
+                                rPr.set("rtl", "1")
+                                report["rtl_issues_healed"] += 1
+                                needs_save = True
+
+                # 3. Text Overflow Check
+                if shape.width and shape.height and auto_heal:
+                    lines = [ln for ln in text.split("\n") if ln.strip()]
+                    current_sz_pt = 14.0
+                    try:
+                        if tf.paragraphs and tf.paragraphs[0].runs and tf.paragraphs[0].runs[0].font.size:
+                            current_sz_pt = tf.paragraphs[0].runs[0].font.size.pt
+                    except Exception:
+                        pass
+
+                    w_in = shape.width / 914400.0
+                    h_in = shape.height / 914400.0
+                    chars_per_line = max(10, int((w_in * 72.0) / (current_sz_pt * 0.52)))
+                    max_lines_allowed = max(1, int((h_in * 72.0) / (current_sz_pt * 1.30)))
+                    estimated_lines = sum(max(1, int(len(ln) / chars_per_line) + 1) for ln in lines)
+
+                    if estimated_lines > max_lines_allowed * 1.15:
+                        heal_pt = max(9.5, current_sz_pt - 2.5)
+                        for para in tf.paragraphs:
+                            for run in para.runs:
+                                run.font.size = Pt(heal_pt)
+                        try:
+                            from pptx.enum.text import MSO_AUTO_SIZE
+                            tf.word_wrap = True
+                            tf.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+                        except Exception:
+                            pass
+                        report["overflow_issues_healed"] += 1
+                        needs_save = True
+
+    report["fonts_detected"] = sorted(list(fonts_found))
+
+    if expected_fonts:
+        missing_fonts = [f for f in expected_fonts if f not in fonts_found]
+        if missing_fonts:
+            report["warnings"].append(f"Template fonts not detected in output runs: {missing_fonts}")
+
+    if needs_save:
+        try:
+            prs.save(str(p))
+        except Exception as sv_ex:
+            report["warnings"].append(f"Could not save SlideCheck healed PPTX: {sv_ex}")
+
+    return report
 
 def verify_pptx_integrity(file_path: str | Path) -> Tuple[bool, List[str]]:
     """
@@ -872,8 +1363,8 @@ def verify_and_auto_heal_pptx(
         try:
             client = OpenAI(
                 api_key=Config.NINEROUTER_KEY or "dummy_key",
-                base_url=f"{Config.NINEROUTER_URL.rstrip('/')}/v1",
-                timeout=Config.LLM_TIMEOUT
+                base_url=Config.get_openai_base_url(),
+                timeout=min(Config.LLM_TIMEOUT, 60.0)
             )
             
             ai_repair_prompt = f"""
@@ -892,25 +1383,27 @@ Ensure no conflicting shape removals or malformed tables are generated.
                 {"type": "text", "text": ai_repair_prompt}
             ]
             try:
-                gen_screenshots = render_pptx_file_previews(p, target_width_px=450, use_com=True)
-                for idx, img in enumerate(gen_screenshots[:10]):
-                    b64 = image_to_base64_jpeg(img, quality=80)
+                gen_raw = render_pptx_file_previews(p, target_width_px=350, use_com=True)
+                gen_imgs = gen_raw[0] if isinstance(gen_raw, tuple) else gen_raw
+                for idx, img in enumerate(gen_imgs[:4]):
+                    b64 = image_to_base64_jpeg(img, quality=70)
                     user_msg_parts.append({
                         "type": "image_url",
                         "image_url": {
                             "url": b64
                         }
                     })
-                log(f"[Verification Loop - AI Agent] Attached {len(gen_screenshots[:10])} native visual slide screenshots to diagnostic prompt.")
+                log(f"[Verification Loop - AI Agent] Attached {len(gen_imgs[:4])} visual slide screenshots to diagnostic prompt.")
             except Exception as ss_err:
                 log(f"[Verification Loop - AI Agent Warning] Could not attach screenshots: {ss_err}")
 
+            messages_repair: Any = [
+                {"role": "system", "content": "You are a PowerPoint Diagnostic & Repair Agent. Fix presentation generation errors and output clean valid JSON."},
+                {"role": "user", "content": user_msg_parts}
+            ]
             response = client.chat.completions.create(
                 model=Config.NINEROUTER_CHAT_MODEL,
-                messages=[
-                    {"role": "system", "content": "You are a PowerPoint Diagnostic & Repair Agent. Fix presentation generation errors and output clean valid JSON."},
-                    {"role": "user", "content": user_msg_parts}
-                ],
+                messages=messages_repair,
                 temperature=0.1
             )
             content = response.choices[0].message.content or "{}"

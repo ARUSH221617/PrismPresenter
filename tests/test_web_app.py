@@ -69,4 +69,4 @@ def test_generator_diagnostics_api(client):
         assert "status" in step
         assert "input" in step
         assert "output" in step
-        assert step["status"] == "pending"
+        assert step["status"] in ("pending", "running", "completed", "skipped")

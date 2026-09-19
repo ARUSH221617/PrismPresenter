@@ -83,6 +83,10 @@ Key highlights of v0.4 include:
    - Live SSE synthesis log stream with one-click copy.
    - Live Deck Preview, High-Res Screenshots, and AI Payload inspectors.
    - Slide filmstrip thumbnail overview and fullscreen Lightbox modal (`F` key).
+   - **Human Touch Workflow (Interactive In-the-Loop Review):**
+     - **Step 2 (Extract Slides from Inputs):** Pauses pipeline for user inspection; allows live in-place editing of titles, paragraphs, and bullets or replying with custom feedback prompts to rerun extraction with AI.
+     - **Step 2.5 (Restructure Slides):** Interactive review of storyboard quadrants (TR/TL/BR/BL), circled animation steps (①, ②, ③...), formulas, and callouts, with editable cards and rerun prompt capabilities.
+     - **After-Done AI Workflow Deck Editor:** Post-generation presentation studio editor allowing users to review the live deck and reply with custom prompts to rerun & edit the PPTX (updating shapes, tables, notes, deleting slides, or generating visuals).
 2. **Template Intelligence & Knowledge Base:**
    - Visual template repository table with slide counts and analysis status.
    - Single and batch AI template analysis pipelines.

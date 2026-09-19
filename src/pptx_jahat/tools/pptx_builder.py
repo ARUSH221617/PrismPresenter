@@ -870,7 +870,10 @@ def build_pptx_with_agent(
     blueprint_structure_name: Optional[str] = None,
     enable_detection: bool = True,
     enable_blueprint: bool = True,
-    on_step_update: Optional[Callable[[Dict[str, Any]], None]] = None
+    on_step_update: Optional[Callable[[Dict[str, Any]], None]] = None,
+    enable_human_touch: bool = False,
+    human_touch_steps: Optional[List[str]] = None,
+    on_human_review: Optional[Callable[[str, Dict[str, Any]], Optional[Dict[str, Any]]]] = None
 ) -> str:
     """
     Multi-Template & Storyboard-Guided Presentation Generation:
@@ -1010,6 +1013,15 @@ def build_pptx_with_agent(
         )
         log(f"[Step 2] Extracted {sec_count} content sections.")
 
+        # Human Touch: Review & edit extracted content
+        if enable_human_touch and on_human_review and (not human_touch_steps or "extract" in human_touch_steps):
+            log("[Human Touch] Extracted slides ready for human review. Pausing pipeline...")
+            reviewed_doc = on_human_review("extract", parsed_doc)
+            if reviewed_doc and isinstance(reviewed_doc, dict):
+                parsed_doc = reviewed_doc
+                sec_count = parsed_doc.get('total_sections', len(parsed_doc.get('sections', [])))
+                log(f"[Human Touch] Approved extracted content updated: {sec_count} sections.")
+
         # ----------------------------------------------------
         # Step 2.5: Restructure & Rewrite Slides base on structure.md (Optional)
         # ----------------------------------------------------
@@ -1022,6 +1034,15 @@ def build_pptx_with_agent(
             try:
                 log(f"[Step 2.5] Autonomous Restructure Agent rewriting & structuring slides based on {name_display}...")
                 restructured = restructure_slides_with_agent(parsed_doc, restructure_blueprint, log_cb=log, timeout=effective_timeout)
+
+                # Human Touch: Review & edit restructured slides
+                if enable_human_touch and on_human_review and (not human_touch_steps or "restructure" in human_touch_steps):
+                    log("[Human Touch] Restructured slides ready for human review. Pausing pipeline...")
+                    reviewed_restruct = on_human_review("restructure", restructured)
+                    if reviewed_restruct and isinstance(reviewed_restruct, dict):
+                        restructured = reviewed_restruct
+                        log(f"[Human Touch] Approved restructured storyboard updated: {len(restructured.get('slides', []))} slides.")
+
                 if restructured and restructured.get("slides"):
                     parsed_doc["restructured_slides"] = restructured.get("slides", [])
                     parsed_doc["sections"] = convert_restructured_to_sections(restructured)

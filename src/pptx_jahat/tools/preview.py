@@ -1123,7 +1123,7 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
     com_error_occurred = None
 
     # 1. Tier 1: Attempt PowerPoint COM rendering if permitted
-    if mode in ("auto", "native") and use_com and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
+    if mode in ("auto", "native") and use_com and not getattr(Config, "PURE_PIL_ACTIVE", False) and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
         file_path = str(source)
         if os.path.isfile(file_path):
             if is_powerpoint_com_available():

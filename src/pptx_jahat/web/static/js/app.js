@@ -13,6 +13,12 @@ let aiTestIdx = 0;
 let genSourceFiles = [];
 let genDiagnosticsSteps = [];
 
+// Human Touch Workflow State
+let currentHumanTouchJobId = null;
+let currentHumanTouchStep = null;
+let currentHumanTouchData = null;
+let currentHumanTouchView = 'visual';
+
 // Storyboard Structure State
 let structuresList = [];
 let currentStructure = null;
@@ -1550,9 +1556,23 @@ async function startPresentationGeneration() {
   }
 
   const timeoutVal = parseInt(document.getElementById('gen-timeout-input')?.value || '300', 10);
+  const enableHumanTouch = document.getElementById('gen-enable-human-touch')?.checked ?? false;
+  const htExtract = document.getElementById('gen-ht-extract')?.checked ?? true;
+  const htRestructure = document.getElementById('gen-ht-restructure')?.checked ?? true;
+  const htAfterDone = document.getElementById('gen-ht-after-done')?.checked ?? true;
+
+  const humanTouchSteps = [];
+  if (htExtract) humanTouchSteps.push('extract');
+  if (htRestructure) humanTouchSteps.push('restructure');
+  if (htAfterDone) humanTouchSteps.push('after_done');
+
   resetGenDiagnostics();
 
   try {
+    if (enableHumanTouch) {
+      appendGenLog(`[*] Human Touch Workflow ACTIVE: Will pause at steps [${humanTouchSteps.join(', ')}] for human review.`);
+    }
+
     const res = await fetch('/api/generator/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1568,6 +1588,8 @@ async function startPresentationGeneration() {
         enable_detection: enableDetect,
         enable_restructure: enableRestructure,
         enable_blueprint: enableBlueprint,
+        enable_human_touch: enableHumanTouch,
+        human_touch_steps: humanTouchSteps,
         output_path: outputPath,
         timeout: timeoutVal
       })
@@ -1613,6 +1635,30 @@ function listenToGenerationSSE(jobId) {
     updateAiTestDisplay();
   });
 
+  evtSource.addEventListener('human_review', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      onHumanReviewEvent(d);
+    } catch (err) {
+      console.error('Error handling human_review event:', err);
+    }
+  });
+
+  evtSource.addEventListener('human_action_accepted', (e) => {
+    closeHumanTouchModal();
+  });
+
+  evtSource.addEventListener('human_review_error', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      showToast(`Human Touch notice: ${d.error}`, 'error');
+      const statusSpan = document.getElementById('ht-rerun-status');
+      if (statusSpan) statusSpan.innerText = `Error: ${d.error}`;
+      const rerunBtn = document.getElementById('btn-ht-rerun');
+      if (rerunBtn) rerunBtn.disabled = false;
+    } catch (_) {}
+  });
+
   evtSource.addEventListener('completed', (e) => {
     const d = JSON.parse(e.data);
     currentGeneratedPptx = d.pptx_path;
@@ -1636,6 +1682,14 @@ function listenToGenerationSSE(jobId) {
     setSystemStatus('READY');
     appendGenLog(`[✓] Completed: ${d.filename}`, 'success');
     showToast(`Generation complete: ${d.filename}`, 'success');
+
+    // Human Touch After-Done highlight
+    const enableHumanTouch = document.getElementById('gen-enable-human-touch')?.checked ?? false;
+    const htAfterDone = document.getElementById('gen-ht-after-done')?.checked ?? true;
+    if (enableHumanTouch && htAfterDone) {
+      appendGenLog('[*] Human Touch (After Done): Presentation deck ready. Reply with a custom prompt in the editor below to rerun & modify with AI.');
+      document.getElementById('ht-deck-edit-prompt')?.focus();
+    }
   });
 
   evtSource.addEventListener('error', (e) => {
@@ -1865,6 +1919,688 @@ async function openCurrentInPowerpoint() {
 function downloadCurrentPptx() {
   if (!currentGeneratedPptx) return;
   window.open(`/api/manager/download?file=${encodeURIComponent(currentGeneratedPptx)}`, '_blank');
+}
+
+// -------------------------------------------------------------
+// 1.5. HUMAN TOUCH WORKFLOW & PRESENTATION ITERATION ENGINE
+// -------------------------------------------------------------
+function toggleHumanTouchOptions() {
+  const checkbox = document.getElementById('gen-enable-human-touch');
+  const container = document.getElementById('gen-ht-options-container');
+  if (!checkbox || !container) return;
+  if (checkbox.checked) {
+    container.classList.remove('hidden');
+  } else {
+    container.classList.add('hidden');
+  }
+}
+
+function onHumanReviewEvent(payload) {
+  currentHumanTouchJobId = payload.job_id;
+  currentHumanTouchStep = payload.step;
+  currentHumanTouchData = payload.data || {};
+  currentHumanTouchView = 'visual';
+
+  const modal = document.getElementById('human-touch-modal');
+  const titleEl = document.getElementById('ht-modal-title');
+  const badgeEl = document.getElementById('ht-modal-step-badge');
+  const subtitleEl = document.getElementById('ht-modal-subtitle');
+  const rerunStatus = document.getElementById('ht-rerun-status');
+  const promptInput = document.getElementById('ht-reply-prompt-input');
+
+  if (rerunStatus) rerunStatus.innerText = '';
+  if (promptInput) promptInput.value = '';
+
+  const stepNames = {
+    extract: {
+      title: 'Human Touch: Review Extracted Slide Content',
+      badge: 'Step 2: Extract Slides',
+      subtitle: 'Inspect AI extracted sections, edit text or bullets directly, or reply with instructions to rerun.',
+      chips: [
+        'Condense into 4 focused slides',
+        'Expand with deeper technical explanations',
+        'Make bullet points punchier and shorter',
+        'Translate slide contents to Persian / فارسی',
+        'Focus on key mathematical formulas',
+        'Highlight teacher takeaways & examples'
+      ]
+    },
+    restructure: {
+      title: 'Human Touch: Review Restructured Storyboard',
+      badge: 'Step 2.5: Restructure Slides',
+      subtitle: 'Inspect storyboard quadrants, animation steps ①②③, formulas, or reply with instructions to rerun.',
+      chips: [
+        'Follow 4-quadrant layout: TR -> TL -> BR -> BL',
+        'Add numbered circled animation steps (①, ②, ③, ④)',
+        'Add teacher callout box: نکته کلیدی',
+        'Format math expressions into clean LaTeX',
+        'Simplify bullets to 3 per slide',
+        'Expand speaker notes for lecture presentation'
+      ]
+    }
+  };
+
+  const info = stepNames[payload.step] || {
+    title: `Human Touch: Review ${payload.step}`,
+    badge: payload.step,
+    subtitle: 'Review AI response, make manual edits, or reply with custom feedback to rerun.',
+    chips: ['Refine and optimize for presentation', 'Make text more concise']
+  };
+
+  if (titleEl) titleEl.innerText = info.title;
+  if (badgeEl) badgeEl.innerText = info.badge;
+  if (subtitleEl) subtitleEl.innerText = info.subtitle;
+
+  // Render suggestion chips
+  const chipsContainer = document.getElementById('ht-suggestion-chips');
+  if (chipsContainer) {
+    chipsContainer.innerHTML = `
+      <span class="text-muted-foreground font-mono self-center">Suggestions:</span>
+      ${info.chips.map(c => `
+        <button type="button" onclick="setHumanTouchPrompt('${c.replace(/'/g, "\\'")}')"
+          class="px-2 py-0.5 rounded bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/60 transition cursor-pointer">
+          ${c}
+        </button>
+      `).join('')}
+    `;
+  }
+
+  // Set Document Title
+  const docTitleInput = document.getElementById('ht-doc-title-input');
+  if (docTitleInput) {
+    docTitleInput.value = currentHumanTouchData.document_title || 'Presentation';
+  }
+
+  // Render Visual Cards & Sync JSON
+  renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+  const jsonArea = document.getElementById('ht-raw-json-textarea');
+  if (jsonArea) {
+    jsonArea.value = JSON.stringify(currentHumanTouchData, null, 2);
+  }
+
+  setHumanTouchView('visual');
+
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+  if (window.lucide) lucide.createIcons();
+
+  showToast(`Human Touch: ${info.badge} ready for review`, 'info');
+}
+
+function setHumanTouchPrompt(text) {
+  const input = document.getElementById('ht-reply-prompt-input');
+  if (input) {
+    input.value = text;
+    input.focus();
+  }
+}
+
+function setHumanTouchView(view) {
+  currentHumanTouchView = view;
+  const visualBtn = document.getElementById('ht-view-visual-btn');
+  const jsonBtn = document.getElementById('ht-view-json-btn');
+  const visualBox = document.getElementById('ht-visual-container');
+  const jsonBox = document.getElementById('ht-json-container');
+
+  if (view === 'visual') {
+    // Sync from JSON to Visual if valid
+    const jsonArea = document.getElementById('ht-raw-json-textarea');
+    if (jsonArea && jsonArea.value.trim()) {
+      try {
+        const parsed = JSON.parse(jsonArea.value.trim());
+        currentHumanTouchData = parsed;
+        renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+      } catch (err) {
+        showToast('JSON syntax error; preserving current visual fields.', 'warning');
+      }
+    }
+    if (visualBox) visualBox.classList.remove('hidden');
+    if (jsonBox) jsonBox.classList.add('hidden');
+    if (visualBtn) {
+      visualBtn.className = 'px-2.5 py-1 rounded font-medium bg-background text-foreground shadow-sm';
+    }
+    if (jsonBtn) {
+      jsonBtn.className = 'px-2.5 py-1 rounded font-medium text-muted-foreground hover:text-foreground';
+    }
+  } else {
+    // Sync from Visual to JSON
+    currentHumanTouchData = collectHumanTouchDataFromVisual();
+    const jsonArea = document.getElementById('ht-raw-json-textarea');
+    if (jsonArea) {
+      jsonArea.value = JSON.stringify(currentHumanTouchData, null, 2);
+    }
+    if (visualBox) visualBox.classList.add('hidden');
+    if (jsonBox) jsonBox.classList.remove('hidden');
+    if (visualBtn) {
+      visualBtn.className = 'px-2.5 py-1 rounded font-medium text-muted-foreground hover:text-foreground';
+    }
+    if (jsonBtn) {
+      jsonBtn.className = 'px-2.5 py-1 rounded font-medium bg-background text-foreground shadow-sm';
+    }
+  }
+}
+
+function formatHumanTouchJson() {
+  const jsonArea = document.getElementById('ht-raw-json-textarea');
+  if (!jsonArea) return;
+  try {
+    const parsed = JSON.parse(jsonArea.value);
+    jsonArea.value = JSON.stringify(parsed, null, 2);
+    showToast('JSON formatted successfully', 'success');
+  } catch (err) {
+    showToast(`Invalid JSON: ${err.message}`, 'error');
+  }
+}
+
+function renderHumanTouchVisual(step, data) {
+  const container = document.getElementById('ht-cards-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const docTitleInput = document.getElementById('ht-doc-title-input');
+  if (docTitleInput && data.document_title) {
+    docTitleInput.value = data.document_title;
+  }
+
+  if (step === 'extract') {
+    const sections = Array.isArray(data.sections) ? data.sections : [];
+    if (sections.length === 0) {
+      container.innerHTML = '<div class="text-center py-6 text-muted-foreground italic">No slide sections found. Click "+ Add New Slide / Section" to add one.</div>';
+      return;
+    }
+
+    sections.forEach((sec, idx) => {
+      const card = document.createElement('div');
+      card.className = 'ht-card p-3 rounded-lg bg-secondary/30 border border-border/70 space-y-2.5 transition';
+      card.dataset.index = idx;
+
+      const paragraphsText = Array.isArray(sec.paragraphs) ? sec.paragraphs.join('\n') : (sec.paragraphs || '');
+      const bulletsText = Array.isArray(sec.bullets) ? sec.bullets.map(b => b.startsWith('•') || b.startsWith('-') ? b : `• ${b}`).join('\n') : (sec.bullets || '');
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between pb-1.5 border-b border-border/50">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center font-mono text-[10px] font-bold">
+              ${idx + 1}
+            </span>
+            <span class="font-medium text-foreground text-xs">Slide Section ${idx + 1}</span>
+          </div>
+          <button type="button" onclick="deleteHumanTouchCard(${idx})"
+            class="text-muted-foreground hover:text-rose-400 p-1 rounded transition" title="Delete section">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-medium text-[11px] text-muted-foreground">Section Title:</label>
+          <input type="text" class="ht-sec-title shadcn-input text-xs font-semibold" value="${(sec.title || '').replace(/"/g, '&quot;')}" placeholder="Slide Title">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+          <div class="space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Paragraphs (one per line):</label>
+            <textarea class="ht-sec-paragraphs shadcn-input font-mono text-xs leading-relaxed resize-y" rows="3" placeholder="Detailed paragraphs or explanations...">${paragraphsText}</textarea>
+          </div>
+          <div class="space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Bullet Points (one per line):</label>
+            <textarea class="ht-sec-bullets shadcn-input font-mono text-xs leading-relaxed resize-y" rows="3" placeholder="• Key bullet point 1&#10;• Key bullet point 2">${bulletsText}</textarea>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  } else if (step === 'restructure') {
+    const slides = Array.isArray(data.slides) ? data.slides : [];
+    if (slides.length === 0) {
+      container.innerHTML = '<div class="text-center py-6 text-muted-foreground italic">No storyboard slides found. Click "+ Add New Slide / Section" to add one.</div>';
+      return;
+    }
+
+    slides.forEach((sld, idx) => {
+      const card = document.createElement('div');
+      card.className = 'ht-card p-3 rounded-lg bg-secondary/30 border border-border/70 space-y-2.5 transition';
+      card.dataset.index = idx;
+
+      const quad = sld.quadrant || 'TR';
+      const sType = sld.slide_type || 'Theory / Definition';
+
+      let bulletsText = '';
+      if (Array.isArray(sld.rewritten_bullets)) {
+        bulletsText = sld.rewritten_bullets.join('\n');
+      } else if (Array.isArray(sld.animation_steps)) {
+        bulletsText = sld.animation_steps.map(st => `${st.indicator || '①'} ${st.text || ''}`).join('\n');
+      }
+
+      const formulas = (sld.mathematical_elements && sld.mathematical_elements.formulas) || '';
+      const callout = (sld.visual_annotations && sld.visual_annotations.teacher_callouts) || '';
+      const notes = sld.speaker_notes || '';
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between pb-1.5 border-b border-border/50">
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono text-[10px] font-bold">
+              ${idx + 1}
+            </span>
+            <span class="font-medium text-foreground text-xs">Slide ${idx + 1} (${quad})</span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary border border-border text-muted-foreground">${sType}</span>
+          </div>
+          <button type="button" onclick="deleteHumanTouchCard(${idx})"
+            class="text-muted-foreground hover:text-rose-400 p-1 rounded transition" title="Delete slide">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div class="md:col-span-2 space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Slide Title:</label>
+            <input type="text" class="ht-sld-title shadcn-input text-xs font-semibold" value="${(sld.title || '').replace(/"/g, '&quot;')}" placeholder="Slide Title">
+          </div>
+          <div class="space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Quadrant / Position:</label>
+            <select class="ht-sld-quadrant shadcn-input text-xs cursor-pointer font-mono">
+              <option value="TR" ${quad === 'TR' ? 'selected' : ''}>TR (Top-Right)</option>
+              <option value="TL" ${quad === 'TL' ? 'selected' : ''}>TL (Top-Left)</option>
+              <option value="BR" ${quad === 'BR' ? 'selected' : ''}>BR (Bottom-Right)</option>
+              <option value="BL" ${quad === 'BL' ? 'selected' : ''}>BL (Bottom-Left)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-medium text-[11px] text-muted-foreground">Core Concept (1-line punchy summary):</label>
+          <input type="text" class="ht-sld-concept shadcn-input text-xs" value="${(sld.core_concept || '').replace(/"/g, '&quot;')}" placeholder="One-line conceptual essence...">
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-medium text-[11px] text-muted-foreground">Numbered Steps & Rewritten Bullets (①, ②, ③...):</label>
+          <textarea class="ht-sld-bullets shadcn-input font-mono text-xs leading-relaxed resize-y" rows="3" placeholder="① First step...&#10;② Second step...">${bulletsText}</textarea>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div class="space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Formulas / LaTeX:</label>
+            <input type="text" class="ht-sld-formulas shadcn-input font-mono text-xs" value="${formulas.replace(/"/g, '&quot;')}" placeholder="$E=mc^2$">
+          </div>
+          <div class="space-y-1">
+            <label class="font-medium text-[11px] text-muted-foreground">Teacher Callout / Invariant:</label>
+            <input type="text" class="ht-sld-callout shadcn-input text-xs" value="${callout.replace(/"/g, '&quot;')}" placeholder="نکته کلیدی: ...">
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-medium text-[11px] text-muted-foreground">Speaker Notes:</label>
+          <textarea class="ht-sld-notes shadcn-input text-xs resize-y" rows="2" placeholder="Explanatory notes for presenter...">${notes}</textarea>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function addHumanTouchCard() {
+  currentHumanTouchData = collectHumanTouchDataFromVisual();
+  if (currentHumanTouchStep === 'extract') {
+    if (!Array.isArray(currentHumanTouchData.sections)) {
+      currentHumanTouchData.sections = [];
+    }
+    currentHumanTouchData.sections.push({
+      title: `New Section ${currentHumanTouchData.sections.length + 1}`,
+      paragraphs: ['Additional context or details.'],
+      bullets: ['Key takeaway point']
+    });
+  } else if (currentHumanTouchStep === 'restructure') {
+    if (!Array.isArray(currentHumanTouchData.slides)) {
+      currentHumanTouchData.slides = [];
+    }
+    const idx = currentHumanTouchData.slides.length + 1;
+    const quads = ['TR', 'TL', 'BR', 'BL'];
+    currentHumanTouchData.slides.push({
+      slide_number: idx,
+      title: `New Slide ${idx}`,
+      quadrant: quads[(idx - 1) % 4],
+      slide_type: 'Theory / Definition',
+      core_concept: 'Key concept definition',
+      animation_steps: [{ step: 1, indicator: '①', text: 'First main step' }],
+      rewritten_bullets: ['① First main step with key insight'],
+      mathematical_elements: { definitions: '', formulas: '', sets: '' },
+      visual_annotations: { teacher_callouts: 'نکته کلیدی' },
+      speaker_notes: ''
+    });
+  }
+  renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+}
+
+function deleteHumanTouchCard(idx) {
+  currentHumanTouchData = collectHumanTouchDataFromVisual();
+  if (currentHumanTouchStep === 'extract' && Array.isArray(currentHumanTouchData.sections)) {
+    currentHumanTouchData.sections.splice(idx, 1);
+  } else if (currentHumanTouchStep === 'restructure' && Array.isArray(currentHumanTouchData.slides)) {
+    currentHumanTouchData.slides.splice(idx, 1);
+  }
+  renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+}
+
+function collectHumanTouchDataFromVisual() {
+  const docTitleInput = document.getElementById('ht-doc-title-input');
+  const docTitle = docTitleInput ? docTitleInput.value.trim() : (currentHumanTouchData.document_title || 'Presentation');
+  const cards = document.querySelectorAll('#ht-cards-list .ht-card');
+
+  if (currentHumanTouchStep === 'extract') {
+    const sections = [];
+    cards.forEach((c) => {
+      const title = c.querySelector('.ht-sec-title')?.value.trim() || 'Section';
+      const rawParas = c.querySelector('.ht-sec-paragraphs')?.value || '';
+      const rawBullets = c.querySelector('.ht-sec-bullets')?.value || '';
+
+      const paragraphs = rawParas.split('\n').map(p => p.trim()).filter(Boolean);
+      const bullets = rawBullets.split('\n').map(b => b.trim()).filter(Boolean).map(b => b.replace(/^[•\-*]\s*/, ''));
+
+      sections.push({
+        title: title,
+        paragraphs: paragraphs,
+        bullets: bullets
+      });
+    });
+
+    return {
+      document_title: docTitle,
+      total_sections: sections.length,
+      sections: sections,
+      sources_summary: currentHumanTouchData.sources_summary || [],
+      raw_text: currentHumanTouchData.raw_text || ''
+    };
+  } else if (currentHumanTouchStep === 'restructure') {
+    const slides = [];
+    const stepIcons = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'];
+
+    cards.forEach((c, idx) => {
+      const title = c.querySelector('.ht-sld-title')?.value.trim() || `Slide ${idx + 1}`;
+      const quad = c.querySelector('.ht-sld-quadrant')?.value || 'TR';
+      const concept = c.querySelector('.ht-sld-concept')?.value.trim() || '';
+      const rawBullets = c.querySelector('.ht-sld-bullets')?.value || '';
+      const formulas = c.querySelector('.ht-sld-formulas')?.value.trim() || '';
+      const callout = c.querySelector('.ht-sld-callout')?.value.trim() || '';
+      const notes = c.querySelector('.ht-sld-notes')?.value.trim() || '';
+
+      const lines = rawBullets.split('\n').map(l => l.trim()).filter(Boolean);
+      const animSteps = lines.map((line, lIdx) => {
+        const icon = stepIcons[lIdx % stepIcons.length];
+        const clean = line.replace(/^[①②③④⑤⑥⑦⑧•\-*]\s*/, '');
+        return { step: lIdx + 1, indicator: icon, text: clean };
+      });
+
+      slides.push({
+        slide_number: idx + 1,
+        title: title,
+        quadrant: quad,
+        slide_type: 'Theory / Definition',
+        core_concept: concept,
+        animation_steps: animSteps,
+        mathematical_elements: { definitions: '', formulas: formulas, sets: '' },
+        visual_annotations: { teacher_callouts: callout, key_invariants: '' },
+        rewritten_bullets: lines,
+        speaker_notes: notes
+      });
+    });
+
+    return {
+      document_title: docTitle,
+      total_slides: slides.length,
+      slides: slides
+    };
+  }
+
+  return currentHumanTouchData;
+}
+
+async function rerunHumanTouchProcess() {
+  const promptInput = document.getElementById('ht-reply-prompt-input');
+  const prompt = promptInput ? promptInput.value.trim() : '';
+
+  if (!prompt) {
+    showToast('Please type an instruction or pick a suggestion chip to rerun.', 'warning');
+    if (promptInput) promptInput.focus();
+    return;
+  }
+
+  const btnRerun = document.getElementById('btn-ht-rerun');
+  const statusSpan = document.getElementById('ht-rerun-status');
+
+  if (currentHumanTouchView === 'visual') {
+    currentHumanTouchData = collectHumanTouchDataFromVisual();
+  } else {
+    try {
+      const jsonArea = document.getElementById('ht-raw-json-textarea');
+      if (jsonArea && jsonArea.value.trim()) {
+        currentHumanTouchData = JSON.parse(jsonArea.value.trim());
+      }
+    } catch (err) {
+      showToast('Invalid JSON syntax; please fix before rerunning.', 'error');
+      return;
+    }
+  }
+
+  btnRerun.disabled = true;
+  statusSpan.innerText = 'AI is rerunning step with your feedback...';
+  appendGenLog(`[Human Touch] Requested AI rerun for ${currentHumanTouchStep}: "${prompt}"`);
+
+  try {
+    const res = await fetch('/api/generator/human-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: currentHumanTouchJobId,
+        action: 'rerun',
+        step: currentHumanTouchStep,
+        prompt: prompt,
+        data: currentHumanTouchData
+      })
+    });
+
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to signal rerun.');
+    }
+  } catch (err) {
+    statusSpan.innerText = `Error: ${err.message}`;
+    btnRerun.disabled = false;
+    showToast(`Rerun error: ${err.message}`, 'error');
+  }
+}
+
+async function continueHumanTouchJob() {
+  if (currentHumanTouchView === 'visual') {
+    currentHumanTouchData = collectHumanTouchDataFromVisual();
+  } else {
+    try {
+      const jsonArea = document.getElementById('ht-raw-json-textarea');
+      if (jsonArea && jsonArea.value.trim()) {
+        currentHumanTouchData = JSON.parse(jsonArea.value.trim());
+      }
+    } catch (err) {
+      showToast('Invalid JSON syntax; please correct before continuing.', 'error');
+      return;
+    }
+  }
+
+  const btnCont = document.getElementById('btn-ht-continue');
+  btnCont.disabled = true;
+
+  try {
+    const res = await fetch('/api/generator/human-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: currentHumanTouchJobId,
+        action: 'continue',
+        step: currentHumanTouchStep,
+        data: currentHumanTouchData
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    closeHumanTouchModal();
+    appendGenLog(`[Human Touch] Step '${currentHumanTouchStep}' approved by user. Resuming pipeline...`);
+    showToast('Changes approved. Continuing generation pipeline...', 'success');
+  } catch (err) {
+    showToast(`Could not resume pipeline: ${err.message}`, 'error');
+  } finally {
+    btnCont.disabled = false;
+  }
+}
+
+function cancelHumanTouchJob() {
+  if (!confirm('Are you sure you want to cancel the generation pipeline?')) return;
+  if (currentHumanTouchJobId) {
+    fetch('/api/generator/human-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: currentHumanTouchJobId,
+        action: 'cancel'
+      })
+    });
+  }
+  closeHumanTouchModal();
+  setSystemStatus('CANCELLED');
+  appendGenLog('[Human Touch] Pipeline cancelled by user.');
+}
+
+function closeHumanTouchModal() {
+  const modal = document.getElementById('human-touch-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+// -------------------------------------------------------------
+// 1.6. AFTER-DONE: AI WORKFLOW PRESENTATION DECK EDITOR
+// -------------------------------------------------------------
+function setDeckEditPrompt(text) {
+  const input = document.getElementById('ht-deck-edit-prompt');
+  if (input) {
+    input.value = text;
+    input.focus();
+  }
+}
+
+async function submitDeckAiEdit() {
+  if (!currentGeneratedPptx) {
+    showToast('No presentation generated yet. Generate a deck first.', 'warning');
+    return;
+  }
+  const promptInput = document.getElementById('ht-deck-edit-prompt');
+  const prompt = promptInput ? promptInput.value.trim() : '';
+  if (!prompt) {
+    showToast('Please enter an editing prompt.', 'warning');
+    if (promptInput) promptInput.focus();
+    return;
+  }
+
+  const btnEdit = document.getElementById('btn-ht-deck-edit');
+  const statusSpan = document.getElementById('ht-deck-edit-status');
+  btnEdit.disabled = true;
+  statusSpan.innerText = 'AI Agent modifying presentation...';
+  appendGenLog(`\n[Human Touch Deck Edit] Custom prompt: "${prompt}"`);
+
+  try {
+    const res = await fetch('/api/generator/edit-pptx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_path: currentGeneratedPptx,
+        prompt: prompt
+      })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to edit presentation.');
+    }
+
+    appendGenLog(`[✓] AI Deck Edit completed: ${data.summary} (${data.actions_applied} action(s) applied)`);
+    showToast(`Deck updated: ${data.summary}`, 'success');
+
+    if (data.previews && data.previews.length > 0) {
+      genSlides = data.previews;
+      genSlideIdx = 0;
+      visualSlides = [...genSlides];
+      visualSlideIdx = 0;
+      updateGenSlideDisplay(data.engine_name);
+      updateVisualSlideDisplay();
+      renderSlideThumbnails();
+    }
+
+    if (promptInput) promptInput.value = '';
+  } catch (err) {
+    appendGenLog(`[!] Deck edit failed: ${err.message}`);
+    showToast(`Edit failed: ${err.message}`, 'error');
+  } finally {
+    btnEdit.disabled = false;
+    statusSpan.innerText = '';
+  }
+}
+
+async function inspectCurrentDeckDetails() {
+  if (!currentGeneratedPptx) {
+    showToast('No presentation available to inspect.', 'warning');
+    return;
+  }
+  const modal = document.getElementById('inspect-deck-modal');
+  const container = document.getElementById('inspect-deck-content');
+  if (!modal || !container) return;
+
+  container.innerHTML = '<div class="text-center py-6 text-muted-foreground"><i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto mb-2"></i>Inspecting presentation structure...</div>';
+  if (window.lucide) lucide.createIcons();
+  modal.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/generator/inspect-deck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: currentGeneratedPptx })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const deck = data.deck;
+    let html = `
+      <div class="flex items-center justify-between pb-2 border-b border-border text-xs">
+        <span class="font-semibold text-foreground">${deck.filename}</span>
+        <span class="text-muted-foreground font-mono">${deck.slide_count} slide(s)</span>
+      </div>
+    `;
+
+    deck.slides.forEach((s) => {
+      html += `
+        <div class="p-3 rounded-md bg-secondary/40 border border-border/70 space-y-1.5 text-xs">
+          <div class="flex items-center justify-between font-semibold text-foreground">
+            <span>Slide ${s.slide_number}: ${s.title || '(Untitled)'}</span>
+            <span class="text-[10px] text-muted-foreground font-mono">${s.shapes_count} shapes</span>
+          </div>
+          ${s.notes ? `<div class="text-[11px] text-muted-foreground italic"><span class="font-medium text-foreground">Notes:</span> ${s.notes}</div>` : ''}
+          <div class="space-y-1 pt-1">
+            ${s.shapes.map(sh => `
+              <div class="text-[11px] bg-background/60 p-1.5 rounded border border-border/40 font-mono flex items-start justify-between gap-2">
+                <span class="text-primary shrink-0">#${sh.shape_index} [${sh.type}]</span>
+                <span class="text-foreground/90 truncate flex-1 text-right">${sh.text ? sh.text.slice(0, 100) : (sh.has_table ? `Table (${sh.table_data.length} rows)` : (sh.is_picture ? 'Picture' : 'Shape'))}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div class="p-4 text-center text-rose-400">Failed to inspect deck: ${err.message}</div>`;
+  }
+}
+
+function closeInspectDeckModal() {
+  const modal = document.getElementById('inspect-deck-modal');
+  if (modal) modal.classList.add('hidden');
 }
 
 // -------------------------------------------------------------

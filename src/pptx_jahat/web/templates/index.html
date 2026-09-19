@@ -340,6 +340,138 @@
     </div>
   </div>
 
+  <!-- ============================================================== -->
+  <!-- MODAL: HUMAN TOUCH WORKFLOW INTERACTIVE REVIEW MODAL -->
+  <!-- ============================================================== -->
+  <div id="human-touch-modal" class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center">
+            <i data-lucide="user-check" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 id="ht-modal-title" class="font-semibold text-foreground text-sm">Human Touch Review</h3>
+              <span id="ht-modal-step-badge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">Step 2: Extract Slides</span>
+            </div>
+            <p id="ht-modal-subtitle" class="text-xs text-muted-foreground">Inspect AI response, edit fields directly, or reply with instructions to rerun.</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- View Toggle: Visual vs JSON -->
+          <div class="flex items-center p-0.5 rounded-md bg-secondary border border-border text-[11px]">
+            <button type="button" id="ht-view-visual-btn" onclick="setHumanTouchView('visual')"
+              class="px-2.5 py-1 rounded font-medium bg-background text-foreground shadow-sm">
+              Visual Editor
+            </button>
+            <button type="button" id="ht-view-json-btn" onclick="setHumanTouchView('json')"
+              class="px-2.5 py-1 rounded font-medium text-muted-foreground hover:text-foreground">
+              Raw JSON
+            </button>
+          </div>
+          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0" title="Cancel Generation">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+        <!-- Visual View Container -->
+        <div id="ht-visual-container" class="space-y-3">
+          <!-- Common: Document Title -->
+          <div class="p-3 rounded-lg bg-secondary/30 border border-border/60 flex items-center gap-3">
+            <label class="font-medium text-foreground shrink-0 text-xs">Document Title:</label>
+            <input type="text" id="ht-doc-title-input" class="shadcn-input font-medium text-xs flex-1" placeholder="Presentation Title">
+          </div>
+
+          <!-- Section / Slide Cards Container -->
+          <div id="ht-cards-list" class="space-y-3">
+            <!-- Dynamically generated editable cards -->
+          </div>
+
+          <!-- Add Card Button -->
+          <button type="button" onclick="addHumanTouchCard()" class="shadcn-btn shadcn-btn-outline w-full py-2 text-xs gap-1.5 border-dashed">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add New Slide / Section
+          </button>
+        </div>
+
+        <!-- JSON View Container -->
+        <div id="ht-json-container" class="hidden space-y-2">
+          <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Direct JSON payload editing:</span>
+            <button type="button" onclick="formatHumanTouchJson()" class="text-primary hover:underline flex items-center gap-1">
+              <i data-lucide="code" class="w-3 h-3"></i> Format JSON
+            </button>
+          </div>
+          <textarea id="ht-raw-json-textarea" rows="18" class="shadcn-input font-mono text-xs leading-relaxed resize-none w-full"></textarea>
+        </div>
+      </div>
+
+      <!-- Modal Footer (Reply prompt & Approval actions) -->
+      <div class="p-3.5 border-t border-border bg-secondary/30 space-y-2.5">
+        <!-- Reply & Rerun Bar -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <label class="font-medium text-foreground text-xs flex items-center gap-1.5">
+              <i data-lucide="message-square-reply" class="w-3.5 h-3.5 text-primary"></i> Reply to Rerun with AI:
+            </label>
+            <span id="ht-rerun-status" class="text-[10px] font-mono text-muted-foreground"></span>
+          </div>
+
+          <div class="flex gap-2">
+            <input type="text" id="ht-reply-prompt-input"
+              placeholder="Enter instructions to refine (e.g. 'Condense into 4 slides', 'Translate to English', 'Make bullet points punchier')..."
+              class="shadcn-input text-xs flex-1"
+              onkeydown="if(event.key === 'Enter'){ rerunHumanTouchProcess(); }">
+            <button id="btn-ht-rerun" onclick="rerunHumanTouchProcess()"
+              class="shadcn-btn shadcn-btn-secondary shrink-0 gap-1.5 text-xs">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Rerun with AI
+            </button>
+          </div>
+
+          <!-- Suggestion Chips for Rerun -->
+          <div id="ht-suggestion-chips" class="flex flex-wrap gap-1.5 pt-0.5 text-[10px]">
+            <!-- populated dynamically according to step -->
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-between pt-1 border-t border-border/40">
+          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs text-rose-400 hover:text-rose-300 gap-1.5">
+            <i data-lucide="ban" class="w-3.5 h-3.5"></i> Cancel Generation
+          </button>
+          <button id="btn-ht-continue" onclick="continueHumanTouchJob()" class="shadcn-btn shadcn-btn-default h-8 px-4 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve &amp; Continue to Next Step
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: PPTX DECK STRUCTURE INSPECTOR -->
+  <!-- ============================================================== -->
+  <div id="inspect-deck-modal" class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
+        <div class="flex items-center gap-2">
+          <i data-lucide="layers" class="w-4 h-4 text-primary"></i>
+          <h3 id="inspect-deck-modal-title" class="font-semibold text-foreground text-sm">Presentation Structural Details</h3>
+        </div>
+        <button type="button" onclick="closeInspectDeckModal()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs">
+        <div id="inspect-deck-content" class="space-y-3"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- NAVIGATION HEADER -->
   <header
     class="border-b border-border bg-card/75 backdrop-blur sticky top-0 z-50 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
@@ -649,6 +781,65 @@
                 </div>
               </div>
 
+              <!-- Human Touch Workflow (Interactive Review) Option Card -->
+              <div class="space-y-2.5 p-3 rounded-lg border border-border/70 bg-card/40">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="user-check" class="w-4 h-4 text-emerald-400"></i>
+                    <label for="gen-enable-human-touch" class="font-medium text-foreground text-xs cursor-pointer">
+                      Human Touch Workflow (Interactive Review)
+                    </label>
+                  </div>
+                  <input type="checkbox" id="gen-enable-human-touch" onchange="toggleHumanTouchOptions()"
+                    class="rounded cursor-pointer text-primary h-4 w-4">
+                </div>
+                <p class="text-[10px] text-muted-foreground leading-normal">
+                  Pause at critical AI milestones to inspect, edit, or prompt AI to rerun &amp; refine before continuing.
+                </p>
+
+                <!-- Sub-options container -->
+                <div id="gen-ht-options-container" class="hidden pt-2 space-y-2 border-t border-border/40 text-xs">
+                  <label class="flex items-start gap-2 cursor-pointer p-1.5 rounded hover:bg-secondary/30 transition">
+                    <input type="checkbox" id="gen-ht-extract" checked
+                      class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                    <div>
+                      <span class="font-medium text-foreground text-[11px] flex items-center gap-1">
+                        <i data-lucide="file-text" class="w-3 h-3 text-cyan-400"></i> Extract Slide from Inputs (Step 2)
+                      </span>
+                      <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                        Inspect AI extracted slide sections, edit directly, or reply with feedback to rerun extraction.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label class="flex items-start gap-2 cursor-pointer p-1.5 rounded hover:bg-secondary/30 transition">
+                    <input type="checkbox" id="gen-ht-restructure" checked
+                      class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                    <div>
+                      <span class="font-medium text-foreground text-[11px] flex items-center gap-1">
+                        <i data-lucide="layout-grid" class="w-3 h-3 text-amber-400"></i> Restructure Slides (Step 2.5)
+                      </span>
+                      <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                        Inspect storyboard animation steps &amp; formulas, edit directly, or reply to rerun restructure.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label class="flex items-start gap-2 cursor-pointer p-1.5 rounded hover:bg-secondary/30 transition">
+                    <input type="checkbox" id="gen-ht-after-done" checked
+                      class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                    <div>
+                      <span class="font-medium text-foreground text-[11px] flex items-center gap-1">
+                        <i data-lucide="sparkles" class="w-3 h-3 text-emerald-400"></i> After Done: AI Presentation Editor
+                      </span>
+                      <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                        Review live presentation and reply with custom prompts to rerun &amp; edit the PPTX.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <!-- Output Path -->
               <div>
                 <label class="block font-medium text-foreground mb-1.5">Output PPTX Path:</label>
@@ -796,6 +987,64 @@
                 <div id="gen-thumbnails-strip" class="flex gap-2 overflow-x-auto pb-2 min-h-[64px] items-center">
                   <div class="text-[11px] text-muted-foreground italic px-1">Thumbnails will appear upon generation.
                   </div>
+                </div>
+              </div>
+
+              <!-- Human Touch: After-Done AI Workflow Deck Editor -->
+              <div id="gen-after-done-container" class="mt-4 pt-3 border-t border-border space-y-2.5">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded-md bg-emerald-950/70 border border-emerald-700/60 flex items-center justify-center">
+                      <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    </div>
+                    <div>
+                      <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        Human Touch: Rerun &amp; Edit Deck with AI
+                      </span>
+                      <span class="text-[10px] text-muted-foreground">View presentation output and reply with custom prompt to iterate</span>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="inspectCurrentDeckDetails()"
+                      class="shadcn-btn shadcn-btn-outline h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                      title="Inspect slide shapes, indices, text frames and tables">
+                      <i data-lucide="layers" class="w-3 h-3 text-primary"></i> Inspect Details
+                    </button>
+                    <span id="ht-deck-edit-status" class="text-[10px] font-mono text-muted-foreground"></span>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <input type="text" id="ht-deck-edit-prompt"
+                    placeholder="Reply with custom edit prompt (e.g. 'Make slide 1 title more punchy and bold', 'Rewrite slide 2 bullet points', 'Add a key takeaway slide')..."
+                    class="shadcn-input text-xs flex-1"
+                    onkeydown="if(event.key === 'Enter'){ submitDeckAiEdit(); }">
+                  <button id="btn-ht-deck-edit" onclick="submitDeckAiEdit()"
+                    class="shadcn-btn shadcn-btn-default shrink-0 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Rerun &amp; Edit PPTX
+                  </button>
+                </div>
+
+                <!-- Suggestions Chips -->
+                <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span class="text-muted-foreground font-mono">Suggestions:</span>
+                  <button type="button" onclick="setDeckEditPrompt('Shorten bullet points and make them more concise and punchy')"
+                    class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
+                    Concise Bullets
+                  </button>
+                  <button type="button" onclick="setDeckEditPrompt('Improve typography and translate text into fluent Persian/Farsi')"
+                    class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
+                    Translate / Farsi
+                  </button>
+                  <button type="button" onclick="setDeckEditPrompt('Add an insightful conclusion and next steps slide at the end')"
+                    class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
+                    + Add Conclusion Slide
+                  </button>
+                  <button type="button" onclick="setDeckEditPrompt('Generate new visual images and diagrams for slides with placeholders')"
+                    class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
+                    Generate New Visuals
+                  </button>
                 </div>
               </div>
             </div>

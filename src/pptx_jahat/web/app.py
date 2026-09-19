@@ -49,7 +49,14 @@ from pptx_jahat.tools.structure_manager import (
 from pptx_jahat.tools.multi_parser import (
     is_supported_file,
     get_file_type_category,
+    parse_multiple_sources,
     ALL_SUPPORTED_EXTS
+)
+from pptx_jahat.tools.human_touch import (
+    refine_extracted_content_with_ai,
+    refine_restructured_slides_with_ai,
+    edit_pptx_with_ai,
+    inspect_pptx_for_editing
 )
 
 # Global Job Registry for SSE streams
@@ -173,6 +180,8 @@ def create_app() -> Flask:
         enable_detection = bool(data.get("enable_detection", True))
         enable_restructure = bool(data.get("enable_restructure", False))
         enable_blueprint = bool(data.get("enable_blueprint", True))
+        enable_human_touch = bool(data.get("enable_human_touch", False))
+        human_touch_steps = data.get("human_touch_steps", ["extract", "restructure", "after_done"])
         output_path = data.get("output_path", "").strip()
         timeout_val = data.get("timeout", None)
 
@@ -213,6 +222,7 @@ def create_app() -> Flask:
 
         job_id = f"gen_{int(time.time() * 1000)}"
         event_queue = queue.Queue()
+        human_event = threading.Event()
 
         with JOBS_LOCK:
             JOBS[job_id] = {
@@ -223,7 +233,14 @@ def create_app() -> Flask:
                 "result": None,
                 "error": None,
                 "ai_images": [],
-                "diagnostics": get_initial_diagnostics_steps()
+                "diagnostics": get_initial_diagnostics_steps(),
+                "enable_human_touch": enable_human_touch,
+                "human_touch_steps": human_touch_steps,
+                "waiting_for_human": False,
+                "human_step": None,
+                "human_event": human_event,
+                "human_action": None,
+                "step_data": None
             }
 
         def worker():
@@ -256,6 +273,119 @@ def create_app() -> Flask:
                             diag.append(dict(step_info))
                 event_queue.put({"event": "step_update", "data": step_info})
 
+            def on_human_review(step: str, step_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                with JOBS_LOCK:
+                    if job_id not in JOBS:
+                        return step_data
+                    JOBS[job_id]["waiting_for_human"] = True
+                    JOBS[job_id]["human_step"] = step
+                    JOBS[job_id]["step_data"] = step_data
+                    JOBS[job_id]["human_action"] = None
+                    human_event.clear()
+
+                step_titles = {
+                    "extract": "Step 2: Extract Slides from Inputs",
+                    "restructure": "Step 2.5: Restructure Slides"
+                }
+                title_str = step_titles.get(step, f"Step: {step}")
+                log_callback(f"[Human Touch] {title_str} ready. Pausing for human review, edit, or rerun prompt...")
+                event_queue.put({
+                    "event": "human_review",
+                    "data": {
+                        "job_id": job_id,
+                        "step": step,
+                        "step_name": title_str,
+                        "data": step_data
+                    }
+                })
+
+                current_data = step_data
+                while True:
+                    signaled = human_event.wait(timeout=0.5)
+                    with JOBS_LOCK:
+                        job_state = JOBS.get(job_id, {})
+                        if job_state.get("status") in ("error", "cancelled"):
+                            raise RuntimeError("Job cancelled during human review.")
+
+                    if signaled:
+                        with JOBS_LOCK:
+                            action_info = JOBS[job_id].get("human_action") or {}
+                            human_event.clear()
+
+                        action = action_info.get("action", "continue")
+                        if action == "continue":
+                            new_data = action_info.get("data") or current_data
+                            with JOBS_LOCK:
+                                if job_id in JOBS:
+                                    JOBS[job_id]["waiting_for_human"] = False
+                                    JOBS[job_id]["human_step"] = None
+                                    JOBS[job_id]["step_data"] = new_data
+                            log_callback(f"[Human Touch] User approved {title_str}. Resuming pipeline...")
+                            event_queue.put({
+                                "event": "human_action_accepted",
+                                "data": {"job_id": job_id, "step": step, "action": "continue"}
+                            })
+                            return new_data
+
+                        elif action == "rerun":
+                            user_prompt = action_info.get("prompt", "").strip()
+                            edited_data = action_info.get("data") or current_data
+                            log_callback(f"[Human Touch] User requested rerun for {title_str} with prompt: '{user_prompt}'")
+                            event_queue.put({
+                                "event": "status",
+                                "data": {"status": f"AI Rerunning {title_str}..."}
+                            })
+                            try:
+                                if step == "extract":
+                                    refined = refine_extracted_content_with_ai(
+                                        edited_data,
+                                        user_prompt,
+                                        log_cb=log_callback,
+                                        timeout=req_timeout
+                                    )
+                                elif step == "restructure":
+                                    struct_bp = None
+                                    if restructure_structure_name:
+                                        try:
+                                            struct_bp = get_structure_content(restructure_structure_name)
+                                        except Exception:
+                                            pass
+                                    refined = refine_restructured_slides_with_ai(
+                                        edited_data,
+                                        user_prompt,
+                                        structure_blueprint=struct_bp,
+                                        log_cb=log_callback,
+                                        timeout=req_timeout
+                                    )
+                                else:
+                                    refined = edited_data
+
+                                current_data = refined
+                                with JOBS_LOCK:
+                                    if job_id in JOBS:
+                                        JOBS[job_id]["step_data"] = current_data
+                                        JOBS[job_id]["waiting_for_human"] = True
+
+                                event_queue.put({
+                                    "event": "human_review",
+                                    "data": {
+                                        "job_id": job_id,
+                                        "step": step,
+                                        "step_name": title_str,
+                                        "data": current_data,
+                                        "refined": True
+                                    }
+                                })
+                            except Exception as ex:
+                                log_callback(f"[!] Rerun notice: {ex}")
+                                event_queue.put({
+                                    "event": "human_review_error",
+                                    "data": {"job_id": job_id, "step": step, "error": str(ex)}
+                                })
+
+                        elif action == "cancel":
+                            raise RuntimeError("Generation cancelled by user during human review.")
+
             try:
                 event_queue.put({"event": "status", "data": {"status": "Generating presentation..."}})
                 res = build_pptx_with_agent(
@@ -273,7 +403,10 @@ def create_app() -> Flask:
                     blueprint_structure_name=blueprint_structure_name,
                     enable_detection=enable_detection,
                     enable_blueprint=enable_blueprint,
-                    on_step_update=on_step_update
+                    on_step_update=on_step_update,
+                    enable_human_touch=enable_human_touch,
+                    human_touch_steps=human_touch_steps,
+                    on_human_review=on_human_review
                 )
 
                 # Pre-render slides for instant UI loading
@@ -372,6 +505,200 @@ def create_app() -> Flask:
 
         return Response(event_stream(), mimetype="text/event-stream")
 
+    # -------------------------------------------------------------
+    # 1.1. HUMAN TOUCH & INTERACTIVE WORKFLOW ENDPOINTS
+    # -------------------------------------------------------------
+    @app.route("/api/generator/human-action", methods=["POST"])
+    def handle_human_action():
+        data = request.get_json() or {}
+        job_id = str(data.get("job_id") or "")
+        action = data.get("action", "continue")
+        prompt = data.get("prompt", "").strip()
+        step = data.get("step")
+        action_data = data.get("data")
+
+        if not job_id:
+            return jsonify({"success": False, "error": "job_id is required."}), 400
+
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return jsonify({"success": False, "error": f"Job '{job_id}' not found."}), 404
+            if not job.get("waiting_for_human"):
+                return jsonify({"success": False, "error": f"Job '{job_id}' is not currently waiting for human input."}), 400
+
+            job["human_action"] = {
+                "action": action,
+                "prompt": prompt,
+                "step": step,
+                "data": action_data
+            }
+            event = job.get("human_event")
+            if event:
+                event.set()
+
+        return jsonify({
+            "success": True,
+            "job_id": job_id,
+            "action": action,
+            "message": f"Human touch action '{action}' signaled successfully."
+        })
+
+    @app.route("/api/generator/human-status/<job_id>", methods=["GET"])
+    def get_human_status(job_id: str):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return jsonify({"success": False, "error": "Job not found."}), 404
+            return jsonify({
+                "success": True,
+                "job_id": job_id,
+                "waiting_for_human": job.get("waiting_for_human", False),
+                "human_step": job.get("human_step"),
+                "step_data": job.get("step_data")
+            })
+
+    @app.route("/api/generator/extract", methods=["POST"])
+    def api_extract_content():
+        data = request.get_json() or {}
+        source_files = data.get("source_files", [])
+        docx_path = data.get("docx_path", "").strip()
+        raw_text = data.get("raw_text", "").strip()
+        structure_name = data.get("structure_name", None)
+        timeout_val = data.get("timeout")
+
+        try:
+            req_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            req_timeout = None
+
+        all_sources = []
+        if source_files and isinstance(source_files, list):
+            all_sources.extend([str(p).strip() for p in source_files if str(p).strip() and Path(str(p).strip()).exists()])
+        if docx_path and docx_path not in all_sources and Path(docx_path).exists():
+            all_sources.append(docx_path)
+
+        if not all_sources and not raw_text:
+            return jsonify({"success": False, "error": "No source files or text provided."}), 400
+
+        detection_bp = None
+        if structure_name:
+            try:
+                detection_bp = get_structure_content(structure_name)
+            except Exception:
+                pass
+
+        try:
+            parsed = parse_multiple_sources(
+                all_sources,
+                raw_text=raw_text,
+                timeout=req_timeout,
+                structure_blueprint=detection_bp
+            )
+            return jsonify({"success": True, "data": parsed})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/generator/extract/rerun", methods=["POST"])
+    def api_rerun_extract_content():
+        data = request.get_json() or {}
+        current_data = data.get("current_data", {})
+        prompt = data.get("prompt", "").strip()
+        timeout_val = data.get("timeout")
+
+        try:
+            req_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            req_timeout = None
+
+        if not prompt:
+            return jsonify({"success": False, "error": "Prompt is required to rerun extraction."}), 400
+
+        try:
+            refined = refine_extracted_content_with_ai(
+                current_data,
+                prompt,
+                timeout=req_timeout
+            )
+            return jsonify({"success": True, "data": refined})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/generator/restructure/rerun", methods=["POST"])
+    def api_rerun_restructure_slides():
+        data = request.get_json() or {}
+        current_data = data.get("current_data", {})
+        prompt = data.get("prompt", "").strip()
+        structure_name = data.get("structure_name", None)
+        timeout_val = data.get("timeout")
+
+        try:
+            req_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            req_timeout = None
+
+        if not prompt:
+            return jsonify({"success": False, "error": "Prompt is required to rerun restructure."}), 400
+
+        struct_bp = None
+        if structure_name:
+            try:
+                struct_bp = get_structure_content(structure_name)
+            except Exception:
+                pass
+
+        try:
+            refined = refine_restructured_slides_with_ai(
+                current_data,
+                prompt,
+                structure_blueprint=struct_bp,
+                timeout=req_timeout
+            )
+            return jsonify({"success": True, "data": refined})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/generator/edit-pptx", methods=["POST"])
+    def api_edit_presentation():
+        data = request.get_json() or {}
+        file_path = data.get("file_path", "").strip()
+        prompt = data.get("prompt", "").strip()
+        template_name = data.get("template_name")
+        timeout_val = data.get("timeout")
+
+        try:
+            req_timeout = float(timeout_val) if timeout_val is not None else None
+        except (ValueError, TypeError):
+            req_timeout = None
+
+        if not file_path or not Path(file_path).exists():
+            return jsonify({"success": False, "error": "PPTX file path does not exist."}), 400
+        if not prompt:
+            return jsonify({"success": False, "error": "Custom prompt cannot be empty."}), 400
+
+        try:
+            res = edit_pptx_with_ai(
+                pptx_path=file_path,
+                user_prompt=prompt,
+                template_name=template_name,
+                timeout=req_timeout
+            )
+            return jsonify(res)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/generator/inspect-deck", methods=["POST"])
+    def api_inspect_deck():
+        data = request.get_json() or {}
+        file_path = data.get("file_path", "").strip()
+        if not file_path or not Path(file_path).exists():
+            return jsonify({"success": False, "error": "File does not exist."}), 400
+        try:
+            info = inspect_pptx_for_editing(file_path)
+            return jsonify({"success": True, "deck": info})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
     @app.route("/api/preview/render", methods=["POST"])
     def render_presentation_previews():
         data = request.get_json() or {}
@@ -440,8 +767,10 @@ def create_app() -> Flask:
             try:
                 prs = Presentation(str(tpl))
                 slide_count = len(prs.slides)
-                width_in = round(prs.slide_width / 914400, 2)
-                height_in = round(prs.slide_height / 914400, 2)
+                sw = prs.slide_width
+                sh = prs.slide_height
+                width_in = round(float(sw) / 914400, 2) if sw is not None else 10.0
+                height_in = round(float(sh) / 914400, 2) if sh is not None else 7.5
                 dim_str = f"{width_in}\" x {height_in}\""
             except Exception:
                 slide_count = 0

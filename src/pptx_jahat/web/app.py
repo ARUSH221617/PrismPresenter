@@ -63,7 +63,9 @@ from pptx_jahat.tools.human_touch import (
 JOBS: Dict[str, Dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
 
-def create_app() -> Flask:
+BOOT_ID = f"{int(time.time() * 1000)}_{os.getpid()}"
+
+def create_app(dev_mode: Optional[bool] = None) -> Flask:
     template_dir = Path(__file__).parent / "templates"
     static_dir = Path(__file__).parent / "static"
 
@@ -75,9 +77,102 @@ def create_app() -> Flask:
     CORS(app)
     app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB upload limit
 
+    if dev_mode is None:
+        dev_mode = (
+            os.getenv("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+            or os.getenv("DEV", "").lower() in ("1", "true", "yes")
+            or os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+            or os.getenv("RELOAD", "").lower() in ("1", "true", "yes")
+            or os.getenv("FLASK_ENV", "").lower() == "development"
+        )
+
+    app.config["DEV_MODE"] = bool(dev_mode)
+    app.config["BOOT_ID"] = BOOT_ID
+
+    if dev_mode:
+        app.config["DEBUG"] = True
+        app.config["TEMPLATES_AUTO_RELOAD"] = True
+        app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+        app.jinja_env.auto_reload = True
+
+    @app.context_processor
+    def inject_dev_context():
+        return {
+            "dev_mode": app.config.get("DEV_MODE", False),
+            "boot_id": app.config.get("BOOT_ID", BOOT_ID)
+        }
+
     # Upload cache dir
     UPLOAD_CACHE = DATA_DIR / "uploads"
     UPLOAD_CACHE.mkdir(parents=True, exist_ok=True)
+
+    def get_latest_frontend_mtime() -> tuple[float, str]:
+        latest_mtime = 0.0
+        latest_file = ""
+        watch_dirs = [template_dir, static_dir]
+        for d in watch_dirs:
+            if not d.exists():
+                continue
+            for p in d.rglob("*"):
+                if p.is_file() and p.suffix in (".html", ".css", ".js", ".json", ".svg", ".png", ".jpg"):
+                    try:
+                        m = p.stat().st_mtime
+                        if m > latest_mtime:
+                            latest_mtime = m
+                            latest_file = p.name
+                    except OSError:
+                        pass
+        return latest_mtime, latest_file
+
+    @app.route("/api/dev/status", methods=["GET"])
+    def dev_status():
+        is_dev = bool(app.config.get("DEV_MODE", False))
+        return jsonify({
+            "success": True,
+            "dev_mode": is_dev,
+            "boot_id": app.config.get("BOOT_ID", BOOT_ID),
+            "auto_reload": is_dev,
+            "watched_directories": [
+                str(template_dir.resolve()),
+                str(static_dir.resolve())
+            ]
+        })
+
+    @app.route("/api/dev/live-reload")
+    def dev_live_reload():
+        if not app.config.get("DEV_MODE", False):
+            return jsonify({
+                "success": False,
+                "enabled": False,
+                "error": "Live reload is only enabled when running in dev mode."
+            }), 404
+
+        def event_stream():
+            try:
+                yield f"event: init\ndata: {json.dumps({'boot_id': app.config.get('BOOT_ID', BOOT_ID), 'status': 'connected'})}\n\n"
+                last_mtime, _ = get_latest_frontend_mtime()
+                while True:
+                    time.sleep(0.5)
+                    curr_mtime, changed_file = get_latest_frontend_mtime()
+                    if curr_mtime > last_mtime:
+                        last_mtime = curr_mtime
+                        yield f"event: reload\ndata: {json.dumps({'reason': 'file_changed', 'file': changed_file, 'time': time.time()})}\n\n"
+                    else:
+                        yield f": ping\n\n"
+            except GeneratorExit:
+                pass
+            except Exception:
+                pass
+
+        return Response(
+            event_stream(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
 
     @app.route("/")
     def index():

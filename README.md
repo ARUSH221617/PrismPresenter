@@ -169,6 +169,17 @@ python -m pptx_jahat
 ```
 Launches Flask web studio at `http://127.0.0.1:5000` and opens browser automatically.
 
+#### Development Server (Auto-Reload)
+```bash
+python -m pptx_jahat --dev
+# or
+pptx-jahat --dev
+```
+Enables full auto-reload:
+- **Backend**: Flask/Werkzeug reloader restarts server on Python source and `.env` changes.
+- **Frontend**: Live-reload stream automatically refreshes the browser when templates (`.html`) or static files (`.css`, `.js`) are updated.
+- CLI flags: `--dev` / `--reload`, `--no-browser`, `--port <port>`, `--host <host>`.
+
 #### Interactive CLI Agent
 ```bash
 python -m pptx_jahat --cli

@@ -2052,13 +2052,79 @@
     <div class="flex items-center gap-2">
       <span id="footer-status">Idle • Ready for presentation synthesis</span>
     </div>
-    <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div class="flex items-center gap-3 text-[11px] text-muted-foreground">
+      {% if dev_mode %}
+      <span id="dev-mode-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        DEV AUTO-RELOAD
+      </span>
+      {% endif %}
       <span>PrismPresenter v0.3</span>
     </div>
   </footer>
 
   <script src="/static/js/pptx-web-renderer.js"></script>
   <script src="/static/js/app.js"></script>
+  {% if dev_mode %}
+  <!-- DEV AUTO-RELOAD CLIENT SCRIPT -->
+  <script>
+    (function setupDevAutoReload() {
+      console.log('[Dev Auto-Reload] Initializing live-reload client...');
+      let serverBootId = null;
+      let wasDisconnected = false;
+      let eventSource = null;
+
+      function connect() {
+        if (eventSource) {
+          try { eventSource.close(); } catch (_) {}
+        }
+        eventSource = new EventSource('/api/dev/live-reload');
+
+        eventSource.addEventListener('init', function(e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (serverBootId && serverBootId !== data.boot_id) {
+              console.log('[Dev Auto-Reload] Server restarted (Boot ID: ' + data.boot_id + '). Reloading page...');
+              window.location.reload();
+              return;
+            }
+            serverBootId = data.boot_id;
+            console.log('[Dev Auto-Reload] Connected to live reload. Server Boot ID:', serverBootId);
+            if (wasDisconnected) {
+              console.log('[Dev Auto-Reload] Reconnected after server reboot. Reloading page...');
+              window.location.reload();
+            }
+          } catch (err) {
+            console.error('[Dev Auto-Reload] Failed to parse init message:', err);
+          }
+        });
+
+        eventSource.addEventListener('reload', function(e) {
+          console.log('[Dev Auto-Reload] Reload event received:', e.data);
+          const badge = document.getElementById('dev-mode-badge');
+          if (badge) {
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-spin"></span>RELOADING...';
+          }
+          setTimeout(function() {
+            window.location.reload();
+          }, 150);
+        });
+
+        eventSource.onerror = function() {
+          wasDisconnected = true;
+          try { eventSource.close(); } catch (_) {}
+          const badge = document.getElementById('dev-mode-badge');
+          if (badge) {
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>RECONNECTING...';
+          }
+          setTimeout(connect, 1200);
+        };
+      }
+
+      connect();
+    })();
+  </script>
+  {% endif %}
 </body>
 
 </html>

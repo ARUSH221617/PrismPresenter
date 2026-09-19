@@ -279,7 +279,7 @@ function switchTab(tabId) {
   if (tabId === 'templates') {
     loadTemplatesList();
     loadNoteMd();
-    loadStructuresList();
+    loadGeneratorStructures();
   } else if (tabId === 'manager') {
     loadManagerDecks();
   } else if (tabId === 'components') {
@@ -363,10 +363,18 @@ function applyConfigAndMetadata(data) {
 
   const modelName = cfg.NINEROUTER_CHAT_MODEL ? cfg.NINEROUTER_CHAT_MODEL.split('/').pop() : 'Default';
   const badge = document.getElementById('model-badge');
-  if (badge) badge.innerText = `MODEL: ${modelName}`;
+  if (badge) {
+    badge.innerText = `MODEL: ${modelName}`;
+    badge.title = `Active 9Router Model: ${cfg.NINEROUTER_CHAT_MODEL || ''}`;
+  }
 
   const geminiModel = document.getElementById('gemini-model-name');
   if (geminiModel) geminiModel.innerText = modelName;
+
+  const chatInput = document.getElementById('cfg-chat-model');
+  if (chatInput && cfg.NINEROUTER_CHAT_MODEL && chatInput !== document.activeElement) {
+    chatInput.value = cfg.NINEROUTER_CHAT_MODEL;
+  }
 
   const timeoutSec = cfg.LLM_TIMEOUT || 300;
   const genTimeout = document.getElementById('gen-timeout-input');
@@ -412,6 +420,9 @@ function applyConfigAndMetadata(data) {
       elCaps.appendChild(span);
     });
   }
+
+  // Update agent status badges with effective model and thinking levels
+  updateAllAgentStatusBadges(data);
 }
 
 async function refreshModelMetadataUI() {
@@ -671,6 +682,7 @@ async function loadGeneratorTemplates() {
         select.appendChild(opt);
       });
     }
+    checkGeneratorTemplateFonts();
   } catch (err) {
     console.error('Failed to load templates for generator', err);
   }
@@ -877,6 +889,10 @@ async function loadGeneratorStructures() {
   } catch (err) {
     console.error('Failed to load structures list', err);
   }
+}
+
+function loadStructuresList() {
+  return loadGeneratorStructures();
 }
 
 function setStructureSelectionMode(mode) {
@@ -1556,19 +1572,34 @@ async function startPresentationGeneration() {
   }
 
   const timeoutVal = parseInt(document.getElementById('gen-timeout-input')?.value || '300', 10);
+  const enableVerification = document.getElementById('gen-enable-verification')?.checked ?? true;
+  const verificationRounds = parseInt(document.getElementById('gen-verification-rounds')?.value || '3', 10);
   const enableHumanTouch = document.getElementById('gen-enable-human-touch')?.checked ?? false;
   const htExtract = document.getElementById('gen-ht-extract')?.checked ?? true;
   const htRestructure = document.getElementById('gen-ht-restructure')?.checked ?? true;
+  const htVerify = document.getElementById('gen-ht-verify')?.checked ?? true;
   const htAfterDone = document.getElementById('gen-ht-after-done')?.checked ?? true;
 
   const humanTouchSteps = [];
   if (htExtract) humanTouchSteps.push('extract');
   if (htRestructure) humanTouchSteps.push('restructure');
+  if (htVerify) humanTouchSteps.push('verify');
   if (htAfterDone) humanTouchSteps.push('after_done');
 
   resetGenDiagnostics();
 
   try {
+    if (enableVerification) {
+      appendGenLog(`[*] Visual Template Verification Agent ACTIVE: Auditing slides up to ${verificationRounds} iterative round(s).`);
+    } else {
+      appendGenLog('[*] Visual Template Verification Agent DISABLED by user at generation time.');
+    }
+
+    const activeChatModel = document.getElementById('cfg-chat-model')?.value.trim() || undefined;
+    if (activeChatModel) {
+      appendGenLog(`[*] Active 9Router AI Model: '${activeChatModel}'`);
+    }
+
     if (enableHumanTouch) {
       appendGenLog(`[*] Human Touch Workflow ACTIVE: Will pause at steps [${humanTouchSteps.join(', ')}] for human review.`);
     }
@@ -1588,10 +1619,14 @@ async function startPresentationGeneration() {
         enable_detection: enableDetect,
         enable_restructure: enableRestructure,
         enable_blueprint: enableBlueprint,
+        enable_verification: enableVerification,
+        verification_rounds: verificationRounds,
+        chat_model: activeChatModel,
         enable_human_touch: enableHumanTouch,
         human_touch_steps: humanTouchSteps,
         output_path: outputPath,
-        timeout: timeoutVal
+        timeout: timeoutVal,
+        font_fallbacks: currentConfiguredFontFallbacks
       })
     });
 
@@ -1638,7 +1673,11 @@ function listenToGenerationSSE(jobId) {
   evtSource.addEventListener('human_review', (e) => {
     try {
       const d = JSON.parse(e.data);
-      onHumanReviewEvent(d);
+      if (d.step === 'font_fallback') {
+        openFontFallbackModal(d);
+      } else {
+        onHumanReviewEvent(d);
+      }
     } catch (err) {
       console.error('Error handling human_review event:', err);
     }
@@ -1646,6 +1685,7 @@ function listenToGenerationSSE(jobId) {
 
   evtSource.addEventListener('human_action_accepted', (e) => {
     closeHumanTouchModal();
+    closeFontFallbackModal();
   });
 
   evtSource.addEventListener('human_review_error', (e) => {
@@ -1714,6 +1754,8 @@ function listenToGenerationSSE(jobId) {
   });
 }
 
+let currentGenEngine = '';
+
 function updateGenSlideDisplay(engineName = '') {
   const img = document.getElementById('gen-slide-img');
   const ph = document.getElementById('gen-slide-placeholder');
@@ -1721,6 +1763,10 @@ function updateGenSlideDisplay(engineName = '') {
   const badge = document.getElementById('gen-engine-badge');
   const prevBtn = document.getElementById('gen-prev-btn');
   const nextBtn = document.getElementById('gen-next-btn');
+
+  if (engineName) {
+    currentGenEngine = engineName;
+  }
 
   if (!genSlides || genSlides.length === 0) {
     img.classList.add('hidden');
@@ -1740,12 +1786,13 @@ function updateGenSlideDisplay(engineName = '') {
   prevBtn.disabled = genSlideIdx === 0;
   nextBtn.disabled = genSlideIdx === genSlides.length - 1;
 
-  if (engineName) {
+  const activeEngine = currentGenEngine || 'Native PowerPoint';
+  if (badge) {
     badge.classList.remove('hidden');
-    if (engineName.includes('PowerPoint')) {
+    if (activeEngine.includes('PowerPoint')) {
       badge.innerText = 'Native PowerPoint';
       badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300';
-    } else if (engineName.includes('Web')) {
+    } else if (activeEngine.includes('Web')) {
       badge.innerText = 'Web Render Engine';
       badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 border border-sky-800 text-sky-300';
     } else {
@@ -1977,6 +2024,21 @@ function onHumanReviewEvent(payload) {
         'Simplify bullets to 3 per slide',
         'Expand speaker notes for lecture presentation'
       ]
+    },
+    verify: {
+      title: 'Human Touch: Template Alignment & Visual Verification',
+      badge: 'Step 4.5: Slide Verification',
+      subtitle: 'Inspect chosen template screenshots vs generated slides, converse with the Verification Agent to spot missed elements, and approve healing edits.',
+      chips: [
+        'Delete unreplaced template formulas',
+        'Restore missing subtitle from template',
+        'Shape has default placeholder text, fix it',
+        'Remove mismatched equation from slide',
+        'Fill empty card with topic summary',
+        'Make sure header is not overflowing',
+        'Don\'t delete bottom badge or icon',
+        'Slides look aligned, approve without edits'
+      ]
     }
   };
 
@@ -1990,6 +2052,21 @@ function onHumanReviewEvent(payload) {
   if (titleEl) titleEl.innerText = info.title;
   if (badgeEl) badgeEl.innerText = info.badge;
   if (subtitleEl) subtitleEl.innerText = info.subtitle;
+
+  // Toggle Skip button and Continue button text
+  const skipVerifyBtn = document.getElementById('btn-ht-skip-verify');
+  const continueBtn = document.getElementById('btn-ht-continue');
+  if (payload.step === 'verify') {
+    if (skipVerifyBtn) skipVerifyBtn.classList.remove('hidden');
+    if (continueBtn) {
+      continueBtn.innerHTML = '<i data-lucide="check-check" class="w-3.5 h-3.5"></i> Approve &amp; Apply Healing Edits';
+    }
+  } else {
+    if (skipVerifyBtn) skipVerifyBtn.classList.add('hidden');
+    if (continueBtn) {
+      continueBtn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5"></i> Approve &amp; Continue to Next Step';
+    }
+  }
 
   // Render suggestion chips
   const chipsContainer = document.getElementById('ht-suggestion-chips');
@@ -2011,8 +2088,13 @@ function onHumanReviewEvent(payload) {
     docTitleInput.value = currentHumanTouchData.document_title || 'Presentation';
   }
 
-  // Render Visual Cards & Sync JSON
-  renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+  // Render Visual View
+  if (currentHumanTouchStep === 'verify') {
+    renderHumanTouchVerification(currentHumanTouchData);
+  } else {
+    renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+  }
+
   const jsonArea = document.getElementById('ht-raw-json-textarea');
   if (jsonArea) {
     jsonArea.value = JSON.stringify(currentHumanTouchData, null, 2);
@@ -2041,6 +2123,7 @@ function setHumanTouchView(view) {
   const visualBtn = document.getElementById('ht-view-visual-btn');
   const jsonBtn = document.getElementById('ht-view-json-btn');
   const visualBox = document.getElementById('ht-visual-container');
+  const verifyBox = document.getElementById('ht-verify-container');
   const jsonBox = document.getElementById('ht-json-container');
 
   if (view === 'visual') {
@@ -2050,12 +2133,22 @@ function setHumanTouchView(view) {
       try {
         const parsed = JSON.parse(jsonArea.value.trim());
         currentHumanTouchData = parsed;
-        renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+        if (currentHumanTouchStep === 'verify') {
+          renderHumanTouchVerification(currentHumanTouchData);
+        } else {
+          renderHumanTouchVisual(currentHumanTouchStep, currentHumanTouchData);
+        }
       } catch (err) {
         showToast('JSON syntax error; preserving current visual fields.', 'warning');
       }
     }
-    if (visualBox) visualBox.classList.remove('hidden');
+    if (currentHumanTouchStep === 'verify') {
+      if (verifyBox) verifyBox.classList.remove('hidden');
+      if (visualBox) visualBox.classList.add('hidden');
+    } else {
+      if (visualBox) visualBox.classList.remove('hidden');
+      if (verifyBox) verifyBox.classList.add('hidden');
+    }
     if (jsonBox) jsonBox.classList.add('hidden');
     if (visualBtn) {
       visualBtn.className = 'px-2.5 py-1 rounded font-medium bg-background text-foreground shadow-sm';
@@ -2071,6 +2164,7 @@ function setHumanTouchView(view) {
       jsonArea.value = JSON.stringify(currentHumanTouchData, null, 2);
     }
     if (visualBox) visualBox.classList.add('hidden');
+    if (verifyBox) verifyBox.classList.add('hidden');
     if (jsonBox) jsonBox.classList.remove('hidden');
     if (visualBtn) {
       visualBtn.className = 'px-2.5 py-1 rounded font-medium text-muted-foreground hover:text-foreground';
@@ -2079,6 +2173,255 @@ function setHumanTouchView(view) {
       jsonBtn.className = 'px-2.5 py-1 rounded font-medium bg-background text-foreground shadow-sm';
     }
   }
+}
+
+// -------------------------------------------------------------
+// VERIFICATION HUMAN TOUCH FUNCTIONS
+// -------------------------------------------------------------
+let currentVerifySlideIdx = 0;
+
+function renderHumanTouchVerification(data) {
+  if (!data) return;
+  const slides = data.slides || [];
+  const selector = document.getElementById('ht-verify-slide-selector');
+  const overallBadge = document.getElementById('ht-verify-overall-badge');
+
+  if (overallBadge) {
+    const totalIssues = data.total_issues_found || 0;
+    const totalActions = data.total_actions_planned || 0;
+    const roundStr = (data.round && data.max_rounds) ? ` [Round ${data.round}/${data.max_rounds}]` : '';
+    if (data.all_correct || (totalIssues === 0 && totalActions === 0)) {
+      overallBadge.innerText = `✓ Visual Verification: All Slides Aligned OK${roundStr}`;
+      overallBadge.className = 'text-[11px] font-mono px-2.5 py-1 rounded bg-emerald-950/80 border border-emerald-800 text-emerald-300';
+    } else {
+      overallBadge.innerText = `⚠ Found ${totalIssues} discrepancy item(s) • ${totalActions} healing action(s)${roundStr}`;
+      overallBadge.className = 'text-[11px] font-mono px-2.5 py-1 rounded bg-amber-950/80 border border-amber-800 text-amber-300';
+    }
+  }
+
+  if (selector) {
+    selector.innerHTML = '';
+    slides.forEach((s, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const hasIssues = (s.detected_issues && s.detected_issues.length > 0) || (s.edit_structure?.actions?.length > 0);
+      const isSelected = (idx === currentVerifySlideIdx);
+
+      btn.className = `px-2.5 py-1 rounded text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+        isSelected
+          ? 'bg-primary text-primary-foreground border-primary'
+          : hasIssues
+            ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
+            : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
+      }`;
+
+      const icon = hasIssues ? '⚠' : '✓';
+      btn.innerHTML = `<span>Slide ${s.slide_number}</span><span class="text-[10px] opacity-80">${icon}</span>`;
+      btn.onclick = () => selectVerifySlide(idx);
+      selector.appendChild(btn);
+    });
+  }
+
+  if (currentVerifySlideIdx >= slides.length) {
+    currentVerifySlideIdx = 0;
+  }
+  selectVerifySlide(currentVerifySlideIdx);
+}
+
+function selectVerifySlide(idx) {
+  const slides = currentHumanTouchData.slides || [];
+  if (!slides || slides.length === 0) return;
+  if (idx < 0 || idx >= slides.length) idx = 0;
+  currentVerifySlideIdx = idx;
+
+  // Update button highlights
+  const selector = document.getElementById('ht-verify-slide-selector');
+  if (selector) {
+    Array.from(selector.children).forEach((btn, bIdx) => {
+      const s = slides[bIdx];
+      const hasIssues = s && ((s.detected_issues && s.detected_issues.length > 0) || (s.edit_structure?.actions?.length > 0));
+      const isSelected = (bIdx === currentVerifySlideIdx);
+      btn.className = `px-2.5 py-1 rounded text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
+        isSelected
+          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+          : hasIssues
+            ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
+            : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
+      }`;
+    });
+  }
+
+  const s = slides[idx];
+  if (!s) return;
+
+  // Update Info labels
+  const tplInfo = document.getElementById('ht-verify-tpl-info');
+  const genInfo = document.getElementById('ht-verify-gen-info');
+  if (tplInfo) tplInfo.innerText = `${s.source_template || 'Template'} (Slide #${(s.source_slide_index ?? 0) + 1})`;
+  if (genInfo) genInfo.innerText = `Slide ${s.slide_number}: ${s.title || ''}`;
+
+  // Update Template Image
+  const tplImg = document.getElementById('ht-verify-tpl-img');
+  const tplPh = document.getElementById('ht-verify-tpl-placeholder');
+  if (tplImg && tplPh) {
+    if (s.template_screenshot) {
+      tplImg.src = s.template_screenshot;
+      tplImg.classList.remove('hidden');
+      tplPh.classList.add('hidden');
+    } else {
+      tplImg.classList.add('hidden');
+      tplPh.classList.remove('hidden');
+    }
+  }
+
+  // Update Generated Image
+  const genImg = document.getElementById('ht-verify-gen-img');
+  const genPh = document.getElementById('ht-verify-gen-placeholder');
+  if (genImg && genPh) {
+    if (s.generated_screenshot) {
+      genImg.src = s.generated_screenshot;
+      genImg.classList.remove('hidden');
+      genPh.classList.add('hidden');
+    } else {
+      genImg.classList.add('hidden');
+      genPh.classList.remove('hidden');
+    }
+  }
+
+  // Update Detected Issues List
+  const issuesList = document.getElementById('ht-verify-issues-list');
+  const issueCount = document.getElementById('ht-verify-issue-count');
+  const issues = s.detected_issues || [];
+  if (issueCount) issueCount.innerText = `${issues.length} issue(s)`;
+  if (issuesList) {
+    if (issues.length > 0) {
+      issuesList.innerHTML = issues.map(iss => `
+        <div class="p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 flex items-start gap-2">
+          <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5"></i>
+          <span class="leading-relaxed">${escapeHtml(iss)}</span>
+        </div>
+      `).join('');
+    } else {
+      issuesList.innerHTML = `
+        <div class="p-2.5 rounded bg-emerald-950/20 border border-emerald-800/40 text-emerald-300 flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+          <span>No missing elements, placeholder text, or layout issues detected on this slide.</span>
+        </div>
+      `;
+    }
+  }
+
+  // Update Actions List
+  const actionsList = document.getElementById('ht-verify-actions-list');
+  const actionCount = document.getElementById('ht-verify-action-count');
+  const actions = s.edit_structure?.actions || [];
+  if (actionCount) actionCount.innerText = `${actions.length} action(s)`;
+  if (actionsList) {
+    if (actions.length > 0) {
+      actionsList.innerHTML = actions.map((act, aIdx) => {
+        const isDelete = ['delete_shape', 'remove_shape', 'delete_shapes', 'remove_shapes', 'delete_element', 'remove_element', 'remove_formula', 'delete_formula'].includes(act.action);
+        const iconName = isDelete ? 'trash-2' : 'wrench';
+        const badgeColor = isDelete ? 'bg-rose-950/40 border-rose-800/60 text-rose-200' : 'bg-sky-950/30 border-sky-800/50 text-sky-200';
+        const iconColor = isDelete ? 'text-rose-400' : 'text-sky-400';
+
+        let desc = act.action;
+        if (['delete_shape', 'remove_shape', 'delete_element', 'remove_element'].includes(act.action)) {
+          desc = `Delete shape #${act.shape_index}${act.formula_text ? ` (Formula: "${escapeHtml(act.formula_text)}")` : ''}`;
+        } else if (['remove_formula', 'delete_formula'].includes(act.action)) {
+          desc = `Delete unreplaced formula${act.formula_text ? `: "${escapeHtml(act.formula_text)}"` : ' equation from template'}`;
+        } else if (act.action === 'remove_shapes' || act.action === 'delete_shapes') {
+          desc = `Delete shape(s) #${(act.shape_indices || []).join(', #')}`;
+        } else if (act.action === 'update_text') {
+          desc = `Update shape #${act.shape_index} text: "${escapeHtml(act.new_text || '')}"`;
+        } else if (act.action === 'update_table') {
+          desc = `Update table shape #${act.shape_index} cell contents`;
+        } else if (act.action === 'update_notes') {
+          desc = `Update speaker notes`;
+        }
+        return `
+          <div class="p-2 rounded ${badgeColor} border flex items-start justify-between gap-2">
+            <div class="flex items-start gap-2">
+              <i data-lucide="${iconName}" class="w-3.5 h-3.5 ${iconColor} shrink-0 mt-0.5"></i>
+              <span class="leading-relaxed">${desc}</span>
+            </div>
+            <button type="button" onclick="removeVerificationAction(${idx}, ${aIdx})" class="text-muted-foreground hover:text-rose-400 text-[10px] p-0.5" title="Dismiss this action">
+              ✕
+            </button>
+          </div>
+        `;
+      }).join('');
+    } else {
+      actionsList.innerHTML = `
+        <div class="p-2.5 rounded bg-secondary/30 border border-border/40 text-muted-foreground flex items-center gap-2">
+          <i data-lucide="check" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
+          <span>No healing modifications required for this slide.</span>
+        </div>
+      `;
+    }
+  }
+
+  // Render Conversation Stream
+  renderVerificationChatStream();
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function removeVerificationAction(slideIdx, actionIdx) {
+  const slides = currentHumanTouchData.slides || [];
+  if (slides[slideIdx] && slides[slideIdx].edit_structure && slides[slideIdx].edit_structure.actions) {
+    slides[slideIdx].edit_structure.actions.splice(actionIdx, 1);
+    // Recompute aggregated_actions
+    currentHumanTouchData.aggregated_actions = slides.flatMap(s => s.edit_structure?.actions || []);
+    currentHumanTouchData.total_actions_planned = currentHumanTouchData.aggregated_actions.length;
+    selectVerifySlide(slideIdx);
+  }
+}
+
+function renderVerificationChatStream() {
+  const stream = document.getElementById('ht-verify-chat-stream');
+  if (!stream) return;
+  const history = currentHumanTouchData.conversation_history || [];
+
+  let html = `
+    <div class="p-2 rounded bg-secondary/40 text-muted-foreground text-[11px]">
+      👋 <strong class="text-foreground">Verification Agent:</strong> I inspected the chosen template slide against the generated slide. Tell me if any elements, badges, or texts are missing or need adjusting.
+    </div>
+  `;
+
+  history.forEach(item => {
+    if (item.role === 'user') {
+      html += `
+        <div class="p-2 rounded bg-primary/10 border border-primary/20 text-foreground text-[11px] ml-4">
+          <strong class="text-primary">You:</strong> ${escapeHtml(item.content)}
+        </div>
+      `;
+    } else if (item.role === 'assistant') {
+      html += `
+        <div class="p-2 rounded bg-secondary/50 border border-border/60 text-foreground text-[11px] mr-4">
+          <strong class="text-emerald-400">Verification Agent:</strong> ${escapeHtml(item.content)}
+        </div>
+      `;
+    }
+  });
+
+  stream.innerHTML = html;
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function skipVerificationEdits() {
+  if (currentHumanTouchData) {
+    currentHumanTouchData.aggregated_actions = [];
+    if (Array.isArray(currentHumanTouchData.slides)) {
+      currentHumanTouchData.slides.forEach(s => {
+        if (s.edit_structure) {
+          s.edit_structure.actions = [];
+          s.edit_structure.summary_of_changes = 'Verification edits skipped by user';
+        }
+      });
+    }
+    currentHumanTouchData.total_actions_planned = 0;
+  }
+  continueHumanTouchJob();
 }
 
 function formatHumanTouchJson() {
@@ -2351,6 +2694,11 @@ function collectHumanTouchDataFromVisual() {
       total_slides: slides.length,
       slides: slides
     };
+  } else if (currentHumanTouchStep === 'verify') {
+    return {
+      ...currentHumanTouchData,
+      active_slide_index: currentVerifySlideIdx
+    };
   }
 
   return currentHumanTouchData;
@@ -2384,8 +2732,13 @@ async function rerunHumanTouchProcess() {
   }
 
   btnRerun.disabled = true;
-  statusSpan.innerText = 'AI is rerunning step with your feedback...';
-  appendGenLog(`[Human Touch] Requested AI rerun for ${currentHumanTouchStep}: "${prompt}"`);
+  if (currentHumanTouchStep === 'verify') {
+    statusSpan.innerText = 'Verification Agent analyzing conversation and refining slide actions...';
+    appendGenLog(`[Verification Chat] User instruction: "${prompt}"`);
+  } else {
+    statusSpan.innerText = 'AI is rerunning step with your feedback...';
+    appendGenLog(`[Human Touch] Requested AI rerun for ${currentHumanTouchStep}: "${prompt}"`);
+  }
 
   try {
     const res = await fetch('/api/generator/human-action', {
@@ -2403,6 +2756,9 @@ async function rerunHumanTouchProcess() {
     const data = await res.json();
     if (!data.success) {
       throw new Error(data.error || 'Failed to signal rerun.');
+    }
+    if (promptInput) {
+      promptInput.value = '';
     }
   } catch (err) {
     statusSpan.innerText = `Error: ${err.message}`;
@@ -2466,6 +2822,7 @@ function cancelHumanTouchJob() {
     });
   }
   closeHumanTouchModal();
+  closeFontFallbackModal();
   setSystemStatus('CANCELLED');
   appendGenLog('[Human Touch] Pipeline cancelled by user.');
 }
@@ -2473,6 +2830,614 @@ function cancelHumanTouchJob() {
 function closeHumanTouchModal() {
   const modal = document.getElementById('human-touch-modal');
   if (modal) modal.classList.add('hidden');
+}
+
+function closeFontFallbackModal() {
+  const modal = document.getElementById('font-fallback-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+// -------------------------------------------------------------
+// 1.5. TEMPLATE FONT VERIFICATION & SEARCHABLE FALLBACK RESOLVER
+// -------------------------------------------------------------
+let currentFontFallbackPayload = null;
+let currentConfiguredFontFallbacks = {};
+let fontFallbackItems = []; // [{ missingFont, rec, selectedValue, customValue, query, category }]
+let fontFallbackSystemCatalog = {
+  families: [],
+  persian_fonts: [],
+  latin_fonts: []
+};
+
+async function checkGeneratorTemplateFonts() {
+  const select = document.getElementById('gen-template-select');
+  const statusDiv = document.getElementById('gen-template-font-status');
+  if (!select || !statusDiv) return;
+
+  const tpl = select.value.trim();
+
+  try {
+    const url = tpl ? `/api/fonts/verify?template_name=${encodeURIComponent(tpl)}` : `/api/fonts/verify`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data.success) {
+      statusDiv.classList.add('hidden');
+      return;
+    }
+
+    statusDiv.classList.remove('hidden');
+
+    if (data.all_installed) {
+      statusDiv.className = 'mt-1.5 text-[11px] p-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 flex items-center justify-between';
+      statusDiv.innerHTML = `
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+          <span>All template fonts verified on system: <strong class="font-mono text-foreground">${data.installed_fonts.join(', ') || 'Standard'}</strong></span>
+        </div>
+      `;
+    } else {
+      statusDiv.className = 'mt-1.5 text-[11px] p-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400 flex items-center justify-between flex-wrap gap-1.5';
+      const missingList = data.missing_fonts.join(', ');
+      statusDiv.innerHTML = `
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-400 shrink-0"></i>
+          <span>Missing fonts on system: <strong class="font-mono text-foreground">${missingList}</strong></span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-[10px] text-muted-foreground font-mono bg-background/50 px-1.5 py-0.5 rounded border border-border/50">
+            Step 1.2
+          </span>
+          <button type="button" onclick="openPreConfigFontFallbackModal()"
+            class="shadcn-btn shadcn-btn-outline text-[11px] h-6 px-2 py-0 gap-1 text-amber-300 border-amber-500/40 hover:bg-amber-500/20 cursor-pointer">
+            <i data-lucide="search" class="w-3 h-3"></i> Search &amp; Pick Fallback
+          </button>
+        </div>
+      `;
+    }
+    if (window.lucide) lucide.createIcons();
+  } catch (err) {
+    statusDiv.classList.add('hidden');
+  }
+}
+
+function openPreConfigFontFallbackModal() {
+  const select = document.getElementById('gen-template-select');
+  const tpl = select ? select.value.trim() : '';
+  const url = tpl ? `/api/fonts/verify?template_name=${encodeURIComponent(tpl)}` : `/api/fonts/verify`;
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (data.success && data.missing_fonts && data.missing_fonts.length > 0) {
+        openFontFallbackModal({
+          job_id: null,
+          step: 'font_fallback',
+          data: data
+        });
+      } else {
+        showToast('All template fonts are already installed on system!', 'success');
+      }
+    })
+    .catch(err => {
+      showToast(`Could not load fonts: ${err.message}`, 'error');
+    });
+}
+
+async function rescanSystemFontsAction() {
+  const btn = document.getElementById('btn-ff-rescan');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Rescanning...`;
+    if (window.lucide) lucide.createIcons();
+  }
+
+  try {
+    const res = await fetch('/api/fonts/system/rescan', { method: 'POST' });
+    const d = await res.json();
+    if (d.success) {
+      fontFallbackSystemCatalog = {
+        families: d.families || [],
+        persian_fonts: d.persian_fonts || [],
+        latin_fonts: d.latin_fonts || []
+      };
+
+      // Re-verify current template fonts
+      const select = document.getElementById('gen-template-select');
+      const tpl = select ? select.value.trim() : '';
+      const vUrl = tpl ? `/api/fonts/verify?template_name=${encodeURIComponent(tpl)}&rescan=true` : `/api/fonts/verify?rescan=true`;
+      const vRes = await fetch(vUrl);
+      const vData = await vRes.json();
+
+      if (vData.success) {
+        currentFontFallbackPayload = vData;
+        const missingFonts = vData.missing_fonts || [];
+        const recommendations = vData.recommendations || {};
+        const currentFallbacks = vData.current_fallbacks || {};
+
+        fontFallbackItems = missingFonts.map(mf => {
+          const rec = recommendations[mf] || currentFallbacks[mf] || 'Segoe UI';
+          const existingConfig = currentConfiguredFontFallbacks[mf] || currentFallbacks[mf];
+          return {
+            missingFont: mf,
+            rec: rec,
+            selectedValue: existingConfig || rec,
+            customValue: '',
+            query: '',
+            category: 'all'
+          };
+        });
+
+        renderFontFallbackList();
+        checkGeneratorTemplateFonts();
+        showToast(`Fonts rescanned: ${d.families.length} fonts discovered (${d.persian_fonts.length} Persian, ${d.latin_fonts.length} Latin)`, 'success');
+      }
+    } else {
+      showToast('Failed to rescan fonts: ' + (d.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Failed to rescan fonts: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3 h-3"></i> Rescan Fonts`;
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+}
+
+function openFontFallbackModal(payload) {
+  currentHumanTouchJobId = payload.job_id || null;
+  currentHumanTouchStep = payload.step || 'font_fallback';
+  currentFontFallbackPayload = payload.data || {};
+
+  const missingFonts = currentFontFallbackPayload.missing_fonts || [];
+  const recommendations = currentFontFallbackPayload.recommendations || {};
+  const currentFallbacks = currentFontFallbackPayload.current_fallbacks || {};
+
+  fontFallbackSystemCatalog = {
+    families: currentFontFallbackPayload.system_fonts || [],
+    persian_fonts: currentFontFallbackPayload.available_persian || [],
+    latin_fonts: currentFontFallbackPayload.available_latin || []
+  };
+
+  // If system fonts empty, fetch from API
+  if (!fontFallbackSystemCatalog.families || fontFallbackSystemCatalog.families.length === 0) {
+    fetch('/api/fonts/system')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          fontFallbackSystemCatalog = {
+            families: d.families || [],
+            persian_fonts: d.persian_fonts || [],
+            latin_fonts: d.latin_fonts || []
+          };
+          renderFontFallbackList();
+        }
+      })
+      .catch(() => {});
+  }
+
+  fontFallbackItems = missingFonts.map(mf => {
+    const rec = recommendations[mf] || currentFallbacks[mf] || 'Segoe UI';
+    const existingConfig = currentConfiguredFontFallbacks[mf] || currentFallbacks[mf];
+    return {
+      missingFont: mf,
+      rec: rec,
+      selectedValue: existingConfig || rec,
+      customValue: '',
+      query: '',
+      category: 'all'
+    };
+  });
+
+  renderFontFallbackList();
+
+  const modal = document.getElementById('font-fallback-modal');
+  if (modal) modal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+
+  showToast(`Step 1.2: ${missingFonts.length} template font(s) need fallback selection`, 'warning');
+}
+
+function renderFontFallbackList() {
+  const container = document.getElementById('ff-missing-fonts-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (fontFallbackItems.length === 0) {
+    container.innerHTML = `
+      <div class="p-4 rounded-lg bg-secondary/30 border border-border/70 text-center text-muted-foreground text-xs">
+        No missing fonts detected. All template typography is verified on this system.
+      </div>
+    `;
+    return;
+  }
+
+  // Batch action bar if multiple fonts missing
+  if (fontFallbackItems.length > 1) {
+    const batchDiv = document.createElement('div');
+    batchDiv.className = 'p-2.5 rounded-lg border border-primary/30 bg-primary/5 flex items-center justify-between flex-wrap gap-2 text-xs mb-2';
+
+    const quickChoices = [
+      'IRANYekanXFaNum',
+      'IRANYekanXFaNum Heavy',
+      'Vazirmatn',
+      'B Nazanin',
+      'Segoe UI',
+      'Calibri',
+      'Arial',
+      'Tahoma'
+    ].filter(f => fontFallbackSystemCatalog.families.some(sf => sf.toLowerCase() === f.toLowerCase()));
+
+    const batchList = quickChoices.length > 0 ? quickChoices : fontFallbackSystemCatalog.families.slice(0, 10);
+    const batchOptions = batchList.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+
+    batchDiv.innerHTML = `
+      <div class="flex items-center gap-1.5 font-medium text-foreground">
+        <i data-lucide="wand-2" class="w-3.5 h-3.5 text-primary"></i>
+        <span>Quick Apply to All Missing Fonts:</span>
+      </div>
+      <div class="flex items-center gap-1.5 flex-1 min-w-[220px]">
+        <select id="ff-batch-select" class="shadcn-input text-xs flex-1 cursor-pointer">
+          ${batchOptions}
+        </select>
+        <button type="button" onclick="applyBatchFontFallback()" class="shadcn-btn shadcn-btn-secondary text-xs px-2.5 py-1 shrink-0 gap-1 font-medium cursor-pointer">
+          Apply All
+        </button>
+      </div>
+    `;
+    container.appendChild(batchDiv);
+  }
+
+  // Render each item
+  fontFallbackItems.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.id = `ff-card-${idx}`;
+    card.className = 'p-3.5 rounded-lg border border-border/70 bg-secondary/30 space-y-2.5 transition-all';
+    card.innerHTML = getFontFallbackItemMarkup(item, idx);
+    container.appendChild(card);
+  });
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function getFontFallbackItemMarkup(item, idx) {
+  const { optionsHtml, statsText } = buildFontFallbackOptions(item);
+  const curDisplay = item.selectedValue === '__custom__' ? (item.customValue || 'Custom') : item.selectedValue;
+
+  return `
+    <!-- Top Header: Missing font name + active chosen font -->
+    <div class="flex items-center justify-between flex-wrap gap-1.5">
+      <div class="flex items-center gap-2">
+        <span class="font-bold text-foreground text-xs font-mono bg-background px-2 py-0.5 rounded border border-border/60">${escapeHtml(item.missingFont)}</span>
+        <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-mono">Missing on System</span>
+      </div>
+      <div class="text-[11px] text-muted-foreground font-mono">
+        Active Fallback: <span class="font-semibold text-primary" id="ff-cur-display-${idx}">${escapeHtml(curDisplay)}</span>
+      </div>
+    </div>
+
+    <!-- Search Input & Script Filter Tabs -->
+    <div class="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+      <div class="relative flex-1 min-w-[200px]">
+        <i data-lucide="search" class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-2.5 pointer-events-none"></i>
+        <input type="text" id="ff-search-${idx}" value="${escapeHtml(item.query)}"
+          placeholder="🔍 Search among 1,000+ fonts (e.g. Yekan, Segoe, Nazanin, Calibri)..."
+          class="shadcn-input text-xs pl-8 pr-7 w-full font-mono"
+          oninput="onFontSearchInput(${idx}, this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault(); onFontSearchEnter(${idx});}">
+        ${item.query ? `
+          <button type="button" onclick="clearFontSearch(${idx})"
+            class="absolute right-2 top-2 text-muted-foreground hover:text-foreground text-xs h-4 w-4 flex items-center justify-center cursor-pointer" title="Clear search">
+            ✕
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Script Filter Pills -->
+      <div class="flex items-center p-0.5 rounded-md bg-secondary border border-border text-[10px] shrink-0">
+        <button type="button" onclick="setFontCategory(${idx}, 'all')"
+          class="px-2 py-0.5 rounded font-medium transition cursor-pointer ${item.category === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">
+          All (${fontFallbackSystemCatalog.families.length || 0})
+        </button>
+        <button type="button" onclick="setFontCategory(${idx}, 'persian')"
+          class="px-2 py-0.5 rounded font-medium transition cursor-pointer ${item.category === 'persian' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">
+          Persian (${fontFallbackSystemCatalog.persian_fonts.length || 0})
+        </button>
+        <button type="button" onclick="setFontCategory(${idx}, 'latin')"
+          class="px-2 py-0.5 rounded font-medium transition cursor-pointer ${item.category === 'latin' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">
+          Latin (${fontFallbackSystemCatalog.latin_fonts.length || 0})
+        </button>
+      </div>
+    </div>
+
+    <!-- Select Dropdown & Custom Font Input -->
+    <div class="space-y-1.5">
+      <select id="ff-select-${idx}" data-source-font="${escapeHtml(item.missingFont)}"
+        onchange="onFontFallbackSelectChange(${idx}, this.value)"
+        class="shadcn-input w-full text-xs cursor-pointer font-medium">
+        ${optionsHtml}
+      </select>
+
+      <input type="text" id="ff-custom-${idx}" value="${escapeHtml(item.customValue || '')}"
+        placeholder="Type custom font family name (e.g. 'Vazirmatn', 'IRANYekanXFaNum', 'Segoe UI')..."
+        oninput="onFontCustomInput(${idx}, this.value)"
+        class="shadcn-input text-xs ${item.selectedValue === '__custom__' ? '' : 'hidden'} w-full font-mono">
+    </div>
+
+    <!-- Search Stats & Enter Hint -->
+    <div class="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+      <span id="ff-stats-${idx}">${statsText}</span>
+      <span class="opacity-80">Tip: Type query &amp; press Enter to select</span>
+    </div>
+  `;
+}
+
+function buildFontFallbackOptions(item) {
+  const query = (item.query || '').trim().toLowerCase();
+  const cat = item.category || 'all';
+
+  let candidates = [];
+  if (cat === 'persian') {
+    candidates = fontFallbackSystemCatalog.persian_fonts || [];
+  } else if (cat === 'latin') {
+    candidates = fontFallbackSystemCatalog.latin_fonts || [];
+  } else {
+    candidates = fontFallbackSystemCatalog.families || [];
+  }
+
+  if (query) {
+    candidates = candidates.filter(f => f.toLowerCase().includes(query));
+  }
+
+  let optionsHtml = '';
+
+  // 1. Recommended Font
+  if (item.rec && (!query || item.rec.toLowerCase().includes(query))) {
+    optionsHtml += `<option value="${escapeHtml(item.rec)}" ${item.selectedValue === item.rec ? 'selected' : ''}>✨ Recommended: ${escapeHtml(item.rec)}</option>`;
+  }
+
+  // 2. Custom typed query option if query present
+  if (query && !candidates.some(c => c.toLowerCase() === query)) {
+    const rawQ = (item.query || '').trim();
+    optionsHtml += `<option value="${escapeHtml(rawQ)}" ${item.selectedValue === rawQ ? 'selected' : ''}>✏️ Use Custom Font: "${escapeHtml(rawQ)}"</option>`;
+  }
+
+  // 3. Category grouping when query is empty and category is 'all'
+  if (!query && cat === 'all') {
+    const pFonts = fontFallbackSystemCatalog.persian_fonts || [];
+    const lFonts = fontFallbackSystemCatalog.latin_fonts || [];
+
+    if (pFonts.length > 0) {
+      optionsHtml += `<optgroup label="Installed Persian / Multilingual (${pFonts.length})">`;
+      pFonts.forEach(f => {
+        if (f !== item.rec) {
+          optionsHtml += `<option value="${escapeHtml(f)}" ${item.selectedValue === f ? 'selected' : ''}>${escapeHtml(f)}</option>`;
+        }
+      });
+      optionsHtml += `</optgroup>`;
+    }
+
+    if (lFonts.length > 0) {
+      optionsHtml += `<optgroup label="Installed Latin / Universal (${lFonts.length})">`;
+      lFonts.forEach(f => {
+        if (f !== item.rec) {
+          optionsHtml += `<option value="${escapeHtml(f)}" ${item.selectedValue === f ? 'selected' : ''}>${escapeHtml(f)}</option>`;
+        }
+      });
+      optionsHtml += `</optgroup>`;
+    }
+  } else {
+    // Filtered list by query or specific category
+    if (candidates.length === 0) {
+      optionsHtml += `<option value="" disabled selected>No matching fonts found for "${escapeHtml(item.query)}"</option>`;
+    } else {
+      candidates.forEach(f => {
+        if (f !== item.rec) {
+          optionsHtml += `<option value="${escapeHtml(f)}" ${item.selectedValue === f ? 'selected' : ''}>${escapeHtml(f)}</option>`;
+        }
+      });
+    }
+  }
+
+  // Always append Custom option
+  optionsHtml += `<option value="__custom__" ${item.selectedValue === '__custom__' ? 'selected' : ''}>✏️ Custom Font Name...</option>`;
+
+  let statsText = '';
+  if (query) {
+    statsText = `Found ${candidates.length} font(s) matching "${escapeHtml(item.query)}"`;
+  } else if (cat === 'persian') {
+    statsText = `Showing ${candidates.length} Persian / Arabic fonts`;
+  } else if (cat === 'latin') {
+    statsText = `Showing ${candidates.length} Latin / Universal fonts`;
+  } else {
+    statsText = `${candidates.length} installed font families available`;
+  }
+
+  return { optionsHtml, statsText };
+}
+
+function onFontSearchInput(idx, query) {
+  if (!fontFallbackItems[idx]) return;
+  fontFallbackItems[idx].query = query;
+
+  const card = document.getElementById(`ff-card-${idx}`);
+  if (!card) return;
+
+  const select = document.getElementById(`ff-select-${idx}`);
+  const stats = document.getElementById(`ff-stats-${idx}`);
+  const curDisplay = document.getElementById(`ff-cur-display-${idx}`);
+
+  const { optionsHtml, statsText } = buildFontFallbackOptions(fontFallbackItems[idx]);
+
+  if (select) {
+    select.innerHTML = optionsHtml;
+    const queryTrim = (query || '').trim().toLowerCase();
+    if (queryTrim) {
+      const firstOpt = select.querySelector('option:not([disabled])');
+      if (firstOpt) {
+        select.value = firstOpt.value;
+        fontFallbackItems[idx].selectedValue = firstOpt.value;
+        if (curDisplay) curDisplay.innerText = firstOpt.value;
+      }
+    }
+  }
+  if (stats) stats.innerText = statsText;
+
+  // Toggle clear button
+  const searchInput = document.getElementById(`ff-search-${idx}`);
+  let clearBtn = searchInput ? searchInput.parentElement.querySelector('button') : null;
+  if (query) {
+    if (!clearBtn && searchInput) {
+      clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.onclick = () => clearFontSearch(idx);
+      clearBtn.className = 'absolute right-2 top-2 text-muted-foreground hover:text-foreground text-xs h-4 w-4 flex items-center justify-center cursor-pointer';
+      clearBtn.innerText = '✕';
+      clearBtn.title = 'Clear search';
+      searchInput.parentElement.appendChild(clearBtn);
+    }
+  } else if (clearBtn) {
+    clearBtn.remove();
+  }
+}
+
+function onFontSearchEnter(idx) {
+  const select = document.getElementById(`ff-select-${idx}`);
+  if (!select) return;
+  const firstOpt = select.querySelector('option:not([disabled])');
+  if (firstOpt) {
+    select.value = firstOpt.value;
+    onFontFallbackSelectChange(idx, firstOpt.value);
+    showToast(`Selected "${firstOpt.value}" for ${fontFallbackItems[idx].missingFont}`, 'info');
+  }
+}
+
+function clearFontSearch(idx) {
+  if (!fontFallbackItems[idx]) return;
+  fontFallbackItems[idx].query = '';
+  const searchInput = document.getElementById(`ff-search-${idx}`);
+  if (searchInput) searchInput.value = '';
+  onFontSearchInput(idx, '');
+  if (searchInput) searchInput.focus();
+}
+
+function setFontCategory(idx, cat) {
+  if (!fontFallbackItems[idx]) return;
+  fontFallbackItems[idx].category = cat;
+  const card = document.getElementById(`ff-card-${idx}`);
+  if (card) {
+    card.innerHTML = getFontFallbackItemMarkup(fontFallbackItems[idx], idx);
+    if (window.lucide) lucide.createIcons();
+    const input = document.getElementById(`ff-search-${idx}`);
+    if (input) input.focus();
+  }
+}
+
+function onFontFallbackSelectChange(idx, value) {
+  if (!fontFallbackItems[idx]) return;
+  const val = value !== undefined ? value : document.getElementById(`ff-select-${idx}`)?.value;
+  fontFallbackItems[idx].selectedValue = val;
+
+  const customInput = document.getElementById(`ff-custom-${idx}`);
+  const curDisplay = document.getElementById(`ff-cur-display-${idx}`);
+
+  if (val === '__custom__') {
+    if (customInput) {
+      customInput.classList.remove('hidden');
+      customInput.focus();
+    }
+    if (curDisplay) curDisplay.innerText = fontFallbackItems[idx].customValue || 'Custom';
+  } else {
+    if (customInput) customInput.classList.add('hidden');
+    if (curDisplay) curDisplay.innerText = val;
+  }
+}
+
+function onFontCustomInput(idx, text) {
+  if (!fontFallbackItems[idx]) return;
+  fontFallbackItems[idx].customValue = text;
+  const curDisplay = document.getElementById(`ff-cur-display-${idx}`);
+  if (curDisplay) curDisplay.innerText = text || 'Custom';
+}
+
+function applyBatchFontFallback() {
+  const batchSelect = document.getElementById('ff-batch-select');
+  if (!batchSelect) return;
+  const chosenFont = batchSelect.value;
+  if (!chosenFont) return;
+
+  fontFallbackItems.forEach(item => {
+    item.selectedValue = chosenFont;
+    item.query = '';
+  });
+
+  renderFontFallbackList();
+  showToast(`Applied "${chosenFont}" to all ${fontFallbackItems.length} missing fonts`, 'success');
+}
+
+async function submitFontFallbackAction() {
+  const fontFallbacks = {};
+
+  fontFallbackItems.forEach(item => {
+    let val = item.selectedValue;
+    if (val === '__custom__') {
+      val = (item.customValue || '').trim() || item.rec || 'Segoe UI';
+    }
+    fontFallbacks[item.missingFont] = val;
+  });
+
+  currentConfiguredFontFallbacks = { ...currentConfiguredFontFallbacks, ...fontFallbacks };
+
+  const btn = document.getElementById('btn-ff-submit');
+  if (btn) btn.disabled = true;
+
+  try {
+    if (currentHumanTouchJobId) {
+      const res = await fetch('/api/generator/human-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_id: currentHumanTouchJobId,
+          action: 'continue',
+          step: 'font_fallback',
+          data: {
+            font_fallbacks: fontFallbacks
+          }
+        })
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.error || 'Failed to apply font fallbacks');
+
+      const mappedStr = Object.entries(fontFallbacks).map(([k, v]) => `${k} → ${v}`).join(', ');
+      appendGenLog(`[Step 1.2] User approved font fallbacks: ${mappedStr}`);
+      showToast('Font fallbacks applied. Resuming generation...', 'success');
+    } else {
+      const statusDiv = document.getElementById('gen-template-font-status');
+      if (statusDiv) {
+        const mappedStr = Object.entries(fontFallbacks).map(([k, v]) => `${k} → ${v}`).join(', ');
+        statusDiv.className = 'mt-1.5 text-[11px] p-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 flex items-center justify-between flex-wrap gap-1.5';
+        statusDiv.innerHTML = `
+          <div class="flex items-center gap-1.5">
+            <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+            <span>Fallbacks pre-configured: <strong class="font-mono text-foreground">${escapeHtml(mappedStr)}</strong></span>
+          </div>
+          <button type="button" onclick="openPreConfigFontFallbackModal()"
+            class="shadcn-btn shadcn-btn-outline text-[11px] h-6 px-2 py-0 gap-1 text-muted-foreground hover:text-foreground cursor-pointer">
+            Edit
+          </button>
+        `;
+        if (window.lucide) lucide.createIcons();
+      }
+      showToast('Font fallbacks pre-configured successfully!', 'success');
+    }
+
+    closeFontFallbackModal();
+  } catch (err) {
+    showToast(`Error applying fallbacks: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // -------------------------------------------------------------
@@ -2606,13 +3571,53 @@ function closeInspectDeckModal() {
 // -------------------------------------------------------------
 // 2. TEMPLATE INTELLIGENCE & ANALYZER
 // -------------------------------------------------------------
+let templateViewMode = 'structured'; // 'structured' | 'editor'
+
+function switchTemplateViewMode(mode) {
+  templateViewMode = mode;
+  const btnStruct = document.getElementById('btn-view-structured');
+  const btnEditor = document.getElementById('btn-view-editor');
+  const structView = document.getElementById('tpl-structured-view');
+  const editorView = document.getElementById('tpl-editor-view');
+  const structActions = document.getElementById('structured-view-actions');
+  const editorActions = document.getElementById('editor-actions');
+
+  if (mode === 'structured') {
+    btnStruct.classList.add('bg-background', 'text-foreground', 'shadow-sm');
+    btnStruct.classList.remove('text-muted-foreground');
+    btnEditor.classList.remove('bg-background', 'text-foreground', 'shadow-sm');
+    btnEditor.classList.add('text-muted-foreground');
+
+    structView.classList.remove('hidden');
+    editorView.classList.add('hidden');
+    if (structActions) structActions.classList.remove('hidden');
+    if (editorActions) editorActions.classList.add('hidden');
+
+    const tpl = templatesList.find(t => t.filename === selectedTemplateName);
+    if (tpl) renderStructuredTemplateView(tpl);
+  } else {
+    btnEditor.classList.add('bg-background', 'text-foreground', 'shadow-sm');
+    btnEditor.classList.remove('text-muted-foreground');
+    btnStruct.classList.remove('bg-background', 'text-foreground', 'shadow-sm');
+    btnStruct.classList.add('text-muted-foreground');
+
+    structView.classList.add('hidden');
+    editorView.classList.remove('hidden');
+    if (structActions) structActions.classList.add('hidden');
+    if (editorActions) editorActions.classList.remove('hidden');
+
+    loadNoteMd();
+  }
+}
+
 async function loadTemplatesList() {
   try {
     const res = await fetch('/api/templates/list');
     const data = await res.json();
     templatesList = data.templates || [];
 
-    document.getElementById('tpl-count-badge').innerText = `${data.analyzed_count}/${data.total_count} Analyzed`;
+    const structuredCount = templatesList.filter(t => t.is_structured).length;
+    document.getElementById('tpl-count-badge').innerText = `${templatesList.length} Templates (${structuredCount} Structured)`;
 
     const tbody = document.getElementById('templates-table-body');
     tbody.innerHTML = '';
@@ -2627,21 +3632,30 @@ async function loadTemplatesList() {
       tr.className = `cursor-pointer hover:bg-muted/50 transition ${selectedTemplateName === tpl.filename ? 'bg-muted font-medium' : ''}`;
       tr.onclick = () => selectTemplateItem(tpl.filename);
 
-      const statusTag = tpl.is_analyzed
-        ? '<span class="shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-800">✓ Analyzed</span>'
-        : '<span class="shadcn-badge shadcn-badge-outline text-muted-foreground">○ Pending</span>';
+      const statusTag = tpl.is_structured
+        ? '<span class="shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-800/80 bg-emerald-950/20">✓ Structured</span>'
+        : (tpl.is_analyzed
+          ? '<span class="shadcn-badge shadcn-badge-outline text-sky-400 border-sky-800/80">○ Legacy</span>'
+          : '<span class="shadcn-badge shadcn-badge-outline text-muted-foreground">○ Pending</span>');
+
+      const domainTone = tpl.domain && tpl.domain !== 'General'
+        ? `${tpl.domain} • ${tpl.style || ''}`
+        : (tpl.style || tpl.purpose || 'Standard');
 
       tr.innerHTML = `
-        <td class="py-2 px-3 font-mono text-foreground">${tpl.filename}</td>
+        <td class="py-2 px-3 font-mono text-foreground font-medium">${tpl.filename}</td>
         <td class="py-2 px-3 text-center text-muted-foreground font-mono">${tpl.slide_count}</td>
         <td class="py-2 px-3 text-center">${statusTag}</td>
-        <td class="py-2 px-3 text-muted-foreground truncate max-w-[140px]">${tpl.style} • ${tpl.purpose}</td>
+        <td class="py-2 px-3 text-muted-foreground truncate max-w-[160px]" title="${domainTone}">${domainTone}</td>
       `;
       tbody.appendChild(tr);
     });
 
     if (!selectedTemplateName && templatesList.length > 0) {
       selectTemplateItem(templatesList[0].filename);
+    } else if (selectedTemplateName) {
+      const current = templatesList.find(t => t.filename === selectedTemplateName);
+      if (current) selectTemplateItem(current.filename);
     }
   } catch (err) {
     console.error('Error loading template list', err);
@@ -2656,17 +3670,199 @@ async function selectTemplateItem(filename) {
   const metaBox = document.getElementById('tpl-detail-meta');
 
   if (tpl) {
+    const isStructBadge = tpl.is_structured
+      ? '<span class="shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-800 text-[10px]">Standardized Schema ✓</span>'
+      : '<span class="shadcn-badge shadcn-badge-outline text-amber-400 border-amber-800 text-[10px]">Unstructured Note</span>';
+
     metaBox.innerHTML = `
-      <div class="font-semibold text-foreground text-xs">${tpl.filename}</div>
-      <div class="text-muted-foreground text-[11px] font-mono">Slides: ${tpl.slide_count} | Dim: ${tpl.dimensions}</div>
-      <div class="pt-2 border-t border-border space-y-1">
-        <div><span class="text-primary font-medium">🎯 Purpose:</span> ${tpl.purpose || 'Not analyzed'}</div>
-        <div><span class="text-sky-400 font-medium">🎨 Style:</span> ${tpl.style || 'Not analyzed'}</div>
-        <div><span class="text-amber-400 font-medium">📝 Brief:</span> ${tpl.brief || 'Click Analyze to generate'}</div>
+      <div class="flex items-start justify-between gap-1 pb-1.5 border-b border-border">
+        <div>
+          <div class="font-semibold text-foreground text-xs font-mono">${tpl.filename}</div>
+          <div class="text-[11px] text-muted-foreground truncate max-w-[170px]">${tpl.display_name || tpl.filename}</div>
+        </div>
+        ${isStructBadge}
+      </div>
+      <div class="space-y-1.5 text-[11px] pt-1">
+        <div class="flex items-center justify-between text-muted-foreground font-mono">
+          <span>Slides: ${tpl.slide_count}</span>
+          <span>Dim: ${tpl.dimensions}</span>
+        </div>
+        <div class="flex flex-wrap gap-1 pt-0.5">
+          <span class="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-foreground font-medium">${tpl.density || 'Medium-density'}</span>
+          <span class="px-1.5 py-0.5 rounded bg-secondary text-[10px] text-muted-foreground">${tpl.typography || 'Aptos / Arial'}</span>
+        </div>
+        <div class="text-muted-foreground line-clamp-2 pt-0.5" title="${tpl.purpose}">
+          <span class="text-primary font-medium">🎯</span> ${tpl.purpose || 'Not analyzed'}
+        </div>
+        ${tpl.trigger_conditions ? `<div class="text-[10px] text-muted-foreground/80 line-clamp-1"><span class="text-amber-400 font-medium">Trigger:</span> ${tpl.trigger_conditions}</div>` : ''}
       </div>
     `;
 
+    renderStructuredTemplateView(tpl);
     loadTemplateSlidePreviews(tpl.file_path);
+  }
+}
+
+function renderStructuredTemplateView(tpl) {
+  const container = document.getElementById('tpl-structured-view');
+  if (!container) return;
+
+  if (!tpl) {
+    container.innerHTML = '<div class="p-6 text-center text-muted-foreground italic">Select a template to view its structured blueprint.</div>';
+    return;
+  }
+
+  const catalog = tpl.slide_catalog || [];
+  let tableRowsHtml = '';
+
+  if (catalog.length > 0) {
+    catalog.forEach((sl) => {
+      const isSelected = tplSlideIdx === sl.slide_index;
+      tableRowsHtml += `
+        <tr onclick="jumpToSlidePreview(${sl.slide_index})"
+          class="cursor-pointer hover:bg-muted/70 transition ${isSelected ? 'bg-primary/10 border-l-2 border-primary font-medium' : ''}"
+          title="Click to preview Slide ${sl.slide_index + 1}">
+          <td class="py-1.5 px-2 font-mono text-center text-foreground">${sl.slide_index}</td>
+          <td class="py-1.5 px-2 font-mono text-primary text-[11px]">${sl.archetype}</td>
+          <td class="py-1.5 px-2 text-foreground truncate max-w-[140px]">${sl.layout_pattern}</td>
+          <td class="py-1.5 px-2 text-center font-mono text-muted-foreground">${sl.slot_count}</td>
+          <td class="py-1.5 px-2 text-muted-foreground truncate max-w-[180px]">${sl.best_content_fit}</td>
+        </tr>
+      `;
+    });
+  } else {
+    tableRowsHtml = '<tr><td colspan="5" class="py-3 text-center text-muted-foreground italic">Click "Standardize" to parse slide layout matrix.</td></tr>';
+  }
+
+  // Flow Recipe Chips
+  let flowRecipeHtml = '';
+  if (tpl.flow_recipe && tpl.flow_recipe.length > 0) {
+    flowRecipeHtml = tpl.flow_recipe.map((step, i) => `
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-mono text-[11px]">
+        <span>S${i + 1}: Slide ${step}</span>
+      </span>
+    `).join(' <span class="text-muted-foreground">→</span> ');
+  } else {
+    flowRecipeHtml = '<span class="text-muted-foreground italic">Standard 5-slide flow</span>';
+  }
+
+  container.innerHTML = `
+    <!-- Top Identity Card -->
+    <div class="p-3 bg-secondary/30 rounded-lg border border-border space-y-2">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h3 class="font-semibold text-foreground text-sm flex items-center gap-1.5">
+            <i data-lucide="layers" class="w-4 h-4 text-primary"></i> ${tpl.display_name || tpl.filename}
+          </h3>
+          <p class="text-[11px] text-muted-foreground font-mono mt-0.5">${tpl.filename} • ${tpl.slide_count} Slides • ${tpl.dimensions}</p>
+        </div>
+        <span class="shadcn-badge shadcn-badge-outline ${tpl.is_structured ? 'text-emerald-400 border-emerald-800' : 'text-amber-400'} font-mono text-[10px]">
+          ${tpl.is_structured ? 'Schema v1.0 ✓' : 'Legacy Note'}
+        </span>
+      </div>
+
+      <!-- Attributes Grid -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Domain</div>
+          <div class="text-xs text-foreground font-medium truncate" title="${tpl.domain}">${tpl.domain}</div>
+        </div>
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Tone & Mood</div>
+          <div class="text-xs text-foreground font-medium truncate" title="${tpl.style}">${tpl.style}</div>
+        </div>
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Density</div>
+          <div class="text-xs text-foreground font-medium truncate">${tpl.density || 'Medium'}</div>
+        </div>
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Theme / Color</div>
+          <div class="text-xs text-foreground font-medium truncate" title="${tpl.color_theme}">${tpl.color_theme}</div>
+        </div>
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Typography</div>
+          <div class="text-xs text-foreground font-medium truncate font-mono">${tpl.typography}</div>
+        </div>
+        <div class="p-1.5 bg-background/60 rounded border border-border/60">
+          <div class="text-[10px] text-muted-foreground uppercase font-mono">Slide Ratio</div>
+          <div class="text-xs text-foreground font-medium font-mono">${tpl.dimensions}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Executive Purpose & Ideal Use Cases -->
+    <div class="p-3 bg-secondary/20 rounded-lg border border-border space-y-2">
+      <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+        <i data-lucide="target" class="w-3.5 h-3.5 text-primary"></i> Executive Purpose & AI Selection Target
+      </div>
+      <p class="text-muted-foreground text-xs leading-relaxed italic bg-background/40 p-2 rounded border border-border/40">
+        "${tpl.purpose}"
+      </p>
+      ${tpl.trigger_conditions ? `
+        <div class="text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <span class="text-amber-400 font-semibold">Trigger Condition:</span>
+          <span>${tpl.trigger_conditions}</span>
+        </div>
+      ` : ''}
+    </div>
+
+    <!-- Master Slide Architecture & Slot Matrix -->
+    <div class="space-y-1.5">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+          <i data-lucide="layout-template" class="w-3.5 h-3.5 text-primary"></i> Master Slide Architecture & Slot Matrix
+        </div>
+        <span class="text-[10px] text-muted-foreground font-mono">Click row to preview slide</span>
+      </div>
+      <div class="overflow-x-auto rounded-md border border-border max-h-[220px] overflow-y-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-muted text-[10px] uppercase font-mono text-muted-foreground sticky top-0 border-b border-border">
+            <tr>
+              <th class="py-1.5 px-2 text-center w-10">Slide</th>
+              <th class="py-1.5 px-2">Archetype</th>
+              <th class="py-1.5 px-2">Layout Pattern</th>
+              <th class="py-1.5 px-2 text-center w-12">Slots</th>
+              <th class="py-1.5 px-2">Best Content Fit</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border/60 font-mono text-[11px]">
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- AI Directives & Flow Recipes -->
+    <div class="p-3 bg-secondary/20 rounded-lg border border-border space-y-2">
+      <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+        <i data-lucide="git-merge" class="w-3.5 h-3.5 text-sky-400"></i> AI Generator Directives & Sequencing Recipes
+      </div>
+      <div class="space-y-1.5 text-[11px]">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-muted-foreground font-mono">Recommended 5-Slide Flow:</span>
+          <div class="flex items-center gap-1 flex-wrap">${flowRecipeHtml}</div>
+        </div>
+        <div class="text-[11px] text-muted-foreground flex items-center gap-1">
+          <span class="text-emerald-400 font-medium">✓ Slot Budget Protection:</span>
+          <span>Enforces strict character limits per slot to eliminate text overflow and clipping.</span>
+        </div>
+        <div class="text-[11px] text-muted-foreground flex items-center gap-1">
+          <span class="text-amber-400 font-medium">✂ Shape Pruning Strategy:</span>
+          <span>Unused column cards and milestone badges are added to shapes_to_remove.</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+function jumpToSlidePreview(slideIdx) {
+  if (tplSlides && slideIdx >= 0 && slideIdx < tplSlides.length) {
+    tplSlideIdx = slideIdx;
+    updateTplSlideDisplay();
   }
 }
 
@@ -2683,10 +3879,12 @@ function loadTemplatesListVisuals() {
 async function loadTemplateSlidePreviews(filePath) {
   const ph = document.getElementById('tpl-slide-placeholder');
   const img = document.getElementById('tpl-slide-img');
+  const badge = document.getElementById('tpl-slide-arch-badge');
 
   ph.innerText = 'Rendering slides...';
   ph.classList.remove('hidden');
   img.classList.add('hidden');
+  if (badge) badge.classList.add('hidden');
 
   try {
     const res = await fetch('/api/preview/render', {
@@ -2711,10 +3909,12 @@ function updateTplSlideDisplay() {
   const ph = document.getElementById('tpl-slide-placeholder');
   const img = document.getElementById('tpl-slide-img');
   const counter = document.getElementById('tpl-slide-counter');
+  const badge = document.getElementById('tpl-slide-arch-badge');
 
   if (!tplSlides || tplSlides.length === 0) {
     img.classList.add('hidden');
     ph.classList.remove('hidden');
+    if (badge) badge.classList.add('hidden');
     counter.innerText = '0 / 0';
     return;
   }
@@ -2723,6 +3923,16 @@ function updateTplSlideDisplay() {
   img.classList.remove('hidden');
   img.src = tplSlides[tplSlideIdx].data_url;
   counter.innerText = `${tplSlideIdx + 1} / ${tplSlides.length}`;
+
+  // Update Archetype Badge if available
+  const currentTpl = templatesList.find(t => t.filename === selectedTemplateName);
+  if (badge && currentTpl && currentTpl.slide_catalog && currentTpl.slide_catalog[tplSlideIdx]) {
+    const slInfo = currentTpl.slide_catalog[tplSlideIdx];
+    badge.innerText = `${slInfo.archetype} • ${slInfo.layout_pattern}`;
+    badge.classList.remove('hidden');
+  } else if (badge) {
+    badge.classList.add('hidden');
+  }
 }
 
 function navTplSlide(dir) {
@@ -2760,6 +3970,90 @@ async function saveNoteMd() {
   }
 }
 
+async function applyStandardSchema(applyAll = false) {
+  if (applyAll) {
+    if (!confirm('Apply Standard 4-Part Schema to ALL templates in data/*.pptx? This will standardize data/NOTE.md.')) {
+      return;
+    }
+  }
+
+  const targetFilename = applyAll ? null : selectedTemplateName;
+  if (!applyAll && !targetFilename) {
+    showToast('Please select a template from the list first.', 'warning');
+    return;
+  }
+
+  showToast(`Formatting ${applyAll ? 'all templates' : targetFilename} into standard structured schema...`, 'info');
+  try {
+    const res = await fetch('/api/templates/apply-schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: targetFilename, all: applyAll })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    showToast(data.message || 'Successfully applied standard schema!', 'success');
+    await loadTemplatesList();
+    await loadNoteMd();
+  } catch (err) {
+    showToast(`Standardize failed: ${err.message}`, 'error');
+  }
+}
+
+async function openTemplateSchemaModal() {
+  const modal = document.getElementById('template-schema-modal');
+  const codeBox = document.getElementById('schema-spec-code');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+  codeBox.innerText = 'Loading schema specification...';
+
+  try {
+    const res = await fetch('/api/templates/schema');
+    const data = await res.json();
+    if (data.success && data.schema) {
+      codeBox.innerText = data.schema;
+    } else {
+      codeBox.innerText = 'Could not load schema specification.';
+    }
+  } catch (err) {
+    codeBox.innerText = `Error: ${err.message}`;
+  }
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function closeTemplateSchemaModal() {
+  const modal = document.getElementById('template-schema-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function copySchemaSpecToClipboard() {
+  const codeBox = document.getElementById('schema-spec-code');
+  if (!codeBox) return;
+  navigator.clipboard.writeText(codeBox.innerText)
+    .then(() => showToast('Schema specification copied to clipboard!', 'success'))
+    .catch(() => showToast('Failed to copy to clipboard', 'error'));
+}
+
+async function insertSchemaBoilerplate() {
+  try {
+    const filename = selectedTemplateName || 'template.pptx';
+    const res = await fetch(`/api/templates/boilerplate?filename=${encodeURIComponent(filename)}`);
+    const data = await res.json();
+    if (data.success && data.boilerplate) {
+      const editor = document.getElementById('note-md-editor');
+      if (editor) {
+        editor.value = (editor.value.trim() ? editor.value.trim() + '\n\n---\n\n' : '') + data.boilerplate;
+        showToast(`Inserted structured schema boilerplate for ${filename}`, 'success');
+      }
+    }
+  } catch (err) {
+    showToast(`Failed to load boilerplate: ${err.message}`, 'error');
+  }
+}
+
 function appendAnalyzeLog(msg) {
   const logs = document.getElementById('analyze-console-logs');
   const line = document.createElement('div');
@@ -2780,8 +4074,8 @@ async function analyzeSelectedTemplate() {
 
   const btnSel = document.getElementById('btn-analyze-sel');
   const btnAll = document.getElementById('btn-analyze-all');
-  btnSel.disabled = true;
-  btnAll.disabled = true;
+  if (btnSel) btnSel.disabled = true;
+  if (btnAll) btnAll.disabled = true;
 
   appendAnalyzeLog(`\n[*] Starting AI analysis for template: ${selectedTemplateName}`);
   showToast(`Analyzing template: ${selectedTemplateName}`, 'info');
@@ -2804,21 +4098,21 @@ async function analyzeSelectedTemplate() {
       appendAnalyzeLog(`[✓] Finished analysis for ${selectedTemplateName}`);
       loadTemplatesList();
       loadNoteMd();
-      btnSel.disabled = false;
-      btnAll.disabled = false;
+      if (btnSel) btnSel.disabled = false;
+      if (btnAll) btnAll.disabled = false;
       showToast(`Analysis completed for ${selectedTemplateName}`, 'success');
     });
     evtSource.addEventListener('error', () => {
       appendAnalyzeLog(`[!] Error analyzing template`);
-      btnSel.disabled = false;
-      btnAll.disabled = false;
+      if (btnSel) btnSel.disabled = false;
+      if (btnAll) btnAll.disabled = false;
       showToast('Template analysis error', 'error');
     });
     evtSource.addEventListener('close', () => evtSource.close());
   } catch (err) {
     appendAnalyzeLog(`[!] Analysis failed: ${err.message}`);
-    btnSel.disabled = false;
-    btnAll.disabled = false;
+    if (btnSel) btnSel.disabled = false;
+    if (btnAll) btnAll.disabled = false;
     showToast(`Analysis failed: ${err.message}`, 'error');
   }
 }
@@ -2835,10 +4129,10 @@ async function analyzeAllTemplatesBatch() {
   const progStatus = document.getElementById('analyze-prog-status');
   const progPct = document.getElementById('analyze-prog-pct');
 
-  btnSel.disabled = true;
-  btnAll.disabled = true;
-  progContainer.classList.remove('hidden');
-  progBar.style.width = '0%';
+  if (btnSel) btnSel.disabled = true;
+  if (btnAll) btnAll.disabled = true;
+  if (progContainer) progContainer.classList.remove('hidden');
+  if (progBar) progBar.style.width = '0%';
 
   appendAnalyzeLog(`\n[*] Starting batch template analysis pipeline...`);
   showToast('Starting batch template analysis...', 'info');
@@ -2859,34 +4153,34 @@ async function analyzeAllTemplatesBatch() {
 
     evtSource.addEventListener('progress', (e) => {
       const d = JSON.parse(e.data);
-      progBar.style.width = `${d.percentage}%`;
-      progPct.innerText = `${d.percentage}%`;
-      progStatus.innerText = `Analyzing [${d.current}/${d.total}]: ${d.current_name}`;
+      if (progBar) progBar.style.width = `${d.percentage}%`;
+      if (progPct) progPct.innerText = `${d.percentage}%`;
+      if (progStatus) progStatus.innerText = `Analyzing [${d.current}/${d.total}]: ${d.current_name}`;
     });
 
     evtSource.addEventListener('completed', () => {
       appendAnalyzeLog(`[✓] Completed batch analysis of all templates.`);
-      progBar.style.width = '100%';
-      progPct.innerText = '100%';
+      if (progBar) progBar.style.width = '100%';
+      if (progPct) progPct.innerText = '100%';
       loadTemplatesList();
       loadNoteMd();
-      btnSel.disabled = false;
-      btnAll.disabled = false;
+      if (btnSel) btnSel.disabled = false;
+      if (btnAll) btnAll.disabled = false;
       showToast('Batch template analysis complete!', 'success');
     });
 
     evtSource.addEventListener('error', () => {
       appendAnalyzeLog(`[!] Error in batch template analysis.`);
-      btnSel.disabled = false;
-      btnAll.disabled = false;
+      if (btnSel) btnSel.disabled = false;
+      if (btnAll) btnAll.disabled = false;
       showToast('Batch analysis failed', 'error');
     });
 
     evtSource.addEventListener('close', () => evtSource.close());
   } catch (err) {
     appendAnalyzeLog(`[!] Batch analysis failed: ${err.message}`);
-    btnSel.disabled = false;
-    btnAll.disabled = false;
+    if (btnSel) btnSel.disabled = false;
+    if (btnAll) btnAll.disabled = false;
     showToast(`Batch error: ${err.message}`, 'error');
   }
 }
@@ -3017,6 +4311,8 @@ async function loadManagerSlidePreviews(filePath) {
   }
 }
 
+let currentMgrEngine = '';
+
 function updateMgrSlideDisplay(engineName = '') {
   const ph = document.getElementById('mgr-slide-placeholder');
   const img = document.getElementById('mgr-slide-img');
@@ -3024,6 +4320,10 @@ function updateMgrSlideDisplay(engineName = '') {
   const prevBtn = document.getElementById('mgr-prev-btn');
   const nextBtn = document.getElementById('mgr-next-btn');
   const badge = document.getElementById('mgr-engine-badge');
+
+  if (engineName) {
+    currentMgrEngine = engineName;
+  }
 
   if (!mgrSlides || mgrSlides.length === 0) {
     img.classList.add('hidden');
@@ -3041,12 +4341,13 @@ function updateMgrSlideDisplay(engineName = '') {
   prevBtn.disabled = mgrSlideIdx === 0;
   nextBtn.disabled = mgrSlideIdx === mgrSlides.length - 1;
 
-  if (engineName) {
+  const activeEngine = currentMgrEngine || 'Native PowerPoint';
+  if (badge) {
     badge.classList.remove('hidden');
-    if (engineName.includes('PowerPoint')) {
+    if (activeEngine.includes('PowerPoint')) {
       badge.innerText = 'Native PowerPoint';
       badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300';
-    } else if (engineName.includes('Web')) {
+    } else if (activeEngine.includes('Web')) {
       badge.innerText = 'Web Render Engine';
       badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 border border-sky-800 text-sky-300';
     } else {
@@ -3895,8 +5196,558 @@ async function sendAgentPrompt() {
 }
 
 // -------------------------------------------------------------
-// 6. SETTINGS & CONFIGURATION
+// 6. SETTINGS & CONFIGURATION (9ROUTER MODEL DISCOVERY & SUGGESTIONS)
 // -------------------------------------------------------------
+let _9routerModelsData = null;
+let _selectedProviderFilter = 'all';
+let _modelBrowserOpen = false;
+
+function getProviderBadgeClass(owner) {
+  const o = (owner || '').toLowerCase();
+  if (o === 'combo') return 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+  if (o === 'ag') return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  if (o === 'gemini') return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+  if (o === 'openrouter') return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+  if (o === 'openai') return 'bg-teal-500/15 text-teal-400 border-teal-500/30';
+  if (o === 'anthropic') return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+  if (o === 'deepseek') return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
+  if (o === 'aval') return 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30';
+  return 'bg-secondary text-foreground border-border';
+}
+
+function formatTokensFriendly(num) {
+  if (!num) return '';
+  if (num >= 1000000) {
+    return `${(num / 1000000).toFixed(1).replace('.0', '')}M`;
+  }
+  return `${Math.round(num / 1024)}k`;
+}
+
+async function fetch9RouterModels(forceRefresh = false) {
+  const statusEl = document.getElementById('model-browser-status');
+  const badgeEl = document.getElementById('model-count-badge');
+  const dotEl = document.getElementById('model-status-dot');
+  const refreshIcon = document.getElementById('model-refresh-icon');
+
+  if (refreshIcon) refreshIcon.classList.add('animate-spin');
+  if (statusEl) statusEl.innerText = '(fetching models...)';
+
+  try {
+    const rawUrl = document.getElementById('cfg-url')?.value.trim();
+    const rawKey = document.getElementById('cfg-key')?.value.trim();
+    const params = new URLSearchParams({ category: 'all' });
+    if (rawUrl) params.append('url', rawUrl);
+    if (rawKey) params.append('key', rawKey);
+    if (forceRefresh) params.append('refresh', '1');
+
+    const res = await fetch(`/api/models?${params.toString()}`);
+    const data = await res.json();
+    if (data && data.success) {
+      _9routerModelsData = data;
+
+      const chatCount = data.categories?.chat?.length || data.models?.length || 0;
+      if (badgeEl) badgeEl.innerText = `${chatCount}`;
+      if (statusEl) {
+        statusEl.innerText = data.connected
+          ? `(${chatCount} models live from 9Router)`
+          : `(${chatCount} cached/fallback models)`;
+      }
+      if (dotEl) {
+        dotEl.className = data.connected
+          ? 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse'
+          : 'w-2 h-2 rounded-full bg-amber-500';
+      }
+
+      // Populate Datalists for instant autocomplete
+      populateModelDatalists(data);
+
+      // Populate Quick Suggestion Chips
+      populateQuickModelChips(data);
+
+      // Render Provider Filter Tabs
+      renderProviderTabs(data.providers || []);
+
+      // Render Model Cards in Browser
+      renderModelCards();
+
+      if (forceRefresh) {
+        showToast(`Discovered ${chatCount} models from 9Router`, 'success', 2500);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch 9Router models:', err);
+    if (statusEl) statusEl.innerText = '(offline fallback)';
+    if (dotEl) dotEl.className = 'w-2 h-2 rounded-full bg-destructive';
+  } finally {
+    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+  }
+}
+
+function populateModelDatalists(data) {
+  const cats = data.categories || {};
+
+  // Chat models datalist
+  const chatDl = document.getElementById('cfg-chat-model-datalist');
+  if (chatDl && cats.chat) {
+    chatDl.innerHTML = cats.chat.map(m =>
+      `<option value="${escapeHtml(m.id)}">${escapeHtml(m.provider || m.owned_by)}${m.context_length ? ` • Context: ${formatTokensFriendly(m.context_length)}` : ''}</option>`
+    ).join('');
+  }
+
+  // Search models datalist
+  const searchDl = document.getElementById('cfg-search-model-datalist');
+  if (searchDl && cats.search) {
+    searchDl.innerHTML = cats.search.map(m =>
+      `<option value="${escapeHtml(m.id)}">${escapeHtml(m.provider || m.owned_by)}</option>`
+    ).join('');
+  }
+
+  // Fetch models datalist
+  const fetchDl = document.getElementById('cfg-fetch-model-datalist');
+  if (fetchDl && cats.fetch) {
+    fetchDl.innerHTML = cats.fetch.map(m =>
+      `<option value="${escapeHtml(m.id)}">${escapeHtml(m.provider || m.owned_by)}</option>`
+    ).join('');
+  }
+
+  // Image models datalist
+  const imgDl = document.getElementById('cfg-image-model-datalist');
+  if (imgDl && cats.image) {
+    imgDl.innerHTML = cats.image.map(m =>
+      `<option value="${escapeHtml(m.id)}">${escapeHtml(m.provider || m.owned_by)}</option>`
+    ).join('');
+  }
+}
+
+function populateQuickModelChips(data) {
+  const currentChatModel = document.getElementById('cfg-chat-model')?.value.trim();
+  const cats = data.categories || {};
+
+  // Chat chips
+  const chatChipsEl = document.getElementById('quick-model-chips');
+  if (chatChipsEl) {
+    const recs = data.recommended || [
+      'ag/gemini-3.8-flash-low',
+      'ag/gemini-3.8-flash-high',
+      'light-code',
+      'claude-pro-agent',
+      'openai/gpt-4o',
+      'aval/deepseek-v4.1-flash'
+    ];
+    chatChipsEl.innerHTML = recs.map(id => {
+      const isSelected = (currentChatModel === id);
+      return `<button type="button" onclick="selectSuggestedModel('${escapeHtml(id)}')"
+        class="shadcn-badge cursor-pointer px-2 py-0.5 rounded-full font-mono text-[11px] transition-all ${
+          isSelected
+            ? 'bg-primary text-primary-foreground border-primary font-bold shadow-sm'
+            : 'shadcn-badge-outline hover:border-primary hover:text-primary'
+        }">
+        ${escapeHtml(id)}
+      </button>`;
+    }).join('');
+  }
+
+  // Search chips
+  const searchChipsEl = document.getElementById('quick-search-chips');
+  if (searchChipsEl) {
+    const list = ['exa/search', 'tavily', 'brave-search'];
+    searchChipsEl.innerHTML = list.map(id =>
+      `<button type="button" onclick="document.getElementById('cfg-search-model').value='${id}'; showToast('Selected search model: ${id}', 'info', 1500);"
+        class="shadcn-badge shadcn-badge-outline cursor-pointer px-2 py-0.5 rounded-full font-mono text-[10px] hover:border-primary hover:text-primary">
+        ${id}
+      </button>`
+    ).join('');
+  }
+
+  // Fetch chips
+  const fetchChipsEl = document.getElementById('quick-fetch-chips');
+  if (fetchChipsEl) {
+    const list = ['exa/fetch', 'jina-reader', 'firecrawl'];
+    fetchChipsEl.innerHTML = list.map(id =>
+      `<button type="button" onclick="document.getElementById('cfg-fetch-model').value='${id}'; showToast('Selected fetch model: ${id}', 'info', 1500);"
+        class="shadcn-badge shadcn-badge-outline cursor-pointer px-2 py-0.5 rounded-full font-mono text-[10px] hover:border-primary hover:text-primary">
+        ${id}
+      </button>`
+    ).join('');
+  }
+
+  // Image chips
+  const imgChipsEl = document.getElementById('quick-image-chips');
+  if (imgChipsEl) {
+    const list = (cats.image && cats.image.length > 0)
+      ? cats.image.map(m => m.id)
+      : ['gemini/gemini-3.1-flash-image-preview', 'gemini/gemini-3-pro-image-preview', 'ag/gemini-3.1-flash-image'];
+    imgChipsEl.innerHTML = list.map(id =>
+      `<button type="button" onclick="document.getElementById('cfg-image-model').value='${id}'; showToast('Selected image model: ${id}', 'info', 1500);"
+        class="shadcn-badge shadcn-badge-outline cursor-pointer px-2 py-0.5 rounded-full font-mono text-[10px] hover:border-primary hover:text-primary">
+        ${id}
+      </button>`
+    ).join('');
+  }
+}
+
+function renderProviderTabs(providers) {
+  const container = document.getElementById('model-provider-tabs');
+  if (!container) return;
+
+  const cats = _9routerModelsData?.categories?.chat || [];
+  const counts = { all: cats.length };
+  cats.forEach(m => {
+    const o = m.owned_by || 'other';
+    counts[o] = (counts[o] || 0) + 1;
+  });
+
+  const allProviders = ['all', ...providers];
+  container.innerHTML = allProviders.map(p => {
+    const isSelected = (_selectedProviderFilter === p);
+    const count = counts[p] || 0;
+    const label = p === 'all' ? 'All' : (p === 'combo' ? 'Combos' : p.toUpperCase());
+    return `<button type="button" onclick="setProviderFilter('${escapeHtml(p)}')"
+      class="px-2 py-0.5 rounded text-[11px] font-mono transition-all cursor-pointer ${
+        isSelected
+          ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+          : 'bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground border border-border/80'
+      }">
+      ${escapeHtml(label)} <span class="opacity-70 text-[10px]">(${count})</span>
+    </button>`;
+  }).join('');
+}
+
+function toggleModelBrowser(forceOpen = null) {
+  const drawer = document.getElementById('model-browser-drawer');
+  const chevron = document.getElementById('model-browser-chevron');
+  if (!drawer) return;
+
+  _modelBrowserOpen = (forceOpen !== null) ? forceOpen : drawer.classList.contains('hidden');
+  if (_modelBrowserOpen) {
+    drawer.classList.remove('hidden');
+    if (chevron) chevron.classList.add('rotate-180');
+    if (!_9routerModelsData) {
+      fetch9RouterModels();
+    } else {
+      renderModelCards();
+    }
+    setTimeout(() => {
+      document.getElementById('model-search-input')?.focus();
+    }, 50);
+  } else {
+    drawer.classList.add('hidden');
+    if (chevron) chevron.classList.remove('rotate-180');
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+function setProviderFilter(provider) {
+  _selectedProviderFilter = provider;
+  if (_9routerModelsData?.providers) {
+    renderProviderTabs(_9routerModelsData.providers);
+  }
+  renderModelCards();
+}
+
+function filterModelsList() {
+  renderModelCards();
+}
+
+function renderModelCards() {
+  const container = document.getElementById('model-cards-container');
+  if (!container || !_9routerModelsData) return;
+
+  const chatModels = _9routerModelsData.categories?.chat || _9routerModelsData.models || [];
+  const currentChatModel = document.getElementById('cfg-chat-model')?.value.trim();
+  const search = (document.getElementById('model-search-input')?.value || '').trim().toLowerCase();
+
+  let filtered = chatModels.filter(m => {
+    // Provider filter
+    if (_selectedProviderFilter !== 'all' && m.owned_by !== _selectedProviderFilter) {
+      return false;
+    }
+    // Search query filter
+    if (search) {
+      const matchId = (m.id || '').toLowerCase().includes(search);
+      const matchProvider = (m.provider || '').toLowerCase().includes(search);
+      const matchOwner = (m.owned_by || '').toLowerCase().includes(search);
+      if (!matchId && !matchProvider && !matchOwner) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="p-6 text-center text-muted-foreground font-mono text-xs">
+        <i data-lucide="search-x" class="w-6 h-6 mx-auto mb-1.5 opacity-40"></i>
+        No 9Router models match "${escapeHtml(search)}".
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  container.innerHTML = filtered.map(m => {
+    const isSelected = (currentChatModel === m.id);
+    const badgeClass = getProviderBadgeClass(m.owned_by);
+
+    let capsHtml = '';
+    if (m.capabilities?.vision) capsHtml += '<span class="text-emerald-400">👁 Vision</span>';
+    if (m.capabilities?.tools) capsHtml += '<span class="text-cyan-400">⚡ Tools</span>';
+    if (m.capabilities?.reasoning) capsHtml += '<span class="text-amber-400">🧠 Reasoning</span>';
+    if (m.capabilities?.search) capsHtml += '<span class="text-sky-400">🔍 Search</span>';
+
+    return `
+      <div class="group flex items-center justify-between p-2.5 rounded-md hover:bg-secondary/70 border ${
+        isSelected ? 'border-primary/60 bg-primary/5' : 'border-border/40 bg-background/50'
+      } transition-all cursor-pointer" onclick="selectSuggestedModel('${escapeHtml(m.id)}')">
+        <div class="space-y-1 min-w-0 pr-2">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="font-mono text-xs font-semibold ${isSelected ? 'text-primary' : 'text-foreground'} truncate">
+              ${escapeHtml(m.id)}
+            </span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded border font-mono ${badgeClass}">
+              ${escapeHtml(m.provider || m.owned_by)}
+            </span>
+            ${m.is_combo ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-purple-950/40 border border-purple-700/50 text-purple-300 font-mono">Combo Auto-Fallback</span>' : ''}
+          </div>
+          <div class="flex items-center gap-2.5 text-[10px] text-muted-foreground font-mono flex-wrap">
+            ${m.context_length ? `<span>Ctx: ${formatTokensFriendly(m.context_length)}</span>` : ''}
+            ${m.max_tokens ? `<span>Max: ${formatTokensFriendly(m.max_tokens)}</span>` : ''}
+            ${capsHtml}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button type="button" class="text-xs px-2.5 py-1 rounded transition-all ${
+            isSelected
+              ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+              : 'shadcn-btn-outline hover:bg-primary/20 hover:text-primary'
+          }">
+            ${isSelected ? '✓ Active' : 'Select'}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  if (window.lucide) lucide.createIcons();
+}
+
+// -------------------------------------------------------------
+// DEDICATED PER-AGENT MODELS & REASONING CONFIGURATION
+// -------------------------------------------------------------
+const AGENT_IDS = ['generator', 'verifier', 'autonomous', 'analyzer', 'structure', 'editor', 'parser'];
+let _targetAgentForModelPick = null;
+
+function pickModelForAgent(agentId) {
+  _targetAgentForModelPick = agentId;
+  const targetNameEl = document.getElementById('agent-picker-target-name');
+  if (targetNameEl) {
+    const titles = {
+      generator: 'Slide Synthesis & Blueprint',
+      verifier: 'Slide Verification & QA',
+      autonomous: 'Autonomous AI Assistant',
+      analyzer: 'Template Analyzer',
+      structure: 'Storyboard & Structure',
+      editor: 'Human Touch / Slide Editor',
+      parser: 'Document Parser & OCR'
+    };
+    targetNameEl.innerText = titles[agentId] || agentId.toUpperCase();
+  }
+  const banner = document.getElementById('agent-model-picker-banner');
+  if (banner) banner.classList.remove('hidden');
+  toggleModelBrowser(true);
+  showToast(`Select a 9Router model for ${agentId} agent from the list`, 'info', 2500);
+}
+
+function cancelAgentModelPick() {
+  _targetAgentForModelPick = null;
+  const banner = document.getElementById('agent-model-picker-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+function updateAgentStatusBadge(agentId, primaryModel = null) {
+  const modelInput = document.getElementById(`cfg-agent-model-${agentId}`);
+  const thinkSelect = document.getElementById(`cfg-agent-think-${agentId}`);
+  const statusBadge = document.getElementById(`cfg-agent-status-${agentId}`);
+  if (!statusBadge) return;
+
+  const currentPrimary = primaryModel || document.getElementById('cfg-chat-model')?.value.trim() || 'Default';
+  const customModel = (modelInput?.value || '').trim();
+  const thinkVal = (thinkSelect?.value || 'default').toLowerCase();
+
+  const thinkLabels = {
+    default: 'Default',
+    none: 'Off',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High'
+  };
+  const thinkText = thinkLabels[thinkVal] || thinkVal.toUpperCase();
+
+  if (modelInput && !modelInput.value.trim()) {
+    const shortPrimary = currentPrimary.split('/').pop() || currentPrimary;
+    modelInput.placeholder = `Inherit (${shortPrimary})`;
+  }
+
+  if (customModel && customModel.toLowerCase() !== 'default') {
+    const shortName = customModel.split('/').pop() || customModel;
+    statusBadge.innerText = `Custom: ${shortName} • ${thinkText}`;
+    statusBadge.title = `Model: ${customModel} | Thinking: ${thinkText}`;
+    statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30';
+  } else {
+    statusBadge.innerText = `Inherited • ${thinkText}`;
+    statusBadge.title = `Inheriting primary: ${currentPrimary} | Thinking: ${thinkText}`;
+    statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border/40';
+  }
+}
+
+function updateAgentCustomizedSummary() {
+  const summaryEl = document.getElementById('agent-customized-summary');
+  if (!summaryEl) return;
+  let customCount = 0;
+  AGENT_IDS.forEach(aid => {
+    const val = document.getElementById(`cfg-agent-model-${aid}`)?.value.trim();
+    const thk = document.getElementById(`cfg-agent-think-${aid}`)?.value;
+    if (val || (thk && thk !== 'default')) {
+      customCount++;
+    }
+  });
+  if (customCount === 0) {
+    summaryEl.innerText = 'All 7 agents currently inherit the primary chat model';
+  } else {
+    summaryEl.innerText = `${customCount} of 7 agents customized with dedicated settings`;
+  }
+}
+
+function onAgentConfigChanged(agentId) {
+  updateAgentStatusBadge(agentId);
+  updateAgentCustomizedSummary();
+}
+
+function resetAgentToDefault(agentId) {
+  const modelInput = document.getElementById(`cfg-agent-model-${agentId}`);
+  if (modelInput) modelInput.value = '';
+  const thinkSelect = document.getElementById(`cfg-agent-think-${agentId}`);
+  if (thinkSelect) thinkSelect.value = 'default';
+  updateAgentStatusBadge(agentId);
+  updateAgentCustomizedSummary();
+  showToast(`Reset ${agentId} agent to inherit primary model`, 'info', 1500);
+}
+
+function resetAllAgentsToDefault() {
+  AGENT_IDS.forEach(aid => {
+    const modelInput = document.getElementById(`cfg-agent-model-${aid}`);
+    if (modelInput) modelInput.value = '';
+    const thinkSelect = document.getElementById(`cfg-agent-think-${aid}`);
+    if (thinkSelect) thinkSelect.value = 'default';
+    updateAgentStatusBadge(aid);
+  });
+  updateAgentCustomizedSummary();
+  showToast('All agents reset to inherit primary model and default thinking', 'info', 1800);
+}
+
+function applyAgentThinkingPreset(level) {
+  AGENT_IDS.forEach(aid => {
+    const thinkSelect = document.getElementById(`cfg-agent-think-${aid}`);
+    if (thinkSelect) thinkSelect.value = level;
+    updateAgentStatusBadge(aid);
+  });
+  updateAgentCustomizedSummary();
+  showToast(`Applied ${level.toUpperCase()} thinking level to all agents`, 'success', 2000);
+}
+
+function updateAllAgentStatusBadges(data = null) {
+  const primaryModel = data?.config?.NINEROUTER_CHAT_MODEL || document.getElementById('cfg-chat-model')?.value.trim() || 'Default';
+  AGENT_IDS.forEach(aid => {
+    updateAgentStatusBadge(aid, primaryModel);
+  });
+  updateAgentCustomizedSummary();
+}
+
+async function selectSuggestedModel(modelId) {
+  // If an agent model browse action was triggered, assign model to that agent!
+  if (_targetAgentForModelPick) {
+    const aid = _targetAgentForModelPick;
+    const input = document.getElementById(`cfg-agent-model-${aid}`);
+    if (input) {
+      input.value = modelId;
+    }
+    cancelAgentModelPick();
+    onAgentConfigChanged(aid);
+    showToast(`Assigned ${modelId} to ${aid} agent`, 'success', 2500);
+    await saveConfigSettings();
+    return;
+  }
+
+  const input = document.getElementById('cfg-chat-model');
+  if (input) {
+    input.value = modelId;
+  }
+
+  // Update quick chips active state
+  if (_9routerModelsData) {
+    populateQuickModelChips(_9routerModelsData);
+    renderModelCards();
+  }
+
+  // Update Model Intelligence metadata view immediately if model data exists
+  const chatModels = _9routerModelsData?.categories?.chat || [];
+  const found = chatModels.find(m => m.id === modelId);
+  if (found) {
+    const maxTokens = found.max_tokens ? Number(found.max_tokens).toLocaleString() : '--';
+    const contextLength = found.context_length ? Number(found.context_length).toLocaleString() : '--';
+
+    const elMax = document.getElementById('cfg-meta-max-tokens');
+    if (elMax) elMax.innerText = `${maxTokens} tokens`;
+
+    const elCtx = document.getElementById('cfg-meta-context');
+    if (elCtx) elCtx.innerText = `${contextLength} tokens`;
+
+    const elCaps = document.getElementById('cfg-meta-caps');
+    if (elCaps && found.capabilities) {
+      elCaps.innerHTML = '';
+      const capList = [
+        { key: 'vision', label: 'Vision OCR' },
+        { key: 'tools', label: 'Tool Calling' },
+        { key: 'reasoning', label: 'Extended Reasoning' },
+        { key: 'search', label: 'Web Search' }
+      ];
+      capList.forEach(c => {
+        const active = Boolean(found.capabilities[c.key]);
+        const span = document.createElement('span');
+        span.className = `shadcn-badge shadcn-badge-outline text-[10px] py-0.5 px-1.5 font-mono ${active ? 'text-emerald-400 border-emerald-800/80 bg-emerald-950/30' : 'text-muted-foreground border-border'}`;
+        span.innerText = `${active ? '✓' : '○'} ${c.label}`;
+        elCaps.appendChild(span);
+      });
+    }
+  }
+
+  // Auto-save and apply to backend & .env immediately
+  await saveConfigSettings();
+}
+
+function onModelInputChanged(val) {
+  const trimmed = (val || '').trim();
+  if (!_9routerModelsData) return;
+
+  // Highlight quick chip if matches
+  populateQuickModelChips(_9routerModelsData);
+
+  // Look up model and live-update intelligence preview
+  const chatModels = _9routerModelsData.categories?.chat || [];
+  const found = chatModels.find(m => m.id.toLowerCase() === trimmed.toLowerCase());
+  if (found) {
+    const maxTokens = found.max_tokens ? Number(found.max_tokens).toLocaleString() : '--';
+    const contextLength = found.context_length ? Number(found.context_length).toLocaleString() : '--';
+    const elMax = document.getElementById('cfg-meta-max-tokens');
+    if (elMax) elMax.innerText = `${maxTokens} tokens`;
+    const elCtx = document.getElementById('cfg-meta-context');
+    if (elCtx) elCtx.innerText = `${contextLength} tokens`;
+  }
+}
+
+async function refresh9RouterModels(forceLive = false) {
+  showToast('Connecting to 9Router gateway...', 'info', 1200);
+  await fetch9RouterModels(forceLive);
+}
+
 async function loadConfigSettings() {
   try {
     const res = await fetch('/api/config');
@@ -3911,8 +5762,29 @@ async function loadConfigSettings() {
       document.getElementById('cfg-image-model').value = cfg.NINEROUTER_IMAGE_MODEL || '';
       const timeoutEl = document.getElementById('cfg-timeout');
       if (timeoutEl) timeoutEl.value = cfg.LLM_TIMEOUT || 300;
+      const vRoundsEl = document.getElementById('cfg-verification-rounds');
+      if (vRoundsEl) vRoundsEl.value = cfg.VERIFICATION_ROUNDS || 3;
+      const genVRoundsEl = document.getElementById('gen-verification-rounds');
+      if (genVRoundsEl) genVRoundsEl.value = cfg.VERIFICATION_ROUNDS || 3;
+
+      // Populate per-agent model and think level configurations
+      AGENT_IDS.forEach(aid => {
+        const mKey = 'AGENT_MODEL_' + aid.toUpperCase();
+        const tKey = 'AGENT_THINK_LEVEL_' + aid.toUpperCase();
+        const mInput = document.getElementById(`cfg-agent-model-${aid}`);
+        const tSelect = document.getElementById(`cfg-agent-think-${aid}`);
+        if (mInput) {
+          mInput.value = cfg[mKey] || (data.agents && data.agents[aid]?.configured_model) || '';
+        }
+        if (tSelect) {
+          tSelect.value = cfg[tKey] || (data.agents && data.agents[aid]?.think_level) || 'default';
+        }
+      });
 
       applyConfigAndMetadata(data);
+      updateAllAgentStatusBadges(data);
+      // Automatically load 9Router model suggestions & datalists
+      fetch9RouterModels();
     }
   } catch (err) {
     console.error('Failed to load settings', err);
@@ -3921,27 +5793,46 @@ async function loadConfigSettings() {
 
 async function saveConfigSettings() {
   const timeoutVal = parseInt(document.getElementById('cfg-timeout')?.value.trim() || '300', 10);
+  const vRoundsVal = parseInt(document.getElementById('cfg-verification-rounds')?.value.trim() || '3', 10);
+  const chatModel = document.getElementById('cfg-chat-model')?.value.trim();
+
   const config = {
-    NINEROUTER_URL: document.getElementById('cfg-url').value.trim(),
-    NINEROUTER_KEY: document.getElementById('cfg-key').value.trim(),
-    NINEROUTER_CHAT_MODEL: document.getElementById('cfg-chat-model').value.trim(),
-    NINEROUTER_SEARCH_MODEL: document.getElementById('cfg-search-model').value.trim(),
-    NINEROUTER_FETCH_MODEL: document.getElementById('cfg-fetch-model').value.trim(),
-    NINEROUTER_IMAGE_MODEL: document.getElementById('cfg-image-model').value.trim(),
+    NINEROUTER_URL: document.getElementById('cfg-url')?.value.trim() || '',
+    NINEROUTER_KEY: document.getElementById('cfg-key')?.value.trim() || '',
+    NINEROUTER_CHAT_MODEL: chatModel,
+    NINEROUTER_SEARCH_MODEL: document.getElementById('cfg-search-model')?.value.trim() || '',
+    NINEROUTER_FETCH_MODEL: document.getElementById('cfg-fetch-model')?.value.trim() || '',
+    NINEROUTER_IMAGE_MODEL: document.getElementById('cfg-image-model')?.value.trim() || '',
     LLM_TIMEOUT: isNaN(timeoutVal) ? 300 : timeoutVal,
+    VERIFICATION_ROUNDS: isNaN(vRoundsVal) ? 3 : vRoundsVal,
     PURE_PIL_ACTIVE: true
   };
+
+  const agentsPayload = {};
+  AGENT_IDS.forEach(aid => {
+    const mVal = document.getElementById(`cfg-agent-model-${aid}`)?.value.trim() || '';
+    const tVal = document.getElementById(`cfg-agent-think-${aid}`)?.value || 'default';
+    config[`AGENT_MODEL_${aid.toUpperCase()}`] = mVal;
+    config[`AGENT_THINK_LEVEL_${aid.toUpperCase()}`] = tVal;
+    agentsPayload[aid] = {
+      model: mVal,
+      think_level: tVal
+    };
+  });
 
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config })
+      body: JSON.stringify({ config, agents: agentsPayload })
     });
     const data = await res.json();
     if (data.success) {
-      showToast('Configuration saved to .env', 'success');
-      loadConfigBadge();
+      const activeModel = data.model || chatModel;
+      showToast(`Saved settings & applied models (Primary: ${activeModel})`, 'success');
+      applyConfigAndMetadata(data);
+      updateAllAgentStatusBadges(data);
+      await loadConfigBadge();
     }
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');

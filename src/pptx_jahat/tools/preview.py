@@ -29,6 +29,7 @@ import os
 import math
 import logging
 import base64
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple, Any, Dict, Union
@@ -1108,7 +1109,8 @@ def render_slide(slide: Any, prs: Presentation, width: int = 1280,
 
 def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int]] = None,
                 output_dir: Optional[str] = None, use_com: bool = True,
-                return_engine_info: bool = False) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
+                return_engine_info: bool = False,
+                mode: Optional[str] = None) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
     """
     Renders a .pptx file/stream/Presentation instance using 3-tier cascade:
     1. Tier 1: Native PowerPoint COM automation (Windows).
@@ -1119,13 +1121,31 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
     "Native PowerPoint", "Web Render Engine", or "Pure PIL".
     """
     engine_name = "Pure PIL"
-    mode = getattr(Config, "RENDER_MODE", "auto")
+    if mode is None:
+        mode = getattr(Config, "RENDER_MODE", "auto")
     com_error_occurred = None
+    temp_pptx_cleanup = None
 
     # 1. Tier 1: Attempt PowerPoint COM rendering if permitted
-    if mode in ("auto", "native") and use_com and not getattr(Config, "PURE_PIL_ACTIVE", False) and (isinstance(source, (str, Path)) or hasattr(source, "__fspath__")):
-        file_path = str(source)
-        if os.path.isfile(file_path):
+    if mode in ("auto", "native") and use_com:
+        file_path = None
+        if isinstance(source, (str, Path)) or hasattr(source, "__fspath__"):
+            candidate = str(source)
+            if os.path.isfile(candidate):
+                file_path = candidate
+            else:
+                com_error_occurred = FileNotFoundError(f"PPTX file not found: {candidate}")
+        elif hasattr(source, "save"):
+            try:
+                fd, temp_pptx = tempfile.mkstemp(suffix=".pptx", prefix="com_render_")
+                os.close(fd)
+                source.save(temp_pptx)
+                file_path = temp_pptx
+                temp_pptx_cleanup = temp_pptx
+            except Exception as save_err:
+                com_error_occurred = save_err
+
+        if file_path and os.path.isfile(file_path):
             if is_powerpoint_com_available():
                 try:
                     log.info("Rendering PPTX via PowerPoint COM automation: %s", file_path)
@@ -1135,19 +1155,36 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
                         width=width,
                         slide_numbers=slide_numbers,
                     )
+                    if temp_pptx_cleanup:
+                        try:
+                            os.remove(temp_pptx_cleanup)
+                        except Exception:
+                            pass
                     return (imgs, "Native PowerPoint") if return_engine_info else imgs
                 except Exception as com_err:
                     com_error_occurred = com_err
                     log.warning("COM rendering failed for %s: %s", file_path, com_err)
             else:
                 com_error_occurred = RuntimeError("PowerPoint COM is not available on this system.")
-        else:
-            com_error_occurred = FileNotFoundError(f"PPTX file not found: {file_path}")
+        elif not com_error_occurred:
+            com_error_occurred = ValueError("Source could not be resolved to a PPTX file on disk for COM rendering.")
 
-    # Check if pure fallback is allowed when mode is native
-    if mode == "native" and not Config.PURE_PIL_ACTIVE:
+    if temp_pptx_cleanup:
+        try:
+            os.remove(temp_pptx_cleanup)
+        except Exception:
+            pass
+
+    # Check if pure fallback is allowed when mode is native or PURE_PIL_ACTIVE is False
+    if mode == "native" or not getattr(Config, "PURE_PIL_ACTIVE", True):
         if com_error_occurred:
-            raise RuntimeError(f"Native PowerPoint rendering failed (RENDER_MODE='native'): {com_error_occurred}")
+            raise RuntimeError(
+                f"Native PowerPoint rendering failed (RENDER_MODE='{mode}', PURE_PIL_ACTIVE={getattr(Config, 'PURE_PIL_ACTIVE', True)}): {com_error_occurred}"
+            ) from com_error_occurred
+        else:
+            raise RuntimeError(
+                f"Native PowerPoint rendering failed (source is not a file on disk or COM unavailable) and fallback is disabled (RENDER_MODE='{mode}', PURE_PIL_ACTIVE={getattr(Config, 'PURE_PIL_ACTIVE', True)})."
+            )
 
     # 2. Tier 2: Web Vector Engine
     # If mode is 'web' or auto cascade where web vector representations are built
@@ -1175,9 +1212,10 @@ def render_pptx(source: Any, width: int = 1280, slide_numbers: Optional[List[int
 
 
 def render_pptx_file_previews(source: Any, target_width_px: int = 650, use_com: bool = True,
-                              return_engine_info: bool = False) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
+                              return_engine_info: bool = False,
+                              mode: Optional[str] = None) -> Union[List[Image.Image], Tuple[List[Image.Image], str]]:
     """Public wrapper used by GUI and QA verification pipelines."""
-    return render_pptx(source, width=target_width_px, use_com=use_com, return_engine_info=return_engine_info)
+    return render_pptx(source, width=target_width_px, use_com=use_com, return_engine_info=return_engine_info, mode=mode)
 
 
 def render_pptx_slide_to_image(slide: Any,

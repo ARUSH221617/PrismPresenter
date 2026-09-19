@@ -371,8 +371,12 @@ Schema reference:
     ]
 
     try:
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        p_model = Config.get_agent_model("parser")
+        p_think = Config.get_agent_think_level("parser")
+        response = Config.safe_chat_completion(
+            client,
+            "parser",
+            model=p_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
@@ -380,7 +384,7 @@ Schema reference:
             temperature=0.2
         )
         transcription = response.choices[0].message.content or ""
-        log(f"[✓] Successfully transcribed visual content from {path.name}.")
+        log(f"[✓] Successfully transcribed visual content from {path.name} with '{p_model}' (thinking: {p_think}).")
     except Exception as ex:
         log(f"[!] Vision AI transcription warning: {ex}. Using basic image descriptor.")
         transcription = f"Visual reference graphic from {path.name}."

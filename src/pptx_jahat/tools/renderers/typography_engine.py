@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import math
 import logging
 import xml.etree.ElementTree as ET
@@ -63,6 +64,13 @@ class FontResolver:
         self.fonts: Dict[str, Dict[str, str]] = self._get_or_scan_fonts()
         self.major_font: Optional[str] = None
         self.minor_font: Optional[str] = None
+        self.font_fallbacks: Dict[str, str] = {}
+
+    def set_font_fallbacks(self, fallbacks: Optional[Dict[str, str]]) -> None:
+        if fallbacks:
+            self.font_fallbacks = {k.lower().strip(): v.strip() for k, v in fallbacks.items() if k and v}
+        else:
+            self.font_fallbacks = {}
 
     def set_theme_fonts(self, major: Optional[str], minor: Optional[str]) -> None:
         self.major_font = major
@@ -77,6 +85,32 @@ class FontResolver:
             return cls._cached_system_fonts
 
         scanned: Dict[str, Dict[str, str]] = {}
+
+        # 1. Use comprehensive font catalog from font_verifier if available
+        try:
+            from pptx_jahat.tools.font_verifier import get_available_system_fonts
+            catalog = get_available_system_fonts()
+            font_paths = catalog.get("font_paths", {})
+            for name, path in font_paths.items():
+                name_lower = name.lower().replace("-", " ").replace("_", " ")
+                is_bold = any(w in name_lower for w in ("bold", "bd", "heavy", "black", "extrablack", "semibold", "demibold"))
+                is_italic = any(w in name_lower for w in ("italic", "oblique", "it"))
+                family = re.sub(
+                    r'[\s\-_]+(bold|italic|regular|light|medium|semibold|demibold|heavy|black|extrablack|thin|oblique|ultralight|extralight|narrow|condensed|book|roman)$',
+                    '', name_lower, flags=re.IGNORECASE
+                ).strip() or name_lower
+
+                style_key = f"{'bold_' if is_bold else ''}{'italic' if is_italic else 'regular'}"
+                if family not in scanned:
+                    scanned[family] = {}
+                scanned[family][style_key] = path
+                if name_lower not in scanned:
+                    scanned[name_lower] = {}
+                scanned[name_lower][style_key] = path
+        except Exception as ex:
+            log.debug("FontResolver could not load font_verifier catalog: %s", ex)
+
+        # 2. Filesystem scan for standard font directories
         dirs: List[Path] = []
         if os.name == "nt":
             windir = os.environ.get("WINDIR", "C:\\Windows")
@@ -98,16 +132,24 @@ class FontResolver:
         for d in dirs:
             if not d.exists():
                 continue
-            for ext in ("*.ttf", "*.otf", "*.TTF", "*.OTF"):
+            for ext in ("*.ttf", "*.otf", "*.ttc", "*.TTF", "*.OTF", "*.TTC"):
                 for p in d.rglob(ext):
                     name_lower = p.stem.lower().replace("-", " ").replace("_", " ")
-                    is_bold = "bold" in name_lower or "bd" in name_lower
+                    is_bold = "bold" in name_lower or "bd" in name_lower or "heavy" in name_lower or "black" in name_lower
                     is_italic = "italic" in name_lower or "oblique" in name_lower or "it" in name_lower
-                    family = name_lower.replace("bold", "").replace("italic", "").replace("oblique", "").strip()
+                    family = re.sub(
+                        r'[\s\-_]+(bold|italic|regular|light|medium|semibold|demibold|heavy|black|extrablack|thin|oblique|ultralight|extralight|narrow|condensed|book|roman)$',
+                        '', name_lower, flags=re.IGNORECASE
+                    ).strip() or name_lower
+                    style_key = f"{'bold_' if is_bold else ''}{'italic' if is_italic else 'regular'}"
                     if family not in scanned:
                         scanned[family] = {}
-                    style_key = f"{'bold_' if is_bold else ''}{'italic' if is_italic else 'regular'}"
-                    scanned[family][style_key] = str(p)
+                    if style_key not in scanned[family]:
+                        scanned[family][style_key] = str(p)
+                    if name_lower not in scanned:
+                        scanned[name_lower] = {}
+                    if style_key not in scanned[name_lower]:
+                        scanned[name_lower][style_key] = str(p)
 
         cls._cached_system_fonts = scanned
         return scanned
@@ -134,7 +176,11 @@ class FontResolver:
         size_px = max(6, int(round(size_px)))
         path = None
         if family:
-            path = self._match(family, bold, italic)
+            fam_key = family.lower().strip()
+            effective_family = self.font_fallbacks.get(fam_key, family)
+            path = self._match(effective_family, bold, italic)
+            if not path and effective_family != family:
+                path = self._match(family, bold, italic)
         if not path and self.minor_font:
             path = self._match(self.minor_font, bold, italic)
         if not path:

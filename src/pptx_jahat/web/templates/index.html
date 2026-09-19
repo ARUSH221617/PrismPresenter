@@ -8,8 +8,8 @@
   <link rel="icon" type="image/png" href="/static/images/logo-icon-transparent.png">
   <link rel="shortcut icon" href="/static/images/logo-icon-transparent.png">
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS (Local) -->
+  <script src="/static/js/tailwindcss.min.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -63,10 +63,10 @@
       }
     }
   </script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <!-- Marked.js Markdown Parser CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Lucide Icons (Local) -->
+  <script src="/static/js/lucide.min.js"></script>
+  <!-- Marked.js Markdown Parser (Local) -->
+  <script src="/static/js/marked.min.js"></script>
   <link rel="stylesheet" href="/static/css/custom.css">
 </head>
 
@@ -270,7 +270,8 @@
           <i data-lucide="scan-line" class="w-4 h-4 text-primary"></i>
           <div>
             <h3 class="shadcn-card-title text-sm">Build Detection Schema from Sample Files</h3>
-            <p class="text-[10px] text-muted-foreground font-mono">Upload paper photos/docs -> AI writes structure.md</p>
+            <p class="text-[10px] text-muted-foreground font-mono">Upload paper photos/docs -> AI writes structure.md
+            </p>
           </div>
         </div>
         <button onclick="closeBuildStructureFromSamplesModal()" class="text-muted-foreground hover:text-foreground">
@@ -279,19 +280,29 @@
       </div>
       <div class="shadcn-card-content p-5 space-y-4 text-xs">
         <p class="text-muted-foreground text-[11px] leading-relaxed">
-          Upload sample photos of your paper worksheets, handwritten notes, textbook pages, or docs. The Vision AI Agent will analyze the visual layout, quadrants, step markers (<code class="font-mono text-foreground bg-muted px-1 py-0.5 rounded">①②③</code>), and math formulas to generate a custom <code class="font-mono text-foreground bg-muted px-1 py-0.5 rounded">structure.md</code> for extracting slides from your files.
+          Upload sample photos of your paper worksheets, handwritten notes, textbook pages, or docs. The Vision AI Agent
+          will analyze the visual layout, quadrants, step markers (<code
+            class="font-mono text-foreground bg-muted px-1 py-0.5 rounded">①②③</code>), and math formulas to generate a
+          custom <code class="font-mono text-foreground bg-muted px-1 py-0.5 rounded">structure.md</code> for extracting
+          slides from your files.
         </p>
 
         <!-- Dropzone for sample files -->
         <div>
           <label class="block font-medium text-foreground mb-1">Upload Sample Files / Paper Photos (Multi-file):</label>
-          <div id="samples-dropzone" class="border border-dashed border-border hover:border-primary/80 rounded-md p-3 text-center cursor-pointer transition bg-card/40 flex flex-col items-center justify-center group" onclick="document.getElementById('struct-samples-file-input').click()">
-            <input type="file" id="struct-samples-file-input" multiple accept=".png,.jpg,.jpeg,.webp,.docx,.txt,.md,.pdf" class="hidden" onchange="handleStructSamplesUpload(event)">
-            <div class="w-7 h-7 rounded-full bg-secondary border border-border flex items-center justify-center mb-1 group-hover:scale-105 transition">
+          <div id="samples-dropzone"
+            class="border border-dashed border-border hover:border-primary/80 rounded-md p-3 text-center cursor-pointer transition bg-card/40 flex flex-col items-center justify-center group"
+            onclick="document.getElementById('struct-samples-file-input').click()">
+            <input type="file" id="struct-samples-file-input" multiple
+              accept=".png,.jpg,.jpeg,.webp,.docx,.txt,.md,.pdf" class="hidden"
+              onchange="handleStructSamplesUpload(event)">
+            <div
+              class="w-7 h-7 rounded-full bg-secondary border border-border flex items-center justify-center mb-1 group-hover:scale-105 transition">
               <i data-lucide="images" class="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground"></i>
             </div>
             <div class="font-medium text-foreground text-xs">Click to upload sample photos / documents</div>
-            <div class="text-[10px] text-muted-foreground mt-0.5">Accepts Photos (.jpg, .png), Word (.docx), Markdown (.md), Text</div>
+            <div class="text-[10px] text-muted-foreground mt-0.5">Accepts Photos (.jpg, .png), Word (.docx), Markdown
+              (.md), Text</div>
           </div>
           <div id="struct-samples-pills-list" class="space-y-1.5 mt-2 max-h-32 overflow-y-auto hidden"></div>
         </div>
@@ -305,7 +316,8 @@
               class="shadcn-input font-mono flex-1 text-xs">
             <span class="text-muted-foreground font-mono text-xs">.md</span>
           </div>
-          <p class="text-[10px] text-muted-foreground mt-1">This file can be selected in the Generator tab to detect elements</p>
+          <p class="text-[10px] text-muted-foreground mt-1">This file can be selected in the Generator tab to detect
+            elements</p>
         </div>
 
         <!-- Guidance / Instructions -->
@@ -317,12 +329,15 @@
         </div>
 
         <!-- Progress Indicator -->
-        <div id="modal-sample-struct-progress" class="hidden p-3 rounded-md bg-secondary/50 border border-border space-y-2">
+        <div id="modal-sample-struct-progress"
+          class="hidden p-3 rounded-md bg-secondary/50 border border-border space-y-2">
           <div class="flex items-center gap-2 text-primary font-medium text-xs">
             <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
-            <span id="modal-sample-struct-status-text">Vision AI analyzing sample files and synthesizing schema...</span>
+            <span id="modal-sample-struct-status-text">Vision AI analyzing sample files and synthesizing
+              schema...</span>
           </div>
-          <div class="text-[11px] font-mono text-muted-foreground truncate" id="modal-sample-struct-log-line">Connecting to 9Router AI...</div>
+          <div class="text-[11px] font-mono text-muted-foreground truncate" id="modal-sample-struct-log-line">Connecting
+            to 9Router AI...</div>
         </div>
 
         <!-- Modal Footer Actions -->
@@ -343,20 +358,26 @@
   <!-- ============================================================== -->
   <!-- MODAL: HUMAN TOUCH WORKFLOW INTERACTIVE REVIEW MODAL -->
   <!-- ============================================================== -->
-  <div id="human-touch-modal" class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
-    <div class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+  <div id="human-touch-modal"
+    class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div
+      class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
       <!-- Modal Header -->
       <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center">
+          <div
+            class="w-8 h-8 rounded-lg bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center">
             <i data-lucide="user-check" class="w-4 h-4 text-emerald-400"></i>
           </div>
           <div>
             <div class="flex items-center gap-2">
               <h3 id="ht-modal-title" class="font-semibold text-foreground text-sm">Human Touch Review</h3>
-              <span id="ht-modal-step-badge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">Step 2: Extract Slides</span>
+              <span id="ht-modal-step-badge"
+                class="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">Step
+                2: Extract Slides</span>
             </div>
-            <p id="ht-modal-subtitle" class="text-xs text-muted-foreground">Inspect AI response, edit fields directly, or reply with instructions to rerun.</p>
+            <p id="ht-modal-subtitle" class="text-xs text-muted-foreground">Inspect AI response, edit fields directly,
+              or reply with instructions to rerun.</p>
           </div>
         </div>
 
@@ -372,7 +393,8 @@
               Raw JSON
             </button>
           </div>
-          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0" title="Cancel Generation">
+          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0"
+            title="Cancel Generation">
             <i data-lucide="x" class="w-4 h-4"></i>
           </button>
         </div>
@@ -385,7 +407,8 @@
           <!-- Common: Document Title -->
           <div class="p-3 rounded-lg bg-secondary/30 border border-border/60 flex items-center gap-3">
             <label class="font-medium text-foreground shrink-0 text-xs">Document Title:</label>
-            <input type="text" id="ht-doc-title-input" class="shadcn-input font-medium text-xs flex-1" placeholder="Presentation Title">
+            <input type="text" id="ht-doc-title-input" class="shadcn-input font-medium text-xs flex-1"
+              placeholder="Presentation Title">
           </div>
 
           <!-- Section / Slide Cards Container -->
@@ -394,20 +417,136 @@
           </div>
 
           <!-- Add Card Button -->
-          <button type="button" onclick="addHumanTouchCard()" class="shadcn-btn shadcn-btn-outline w-full py-2 text-xs gap-1.5 border-dashed">
+          <button type="button" onclick="addHumanTouchCard()"
+            class="shadcn-btn shadcn-btn-outline w-full py-2 text-xs gap-1.5 border-dashed">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add New Slide / Section
           </button>
+        </div>
+
+        <!-- Verification Step Container (Template vs Generated Comparison & Chat) -->
+        <div id="ht-verify-container" class="hidden space-y-4">
+          <!-- Slide Navigation & Overview Strip -->
+          <div
+            class="p-2.5 rounded-lg bg-secondary/40 border border-border/70 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-foreground text-xs">Slide Selector:</span>
+              <div id="ht-verify-slide-selector" class="flex flex-wrap items-center gap-1.5">
+                <!-- Populated dynamically with slide buttons -->
+              </div>
+            </div>
+            <div id="ht-verify-overall-badge"
+              class="text-[11px] font-mono px-2.5 py-1 rounded bg-sky-950/80 border border-sky-800 text-sky-300">
+              Inspection Status: In Progress
+            </div>
+          </div>
+
+          <!-- Side-by-Side Slide Comparison -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <!-- Left: Template Slide -->
+            <div class="space-y-2 p-3 rounded-lg bg-card/60 border border-border/70">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+                  <i data-lucide="layers" class="w-3.5 h-3.5 text-amber-400"></i> Chosen Template Slide
+                </span>
+                <span id="ht-verify-tpl-info"
+                  class="text-[10px] font-mono text-muted-foreground truncate max-w-[200px]">Template.pptx</span>
+              </div>
+              <div
+                class="w-full aspect-video rounded-md overflow-hidden bg-black/40 border border-border/60 flex items-center justify-center relative">
+                <img id="ht-verify-tpl-img" class="w-full h-full object-contain hidden" alt="Template Slide" />
+                <div id="ht-verify-tpl-placeholder"
+                  class="text-[11px] text-muted-foreground flex flex-col items-center gap-1">
+                  <i data-lucide="image" class="w-6 h-6 text-muted-foreground/50"></i>
+                  <span>No template screenshot</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Generated Slide -->
+            <div class="space-y-2 p-3 rounded-lg bg-card/60 border border-border/70">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-400"></i> Generated Slide Flow
+                </span>
+                <span id="ht-verify-gen-info"
+                  class="text-[10px] font-mono text-muted-foreground truncate max-w-[200px]">Slide 1</span>
+              </div>
+              <div
+                class="w-full aspect-video rounded-md overflow-hidden bg-black/40 border border-border/60 flex items-center justify-center relative">
+                <img id="ht-verify-gen-img" class="w-full h-full object-contain hidden" alt="Generated Slide" />
+                <div id="ht-verify-gen-placeholder"
+                  class="text-[11px] text-muted-foreground flex flex-col items-center gap-1">
+                  <i data-lucide="image" class="w-6 h-6 text-muted-foreground/50"></i>
+                  <span>No generated screenshot</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analysis & Actions Row -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <!-- Detected Issues & Missing Elements -->
+            <div class="p-3 rounded-lg bg-secondary/30 border border-border/60 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+                  <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-400"></i> Detected Discrepancies &amp;
+                  Missed Elements
+                </span>
+                <span id="ht-verify-issue-count"
+                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0 issues</span>
+              </div>
+              <div id="ht-verify-issues-list" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                <!-- Dynamically populated issues -->
+              </div>
+            </div>
+
+            <!-- Healing Actions & Edit Structure -->
+            <div class="p-3 rounded-lg bg-secondary/30 border border-border/60 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+                  <i data-lucide="wrench" class="w-3.5 h-3.5 text-sky-400"></i> Formulated Edit Actions (To Be Applied)
+                </span>
+                <span id="ht-verify-action-count"
+                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0
+                  actions</span>
+              </div>
+              <div id="ht-verify-actions-list" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                <!-- Dynamically populated actions -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Conversation Stream with Verification Agent -->
+          <div class="p-3 rounded-lg bg-card/60 border border-border/70 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+                <i data-lucide="messages-square" class="w-3.5 h-3.5 text-primary"></i> Conversation with Verification
+                Agent
+              </span>
+              <span class="text-[10px] text-muted-foreground">Ask agent to identify or correct issues on this
+                slide</span>
+            </div>
+            <div id="ht-verify-chat-stream"
+              class="space-y-2 max-h-40 overflow-y-auto p-2 rounded bg-background/50 border border-border/40 text-xs">
+              <div class="p-2 rounded bg-secondary/40 text-muted-foreground text-[11px]">
+                👋 <strong class="text-foreground">Verification Agent:</strong> I inspected the chosen template slide
+                against the generated slide. Tell me if any elements, badges, or texts are missing or need adjusting.
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- JSON View Container -->
         <div id="ht-json-container" class="hidden space-y-2">
           <div class="flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Direct JSON payload editing:</span>
-            <button type="button" onclick="formatHumanTouchJson()" class="text-primary hover:underline flex items-center gap-1">
+            <button type="button" onclick="formatHumanTouchJson()"
+              class="text-primary hover:underline flex items-center gap-1">
               <i data-lucide="code" class="w-3 h-3"></i> Format JSON
             </button>
           </div>
-          <textarea id="ht-raw-json-textarea" rows="18" class="shadcn-input font-mono text-xs leading-relaxed resize-none w-full"></textarea>
+          <textarea id="ht-raw-json-textarea" rows="18"
+            class="shadcn-input font-mono text-xs leading-relaxed resize-none w-full"></textarea>
         </div>
       </div>
 
@@ -425,8 +564,7 @@
           <div class="flex gap-2">
             <input type="text" id="ht-reply-prompt-input"
               placeholder="Enter instructions to refine (e.g. 'Condense into 4 slides', 'Translate to English', 'Make bullet points punchier')..."
-              class="shadcn-input text-xs flex-1"
-              onkeydown="if(event.key === 'Enter'){ rerunHumanTouchProcess(); }">
+              class="shadcn-input text-xs flex-1" onkeydown="if(event.key === 'Enter'){ rerunHumanTouchProcess(); }">
             <button id="btn-ht-rerun" onclick="rerunHumanTouchProcess()"
               class="shadcn-btn shadcn-btn-secondary shrink-0 gap-1.5 text-xs">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Rerun with AI
@@ -441,13 +579,86 @@
 
         <!-- Action Buttons -->
         <div class="flex items-center justify-between pt-1 border-t border-border/40">
-          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs text-rose-400 hover:text-rose-300 gap-1.5">
+          <button type="button" onclick="cancelHumanTouchJob()"
+            class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs text-rose-400 hover:text-rose-300 gap-1.5">
             <i data-lucide="ban" class="w-3.5 h-3.5"></i> Cancel Generation
           </button>
-          <button id="btn-ht-continue" onclick="continueHumanTouchJob()" class="shadcn-btn shadcn-btn-default h-8 px-4 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
-            <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve &amp; Continue to Next Step
+          <div class="flex items-center gap-2">
+            <button id="btn-ht-skip-verify" type="button" onclick="skipVerificationEdits()"
+              class="hidden shadcn-btn shadcn-btn-outline h-8 px-3 text-xs text-muted-foreground hover:text-foreground gap-1.5">
+              <i data-lucide="skip-forward" class="w-3.5 h-3.5"></i> Skip Verification Edits
+            </button>
+            <button id="btn-ht-continue" onclick="continueHumanTouchJob()"
+              class="shadcn-btn shadcn-btn-default h-8 px-4 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
+              <i data-lucide="check" class="w-3.5 h-3.5"></i> Approve &amp; Continue to Next Step
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: TEMPLATE FONT VERIFICATION & FALLBACK RESOLVER -->
+  <!-- ============================================================== -->
+  <div id="font-fallback-modal"
+    class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div
+      class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <i data-lucide="type" class="w-4 h-4 text-amber-400"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-semibold text-foreground text-sm">Template Font Verification</h3>
+              <span
+                class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">Step
+                1.2: Fallback Selection</span>
+            </div>
+            <p class="text-xs text-muted-foreground mt-0.5">Template requires fonts not installed on this system. Select
+              fallbacks to preserve typography:</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-ff-rescan" type="button" onclick="rescanSystemFontsAction()"
+            class="shadcn-btn shadcn-btn-outline h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Rescan Windows and user fonts">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Rescan Fonts
+          </button>
+          <button type="button" onclick="cancelHumanTouchJob()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0"
+            title="Cancel Generation">
+            <i data-lucide="x" class="w-4 h-4"></i>
           </button>
         </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-3.5 text-xs">
+        <div
+          class="p-3 rounded-lg bg-secondary/30 border border-border/60 text-muted-foreground flex items-center gap-2">
+          <i data-lucide="info" class="w-4 h-4 text-primary shrink-0"></i>
+          <span>The selected fallback fonts will be applied to all text runs, shapes, tables, and DrawingML complex
+            script definitions in your new presentation.</span>
+        </div>
+
+        <div id="ff-missing-fonts-list" class="space-y-3">
+          <!-- Dynamically populated rows for missing fonts -->
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3.5 border-t border-border bg-secondary/30 flex items-center justify-between">
+        <button type="button" onclick="cancelHumanTouchJob()"
+          class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs text-rose-400 hover:text-rose-300 gap-1.5">
+          <i data-lucide="ban" class="w-3.5 h-3.5"></i> Cancel Generation
+        </button>
+        <button id="btn-ff-submit" type="button" onclick="submitFontFallbackAction()"
+          class="shadcn-btn shadcn-btn-default h-8 px-4 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
+          <i data-lucide="check" class="w-3.5 h-3.5"></i> Apply Fallbacks &amp; Continue
+        </button>
       </div>
     </div>
   </div>
@@ -455,12 +666,15 @@
   <!-- ============================================================== -->
   <!-- MODAL: PPTX DECK STRUCTURE INSPECTOR -->
   <!-- ============================================================== -->
-  <div id="inspect-deck-modal" class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
-    <div class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+  <div id="inspect-deck-modal"
+    class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div
+      class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
       <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
         <div class="flex items-center gap-2">
           <i data-lucide="layers" class="w-4 h-4 text-primary"></i>
-          <h3 id="inspect-deck-modal-title" class="font-semibold text-foreground text-sm">Presentation Structural Details</h3>
+          <h3 id="inspect-deck-modal-title" class="font-semibold text-foreground text-sm">Presentation Structural
+            Details</h3>
         </div>
         <button type="button" onclick="closeInspectDeckModal()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -468,6 +682,70 @@
       </div>
       <div class="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs">
         <div id="inspect-deck-content" class="space-y-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MODAL: TEMPLATE INTELLIGENCE SCHEMA BLUEPRINT -->
+  <!-- ============================================================== -->
+  <div id="template-schema-modal"
+    class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm hidden flex items-center justify-center p-3 md:p-6 transition-all duration-200">
+    <div
+      class="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+      <div class="p-4 border-b border-border flex items-center justify-between bg-secondary/40">
+        <div class="flex items-center gap-2">
+          <i data-lucide="book-marked" class="w-4 h-4 text-primary"></i>
+          <div>
+            <h3 class="font-semibold text-foreground text-sm">Standardized Template Intelligence Schema Specification
+            </h3>
+            <p class="text-[11px] text-muted-foreground">The 4-part architectural blueprint that empowers the AI
+              presentation generator flow</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeTemplateSchemaModal()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+        <div class="p-3 bg-secondary/40 rounded-md border border-border space-y-1.5">
+          <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i> Why a Structured Template Note is essential:
+          </div>
+          <p class="text-muted-foreground leading-relaxed text-[11px]">
+            Without a structured schema, AI generators guess slide capabilities from raw text. With this 4-part
+            standardized format, the AI instantly understands:
+            <br>• <strong>1. Profile & Identity</strong>: Tone, Color Scheme, Typography, Content Density
+            <br>• <strong>2. Purpose & Use Cases</strong>: Domain triggers & what document topics fit best
+            <br>• <strong>3. Master Slide Architecture</strong>: Layout patterns, slot semantic roles, and exact
+            character budgets
+            <br>• <strong>4. AI Directives & Recipes</strong>: Optimal 5-slide recipe, overflow protection & shape
+            pruning
+          </p>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-mono font-medium text-foreground text-[11px]">Official Schema Specification
+              (Markdown):</span>
+            <button onclick="copySchemaSpecToClipboard()"
+              class="shadcn-btn shadcn-btn-outline h-6 px-2 text-[11px] gap-1">
+              <i data-lucide="copy" class="w-3 h-3"></i> Copy Spec
+            </button>
+          </div>
+          <pre id="schema-spec-code"
+            class="p-3 bg-background rounded-md border border-border font-mono text-[11px] overflow-x-auto max-h-[280px] text-foreground/80 leading-relaxed whitespace-pre"></pre>
+        </div>
+      </div>
+      <div class="p-3 border-t border-border flex justify-end gap-2 bg-muted/20">
+        <button onclick="applyStandardSchema(false); closeTemplateSchemaModal();"
+          class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5">
+          <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Apply to Selected Template
+        </button>
+        <button onclick="applyStandardSchema(true); closeTemplateSchemaModal();"
+          class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1.5">
+          <i data-lucide="rocket" class="w-3.5 h-3.5"></i> Apply to All Templates
+        </button>
+        <button onclick="closeTemplateSchemaModal()" class="shadcn-btn shadcn-btn-outline h-7 text-xs">Close</button>
       </div>
     </div>
   </div>
@@ -608,9 +886,13 @@
                     <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
                   </button>
                 </div>
-                <select id="gen-template-select" class="shadcn-input cursor-pointer font-mono text-xs">
+                <select id="gen-template-select" onchange="checkGeneratorTemplateFonts()"
+                  class="shadcn-input cursor-pointer font-mono text-xs">
                   <option value="">✨ All Templates (Global AI Intelligent Matching)</option>
                 </select>
+                <!-- Font Verification Live Status Banner -->
+                <div id="gen-template-font-status" class="mt-1.5 hidden text-[11px] p-2 rounded border transition-all">
+                </div>
               </div>
 
               <!-- Detection & Storyboard Schema Selection (structure.md) -->
@@ -619,10 +901,12 @@
                 <div class="flex items-center justify-between flex-wrap gap-2">
                   <div class="flex items-center gap-1.5">
                     <i data-lucide="layers" class="w-4 h-4 text-primary"></i>
-                    <label class="font-medium text-foreground text-xs">Storyboard & Detection Schema (`structure.md`):</label>
+                    <label class="font-medium text-foreground text-xs">Storyboard & Detection Schema
+                      (`structure.md`):</label>
                   </div>
                   <div class="flex items-center gap-2">
-                    <input type="file" id="gen-upload-structure-input" accept=".md" class="hidden" onchange="handleUploadStructureFile(event)">
+                    <input type="file" id="gen-upload-structure-input" accept=".md" class="hidden"
+                      onchange="handleUploadStructureFile(event)">
                     <button type="button" onclick="triggerUploadStructure()"
                       class="text-muted-foreground hover:text-primary text-[11px] flex items-center gap-1 bg-secondary/60 hover:bg-secondary px-2 py-0.5 rounded transition"
                       title="Upload custom structure.md from disk">
@@ -637,7 +921,8 @@
                 </div>
 
                 <!-- Mode Switcher: Unified vs Dedicated -->
-                <div class="flex items-center gap-1 p-0.5 rounded-md bg-secondary/50 border border-border/50 text-[11px]">
+                <div
+                  class="flex items-center gap-1 p-0.5 rounded-md bg-secondary/50 border border-border/50 text-[11px]">
                   <button type="button" id="mode-btn-unified" onclick="setStructureSelectionMode('unified')"
                     class="flex-1 py-1 px-2 rounded font-medium text-center transition bg-primary text-primary-foreground shadow-sm">
                     Unified Schema
@@ -672,7 +957,8 @@
                       <div>
                         <span class="font-medium text-foreground">Detect via Schema (OCR & Quadrants)</span>
                         <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
-                          Guides Vision OCR to identify quadrants (TR, TL, BR, BL), circled steps (①, ②, ③...), formulas, and teacher callouts in source files.
+                          Guides Vision OCR to identify quadrants (TR, TL, BR, BL), circled steps (①, ②, ③...),
+                          formulas, and teacher callouts in source files.
                         </p>
                       </div>
                     </label>
@@ -683,7 +969,8 @@
                       <div>
                         <span class="font-medium text-foreground">Restructure Agent (Rewrite Slides)</span>
                         <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
-                          Autonomous AI Restructure Agent rewrites, partitions, and formats slides strictly conforming to the chosen schema.
+                          Autonomous AI Restructure Agent rewrites, partitions, and formats slides strictly conforming
+                          to the chosen schema.
                         </p>
                       </div>
                     </label>
@@ -704,7 +991,9 @@
                 <!-- 2. DEDICATED (PER PHASE) MODE CONTAINER -->
                 <div id="gen-struct-dedicated-box" class="hidden space-y-2.5">
                   <div class="text-[11px] text-muted-foreground pb-0.5">
-                    Select tailored <code class="font-mono text-foreground bg-muted px-1 py-0.5 rounded text-[10px]">structure.md</code> files independently for detection, restructuring, and layout matching:
+                    Select tailored <code
+                      class="font-mono text-foreground bg-muted px-1 py-0.5 rounded text-[10px]">structure.md</code>
+                    files independently for detection, restructuring, and layout matching:
                   </div>
 
                   <!-- Slot A: Detection Schema -->
@@ -714,7 +1003,8 @@
                         <input type="checkbox" id="gen-detect-dedicated-enable" checked
                           class="rounded cursor-pointer text-primary h-3.5 w-3.5">
                         <span class="font-medium text-foreground text-xs flex items-center gap-1">
-                          <i data-lucide="scan-line" class="w-3 h-3 text-primary"></i> 1. Detection Schema (OCR & Quadrants)
+                          <i data-lucide="scan-line" class="w-3 h-3 text-primary"></i> 1. Detection Schema (OCR &
+                          Quadrants)
                         </span>
                       </label>
                       <button type="button" onclick="previewCurrentSelectedStructure('detect')"
@@ -727,7 +1017,8 @@
                       <option value="">✨ Auto / None (Standard Extraction)</option>
                     </select>
                     <p class="text-[10px] text-muted-foreground leading-normal">
-                      Applied in Step 2 to detect quadrants (TR, TL, BR, BL), circled steps, formulas, and callouts from worksheets and notes.
+                      Applied in Step 2 to detect quadrants (TR, TL, BR, BL), circled steps, formulas, and callouts from
+                      worksheets and notes.
                     </p>
                   </div>
 
@@ -738,7 +1029,8 @@
                         <input type="checkbox" id="gen-restructure-dedicated-enable" checked
                           class="rounded cursor-pointer text-primary h-3.5 w-3.5">
                         <span class="font-medium text-foreground text-xs flex items-center gap-1">
-                          <i data-lucide="scan-text" class="w-3 h-3 text-amber-400"></i> 2. Restructure Schema (Rewrite Agent)
+                          <i data-lucide="scan-text" class="w-3 h-3 text-amber-400"></i> 2. Restructure Schema (Rewrite
+                          Agent)
                         </span>
                       </label>
                       <button type="button" onclick="previewCurrentSelectedStructure('restructure')"
@@ -751,7 +1043,8 @@
                       <option value="">✨ None (Keep Original Document Sections)</option>
                     </select>
                     <p class="text-[10px] text-muted-foreground leading-normal">
-                      Applied in Step 2.5 by AI Restructure Agent to rewrite, synthesize, and format slides into storyboard blocks.
+                      Applied in Step 2.5 by AI Restructure Agent to rewrite, synthesize, and format slides into
+                      storyboard blocks.
                     </p>
                   </div>
 
@@ -762,7 +1055,8 @@
                         <input type="checkbox" id="gen-blueprint-dedicated-enable" checked
                           class="rounded cursor-pointer text-primary h-3.5 w-3.5">
                         <span class="font-medium text-foreground text-xs flex items-center gap-1">
-                          <i data-lucide="layout-template" class="w-3 h-3 text-cyan-400"></i> 3. Blueprint Schema (Layout & Matching)
+                          <i data-lucide="layout-template" class="w-3 h-3 text-cyan-400"></i> 3. Blueprint Schema
+                          (Layout & Matching)
                         </span>
                       </label>
                       <button type="button" onclick="previewCurrentSelectedStructure('blueprint')"
@@ -775,8 +1069,42 @@
                       <option value="">✨ Inherit from Restructure / Detect Schema</option>
                     </select>
                     <p class="text-[10px] text-muted-foreground leading-normal">
-                      Applied in Step 3 to guide AI slide reasoning, template archetype matching, and slide count planning.
+                      Applied in Step 3 to guide AI slide reasoning, template archetype matching, and slide count
+                      planning.
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Visual Template Verification & Auto-Healing Option Card -->
+              <div class="space-y-2.5 p-3 rounded-lg border border-border/70 bg-card/40">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="scan-eye" class="w-4 h-4 text-sky-400"></i>
+                    <label for="gen-enable-verification" class="font-medium text-foreground text-xs cursor-pointer">
+                      Visual Template Verification Agent (Step 4.5)
+                    </label>
+                  </div>
+                  <input type="checkbox" id="gen-enable-verification" checked
+                    class="rounded cursor-pointer text-primary h-4 w-4">
+                </div>
+                <p class="text-[10px] text-muted-foreground leading-normal">
+                  Vision AI compares chosen template slide screenshots against generated slide screenshots to detect
+                  missing subtitles, cards, badges, or unreplaced placeholder text and automatically formulates &amp;
+                  applies an edit structure.
+                </p>
+
+                <!-- Rounds setting -->
+                <div class="flex items-center justify-between pt-2 border-t border-border/40 text-[11px]">
+                  <div class="flex items-center gap-1.5 text-muted-foreground">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-sky-400"></i>
+                    <span class="font-medium text-foreground">Verification Rounds:</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <input type="number" id="gen-verification-rounds" min="1" max="10" value="3"
+                      class="shadcn-input w-16 h-6 px-1.5 py-0 text-center font-mono text-[11px]"
+                      title="Number of iterative verification & healing rounds (default: 3)">
+                    <span class="text-muted-foreground text-[10px]">rounds</span>
                   </div>
                 </div>
               </div>
@@ -794,7 +1122,8 @@
                     class="rounded cursor-pointer text-primary h-4 w-4">
                 </div>
                 <p class="text-[10px] text-muted-foreground leading-normal">
-                  Pause at critical AI milestones to inspect, edit, or prompt AI to rerun &amp; refine before continuing.
+                  Pause at critical AI milestones to inspect, edit, or prompt AI to rerun &amp; refine before
+                  continuing.
                 </p>
 
                 <!-- Sub-options container -->
@@ -826,11 +1155,27 @@
                   </label>
 
                   <label class="flex items-start gap-2 cursor-pointer p-1.5 rounded hover:bg-secondary/30 transition">
+                    <input type="checkbox" id="gen-ht-verify" checked
+                      class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
+                    <div>
+                      <span class="font-medium text-foreground text-[11px] flex items-center gap-1">
+                        <i data-lucide="scan-eye" class="w-3 h-3 text-sky-400"></i> Visual Template Verification (Step
+                        4.5)
+                      </span>
+                      <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
+                        Inspect side-by-side template vs generated slide screenshots, converse with Verification Agent
+                        to detect problems, and approve healing edits.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label class="flex items-start gap-2 cursor-pointer p-1.5 rounded hover:bg-secondary/30 transition">
                     <input type="checkbox" id="gen-ht-after-done" checked
                       class="mt-0.5 rounded cursor-pointer text-primary h-3.5 w-3.5">
                     <div>
                       <span class="font-medium text-foreground text-[11px] flex items-center gap-1">
-                        <i data-lucide="sparkles" class="w-3 h-3 text-emerald-400"></i> After Done: AI Presentation Editor
+                        <i data-lucide="sparkles" class="w-3 h-3 text-emerald-400"></i> After Done: AI Presentation
+                        Editor
                       </span>
                       <p class="text-[10px] text-muted-foreground leading-normal mt-0.5">
                         Review live presentation and reply with custom prompts to rerun &amp; edit the PPTX.
@@ -848,14 +1193,18 @@
               </div>
 
               <!-- AI Timeout & Dynamic Model Limits -->
-              <div class="flex items-center justify-between text-muted-foreground text-[11px] pt-1.5 pb-0.5 border-t border-border/40">
+              <div
+                class="flex items-center justify-between text-muted-foreground text-[11px] pt-1.5 pb-0.5 border-t border-border/40">
                 <div class="flex items-center gap-1.5">
                   <i data-lucide="clock" class="w-3.5 h-3.5 text-primary"></i>
                   <span class="font-medium text-foreground">AI Timeout:</span>
-                  <input type="number" id="gen-timeout-input" oninput="this.dataset.userEdited = 'true'" class="shadcn-input w-20 h-6 px-1.5 py-0 text-center font-mono text-[11px]" value="300" min="30" max="1800" title="Request timeout in seconds">
+                  <input type="number" id="gen-timeout-input" oninput="this.dataset.userEdited = 'true'"
+                    class="shadcn-input w-20 h-6 px-1.5 py-0 text-center font-mono text-[11px]" value="300" min="30"
+                    max="1800" title="Request timeout in seconds">
                   <span>sec</span>
                 </div>
-                <span id="gen-model-limits-badge" class="font-mono text-[10px] text-muted-foreground" title="Model max output tokens & context window">Max: 65k • Context: 1M</span>
+                <span id="gen-model-limits-badge" class="font-mono text-[10px] text-muted-foreground"
+                  title="Model max output tokens & context window">Max: 65k • Context: 1M</span>
               </div>
 
               <!-- Actions -->
@@ -994,14 +1343,16 @@
               <div id="gen-after-done-container" class="mt-4 pt-3 border-t border-border space-y-2.5">
                 <div class="flex items-center justify-between flex-wrap gap-2">
                   <div class="flex items-center gap-2">
-                    <div class="w-6 h-6 rounded-md bg-emerald-950/70 border border-emerald-700/60 flex items-center justify-center">
+                    <div
+                      class="w-6 h-6 rounded-md bg-emerald-950/70 border border-emerald-700/60 flex items-center justify-center">
                       <i data-lucide="sparkles" class="w-3.5 h-3.5 text-emerald-400"></i>
                     </div>
                     <div>
                       <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
                         Human Touch: Rerun &amp; Edit Deck with AI
                       </span>
-                      <span class="text-[10px] text-muted-foreground">View presentation output and reply with custom prompt to iterate</span>
+                      <span class="text-[10px] text-muted-foreground">View presentation output and reply with custom
+                        prompt to iterate</span>
                     </div>
                   </div>
 
@@ -1018,8 +1369,7 @@
                 <div class="flex gap-2">
                   <input type="text" id="ht-deck-edit-prompt"
                     placeholder="Reply with custom edit prompt (e.g. 'Make slide 1 title more punchy and bold', 'Rewrite slide 2 bullet points', 'Add a key takeaway slide')..."
-                    class="shadcn-input text-xs flex-1"
-                    onkeydown="if(event.key === 'Enter'){ submitDeckAiEdit(); }">
+                    class="shadcn-input text-xs flex-1" onkeydown="if(event.key === 'Enter'){ submitDeckAiEdit(); }">
                   <button id="btn-ht-deck-edit" onclick="submitDeckAiEdit()"
                     class="shadcn-btn shadcn-btn-default shrink-0 gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white">
                     <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Rerun &amp; Edit PPTX
@@ -1029,19 +1379,23 @@
                 <!-- Suggestions Chips -->
                 <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
                   <span class="text-muted-foreground font-mono">Suggestions:</span>
-                  <button type="button" onclick="setDeckEditPrompt('Shorten bullet points and make them more concise and punchy')"
+                  <button type="button"
+                    onclick="setDeckEditPrompt('Shorten bullet points and make them more concise and punchy')"
                     class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
                     Concise Bullets
                   </button>
-                  <button type="button" onclick="setDeckEditPrompt('Improve typography and translate text into fluent Persian/Farsi')"
+                  <button type="button"
+                    onclick="setDeckEditPrompt('Improve typography and translate text into fluent Persian/Farsi')"
                     class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
                     Translate / Farsi
                   </button>
-                  <button type="button" onclick="setDeckEditPrompt('Add an insightful conclusion and next steps slide at the end')"
+                  <button type="button"
+                    onclick="setDeckEditPrompt('Add an insightful conclusion and next steps slide at the end')"
                     class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
                     + Add Conclusion Slide
                   </button>
-                  <button type="button" onclick="setDeckEditPrompt('Generate new visual images and diagrams for slides with placeholders')"
+                  <button type="button"
+                    onclick="setDeckEditPrompt('Generate new visual images and diagrams for slides with placeholders')"
                     class="px-2 py-0.5 rounded bg-secondary/70 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition">
                     Generate New Visuals
                   </button>
@@ -1094,7 +1448,8 @@
             </div>
 
             <!-- Subtab 4: Real-Time Diagnostics in Studio -->
-            <div id="gen-subtab-diagnostics" class="gen-subtab-content hidden flex-1 flex flex-col p-4 space-y-3 overflow-y-auto max-h-[600px]">
+            <div id="gen-subtab-diagnostics"
+              class="gen-subtab-content hidden flex-1 flex flex-col p-4 space-y-3 overflow-y-auto max-h-[600px]">
               <div class="flex items-center justify-between pb-2 border-b border-border/60">
                 <div class="flex items-center gap-2">
                   <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -1119,10 +1474,12 @@
       <!-- SECTION: GENERATION PIPELINE DIAGNOSTICS -->
       <!-- ============================================================== -->
       <div id="gen-diagnostics-section" class="shadcn-card overflow-hidden">
-        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3.5 border-b border-border/60 bg-secondary/30">
+        <div
+          class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3.5 border-b border-border/60 bg-secondary/30">
           <div>
             <h2 class="shadcn-card-title flex items-center gap-2 text-sm font-semibold">
-              <i data-lucide="stethoscope" class="w-4 h-4 text-emerald-400"></i> Pipeline Diagnostics &amp; Step Inspector
+              <i data-lucide="stethoscope" class="w-4 h-4 text-emerald-400"></i> Pipeline Diagnostics &amp; Step
+              Inspector
             </h2>
             <p class="shadcn-card-description text-xs mt-0.5">
               Live step-by-step diagnostics monitoring execution status, input parameters, and generated outputs.
@@ -1133,7 +1490,8 @@
             <div id="diag-summary-pills" class="flex items-center gap-1.5 text-[11px] font-mono">
               <!-- Rendered dynamically: total, completed, running, pending, etc. -->
             </div>
-            <button onclick="refreshDiagnostics()" class="shadcn-btn shadcn-btn-ghost h-7 px-2 text-xs gap-1" title="Refresh diagnostics">
+            <button onclick="refreshDiagnostics()" class="shadcn-btn shadcn-btn-ghost h-7 px-2 text-xs gap-1"
+              title="Refresh diagnostics">
               <i data-lucide="refresh-cw" class="w-3 h-3"></i>
             </button>
           </div>
@@ -1155,15 +1513,15 @@
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
         <!-- Left: Templates Table & Preview -->
-        <div class="lg:col-span-6 space-y-5">
+        <div class="lg:col-span-5 space-y-5">
           <!-- Control Card -->
           <div class="shadcn-card">
             <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
               <div>
                 <h2 class="shadcn-card-title flex items-center gap-2">
-                  <i data-lucide="sparkle" class="w-4 h-4 text-primary"></i> Template Repository & AI Analysis
+                  <i data-lucide="sparkles" class="w-4 h-4 text-primary"></i> Template Repository & AI Knowledge
                 </h2>
-                <p class="shadcn-card-description">Analyze PPTX design archetypes & sync notes to data/NOTE.md</p>
+                <p class="shadcn-card-description">Standardized slide archetypes & structured notes in data/NOTE.md</p>
               </div>
             </div>
             <div class="shadcn-card-content space-y-3">
@@ -1175,6 +1533,14 @@
                 <button id="btn-analyze-all" onclick="analyzeAllTemplatesBatch()"
                   class="shadcn-btn shadcn-btn-secondary gap-1.5">
                   <i data-lucide="rocket" class="w-3.5 h-3.5 text-primary"></i> Batch Analyze All
+                </button>
+                <button onclick="applyStandardSchema(false)" class="shadcn-btn shadcn-btn-outline gap-1.5"
+                  title="Apply Standard 4-Part Schema to selected template">
+                  <i data-lucide="wand-2" class="w-3.5 h-3.5 text-sky-400"></i> Standardize
+                </button>
+                <button onclick="openTemplateSchemaModal()" class="shadcn-btn shadcn-btn-outline gap-1.5"
+                  title="View Schema Specification">
+                  <i data-lucide="book-marked" class="w-3.5 h-3.5 text-amber-400"></i> Schema
                 </button>
                 <button onclick="loadTemplatesList()" class="shadcn-btn shadcn-btn-outline gap-1.5">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
@@ -1208,10 +1574,10 @@
                   <thead
                     class="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0">
                     <tr>
-                      <th class="py-2 px-3">Template Name</th>
+                      <th class="py-2 px-3">Template</th>
                       <th class="py-2 px-3 text-center">Slides</th>
-                      <th class="py-2 px-3 text-center">Status</th>
-                      <th class="py-2 px-3">Style / Purpose</th>
+                      <th class="py-2 px-3 text-center">Format</th>
+                      <th class="py-2 px-3">Tone / Domain</th>
                     </tr>
                   </thead>
                   <tbody id="templates-table-body" class="divide-y divide-border/60">
@@ -1226,21 +1592,26 @@
 
           <!-- Metadata & Slide Preview -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="shadcn-card h-[240px] flex flex-col">
-              <div class="shadcn-card-header py-2.5">
+            <div class="shadcn-card h-[260px] flex flex-col">
+              <div class="shadcn-card-header py-2.5 border-b border-border">
                 <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                  <i data-lucide="info" class="w-3.5 h-3.5 text-primary"></i> Metadata & Archetype
+                  <i data-lucide="info" class="w-3.5 h-3.5 text-primary"></i> Quick Profile
                 </span>
               </div>
               <div id="tpl-detail-meta"
-                class="shadcn-card-content flex-1 overflow-y-auto text-xs space-y-1.5 p-3 pt-0 text-foreground/80">
+                class="shadcn-card-content flex-1 overflow-y-auto text-xs space-y-2 p-3 text-foreground/80">
                 <p class="text-muted-foreground italic">Select a template above to inspect structure.</p>
               </div>
             </div>
 
-            <div class="shadcn-card h-[240px] flex flex-col">
-              <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
-                <span class="text-xs font-semibold text-foreground">Slide Preview</span>
+            <div class="shadcn-card h-[260px] flex flex-col">
+              <div
+                class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5 border-b border-border">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-semibold text-foreground">Slide Preview</span>
+                  <span id="tpl-slide-arch-badge"
+                    class="shadcn-badge shadcn-badge-outline text-[10px] font-mono hidden"></span>
+                </div>
                 <div class="flex items-center gap-1">
                   <button onclick="navTplSlide(-1)" id="tpl-prev-btn"
                     class="shadcn-btn shadcn-btn-ghost h-5 w-5 p-0">◀</button>
@@ -1249,11 +1620,11 @@
                     class="shadcn-btn shadcn-btn-ghost h-5 w-5 p-0">▶</button>
                 </div>
               </div>
-              <div class="shadcn-card-content flex-1 p-2 pt-0 flex items-center justify-center overflow-hidden">
+              <div class="shadcn-card-content flex-1 p-2 flex items-center justify-center overflow-hidden">
                 <div
                   class="w-full h-full bg-background rounded border border-border flex items-center justify-center p-2">
                   <img id="tpl-slide-img" src="" alt="Template Slide"
-                    class="hidden max-h-full max-w-full object-contain rounded bg-white">
+                    class="hidden max-h-full max-w-full object-contain rounded bg-white shadow-sm">
                   <span id="tpl-slide-placeholder" class="text-[11px] text-muted-foreground">No preview</span>
                 </div>
               </div>
@@ -1261,41 +1632,76 @@
           </div>
         </div>
 
-        <!-- Right: NOTE.md Editor & Console -->
-        <div class="lg:col-span-6 space-y-5">
-          <div class="shadcn-card flex flex-col h-[390px]">
-            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-3">
-              <div>
-                <h2 class="shadcn-card-title flex items-center gap-2">
-                  <i data-lucide="book-open" class="w-4 h-4 text-primary"></i> Template Knowledge Base (data/NOTE.md)
-                </h2>
-                <p class="shadcn-card-description">Archetypes, layout guidelines & style notes</p>
-              </div>
+        <!-- Right: Dual Mode (Structured Inspector & NOTE.md Editor) -->
+        <div class="lg:col-span-7 space-y-5">
+          <div class="shadcn-card flex flex-col h-[550px]">
+            <div
+              class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5 border-b border-border">
               <div class="flex items-center gap-2">
-                <button onclick="saveNoteMd()" class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5">
-                  <i data-lucide="save" class="w-3.5 h-3.5"></i> Save NOTE.md
-                </button>
-                <button onclick="loadNoteMd()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs">
-                  Reload
-                </button>
+                <!-- View Mode Switcher -->
+                <div class="flex items-center bg-secondary/80 p-0.5 rounded-md border border-border">
+                  <button id="btn-view-structured" onclick="switchTemplateViewMode('structured')"
+                    class="px-2.5 py-1 text-xs font-medium rounded transition bg-background text-foreground shadow-sm flex items-center gap-1.5">
+                    <i data-lucide="layout-grid" class="w-3.5 h-3.5 text-primary"></i> <span>Structured Blueprint</span>
+                  </button>
+                  <button id="btn-view-editor" onclick="switchTemplateViewMode('editor')"
+                    class="px-2.5 py-1 text-xs font-medium rounded transition text-muted-foreground hover:text-foreground flex items-center gap-1.5">
+                    <i data-lucide="file-code" class="w-3.5 h-3.5"></i> <span>NOTE.md Raw Editor</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Header Action Buttons -->
+              <div class="flex items-center gap-1.5">
+                <div id="structured-view-actions" class="flex items-center gap-1.5">
+                  <button id="btn-tpl-apply-schema" onclick="applyStandardSchema(false)"
+                    class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1"
+                    title="Format this template into the standard 4-part structured schema">
+                    <i data-lucide="wand-2" class="w-3.5 h-3.5 text-primary"></i> Standardize
+                  </button>
+                  <button onclick="openTemplateSchemaModal()" class="shadcn-btn shadcn-btn-outline h-7 text-xs gap-1"
+                    title="View standard structured schema specification">
+                    <i data-lucide="book-marked" class="w-3.5 h-3.5 text-sky-400"></i> Blueprint Spec
+                  </button>
+                </div>
+                <div id="editor-actions" class="hidden flex items-center gap-1.5">
+                  <button onclick="insertSchemaBoilerplate()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1"
+                    title="Insert blank structured schema boilerplate">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i> Boilerplate
+                  </button>
+                  <button onclick="saveNoteMd()" class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5">
+                    <i data-lucide="save" class="w-3.5 h-3.5"></i> Save
+                  </button>
+                  <button onclick="loadNoteMd()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs">
+                    Reload
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="shadcn-card-content flex-1 p-3 pt-0">
+
+            <!-- Content Area: Structured View -->
+            <div id="tpl-structured-view" class="shadcn-card-content flex-1 p-3.5 overflow-y-auto space-y-4 text-xs">
+              <div class="p-6 text-center text-muted-foreground italic">Select a template to view its structured
+                blueprint.</div>
+            </div>
+
+            <!-- Content Area: Raw Markdown Editor -->
+            <div id="tpl-editor-view" class="shadcn-card-content flex-1 p-3 hidden flex flex-col">
               <textarea id="note-md-editor" class="shadcn-input h-full resize-none font-mono text-xs leading-relaxed"
                 placeholder="Loading template intelligence notes..."></textarea>
             </div>
           </div>
 
           <!-- Analyzer Console -->
-          <div class="shadcn-card flex flex-col h-[230px]">
-            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2.5">
+          <div class="shadcn-card flex flex-col h-[150px]">
+            <div class="shadcn-card-header flex-row items-center justify-between space-y-0 py-2">
               <span class="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <i data-lucide="terminal" class="w-3.5 h-3.5 text-muted-foreground"></i> Analyzer Console
               </span>
               <button onclick="clearAnalyzeLog()"
-                class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px]">Clear</button>
+                class="shadcn-btn shadcn-btn-ghost h-5 px-2 text-[11px]">Clear</button>
             </div>
-            <div class="shadcn-card-content flex-1 p-3 pt-0 overflow-hidden">
+            <div class="shadcn-card-content flex-1 p-2.5 pt-0 overflow-hidden">
               <div id="analyze-console-logs"
                 class="h-full overflow-y-auto font-mono text-[11px] space-y-1 p-2 bg-background rounded-md border border-border text-foreground/80">
                 <div class="text-muted-foreground italic">Ready for template intelligence analysis...</div>
@@ -1320,10 +1726,13 @@
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <button onclick="openBuildStructureFromSamplesModal()" class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5" title="Upload sample paper photos/docs so AI creates an extraction structure.md">
+            <button onclick="openBuildStructureFromSamplesModal()"
+              class="shadcn-btn shadcn-btn-default h-7 text-xs gap-1.5"
+              title="Upload sample paper photos/docs so AI creates an extraction structure.md">
               <i data-lucide="scan-line" class="w-3.5 h-3.5"></i> Build Detection Schema from Files
             </button>
-            <button onclick="openBuildStructureModal()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1.5" title="Synthesize structure schema from a PPTX template">
+            <button onclick="openBuildStructureModal()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1.5"
+              title="Synthesize structure schema from a PPTX template">
               <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> From Template
             </button>
             <button onclick="newStructureFile()" class="shadcn-btn shadcn-btn-secondary h-7 text-xs gap-1.5">
@@ -1813,34 +2222,125 @@
             <input type="password" id="cfg-key" class="shadcn-input font-mono">
           </div>
 
+          <!-- Primary AI Model with 9Router Suggestions -->
           <div>
-            <label class="block font-medium text-foreground mb-1">NINEROUTER_CHAT_MODEL:</label>
-            <p class="text-[11px] text-muted-foreground mb-1.5">Primary Chat & Reasoning Model</p>
-            <input type="text" id="cfg-chat-model" class="shadcn-input font-mono">
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-medium text-foreground">NINEROUTER_CHAT_MODEL:</label>
+              <button type="button" id="btn-toggle-model-browser" onclick="toggleModelBrowser()"
+                class="text-[11px] font-medium text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-primary/10"
+                title="Browse and pick models from 9Router">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
+                <span id="btn-toggle-model-text">Suggest 9Router Models</span>
+                <span id="model-count-badge"
+                  class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-mono">...</span>
+                <i data-lucide="chevron-down" id="model-browser-chevron" class="w-3 h-3 transition-transform"></i>
+              </button>
+            </div>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Primary Chat &amp; Reasoning Model (type custom ID or
+              pick from suggestions)</p>
+            <div class="relative">
+              <input type="text" id="cfg-chat-model" list="cfg-chat-model-datalist"
+                oninput="onModelInputChanged(this.value)" class="shadcn-input font-mono pr-20"
+                placeholder="e.g. ag/gemini-3.8-flash-low">
+              <datalist id="cfg-chat-model-datalist"></datalist>
+              <button type="button" onclick="toggleModelBrowser()"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] px-2 py-0.5 rounded bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all">
+                <i data-lucide="list-filter" class="w-3 h-3 text-primary"></i> Browse
+              </button>
+            </div>
+
+            <!-- Quick Recommended Model Chips -->
+            <div class="mt-2 flex items-center flex-wrap gap-1.5 text-[11px]">
+              <span
+                class="text-muted-foreground font-mono text-[10px] uppercase tracking-wider flex items-center gap-1">
+                <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i> Suggest:
+              </span>
+              <div id="quick-model-chips" class="flex flex-wrap gap-1.5">
+                <!-- Dynamically populated from 9Router -->
+              </div>
+            </div>
+
+            <!-- Expandable 9Router Model Suggestion & Discovery Drawer -->
+            <div id="model-browser-drawer"
+              class="hidden mt-3 p-3.5 rounded-lg border border-border bg-secondary/30 space-y-3 transition-all">
+              <div class="flex items-center justify-between pb-2 border-b border-border/60">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" id="model-status-dot"></div>
+                  <span class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    <i data-lucide="server" class="w-3.5 h-3.5 text-primary"></i> 9Router Available Models
+                  </span>
+                  <span id="model-browser-status" class="text-[10px] text-muted-foreground font-mono"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="button" onclick="refresh9RouterModels(true)"
+                    class="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 py-0.5 rounded border border-border/80 bg-background/50 hover:bg-background transition-colors">
+                    <i data-lucide="refresh-cw" id="model-refresh-icon" class="w-3 h-3"></i> Refresh Live
+                  </button>
+                </div>
+              </div>
+
+              <!-- Search Bar & Capability Filters -->
+              <div class="space-y-2">
+                <div class="relative">
+                  <i data-lucide="search"
+                    class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                  <input type="text" id="model-search-input" oninput="filterModelsList()"
+                    placeholder="Search by name, provider, or ID (e.g. gemini, gpt, claude, combo, deepseek)..."
+                    class="shadcn-input text-xs font-mono pl-8 py-1.5">
+                </div>
+
+                <!-- Provider Filter Tabs -->
+                <div class="flex items-center gap-1.5 flex-wrap pt-0.5" id="model-provider-tabs">
+                  <!-- Populated dynamically with All, Combos, Google (AG), Gemini, Aval, OpenRouter, etc. -->
+                </div>
+              </div>
+
+              <!-- Scrollable Model Cards List -->
+              <div id="model-cards-container"
+                class="max-h-72 overflow-y-auto space-y-1.5 pr-1 divide-y divide-border/30">
+                <!-- Model items rendered here -->
+              </div>
+            </div>
           </div>
 
           <div>
             <label class="block font-medium text-foreground mb-1">NINEROUTER_SEARCH_MODEL:</label>
-            <p class="text-[11px] text-muted-foreground mb-1.5">Search Provider (tavily, exa, brave-search)</p>
-            <input type="text" id="cfg-search-model" class="shadcn-input font-mono">
+            <p class="text-[11px] text-muted-foreground mb-1.5">Search Provider from 9Router (webSearch)</p>
+            <input type="text" id="cfg-search-model" list="cfg-search-model-datalist" class="shadcn-input font-mono">
+            <datalist id="cfg-search-model-datalist"></datalist>
+            <div id="quick-search-chips" class="mt-1.5 flex flex-wrap gap-1.5 text-[11px]"></div>
           </div>
 
           <div>
             <label class="block font-medium text-foreground mb-1">NINEROUTER_FETCH_MODEL:</label>
-            <p class="text-[11px] text-muted-foreground mb-1.5">Web Reader / Scraper (jina-reader, firecrawl, exa)</p>
-            <input type="text" id="cfg-fetch-model" class="shadcn-input font-mono">
+            <p class="text-[11px] text-muted-foreground mb-1.5">Web Reader / Scraper from 9Router (webFetch)</p>
+            <input type="text" id="cfg-fetch-model" list="cfg-fetch-model-datalist" class="shadcn-input font-mono">
+            <datalist id="cfg-fetch-model-datalist"></datalist>
+            <div id="quick-fetch-chips" class="mt-1.5 flex flex-wrap gap-1.5 text-[11px]"></div>
           </div>
 
           <div>
             <label class="block font-medium text-foreground mb-1">NINEROUTER_IMAGE_MODEL:</label>
-            <p class="text-[11px] text-muted-foreground mb-1.5">Slide Image Generation Model</p>
-            <input type="text" id="cfg-image-model" class="shadcn-input font-mono">
+            <p class="text-[11px] text-muted-foreground mb-1.5">Slide Image Generation Model from 9Router</p>
+            <input type="text" id="cfg-image-model" list="cfg-image-model-datalist" class="shadcn-input font-mono">
+            <datalist id="cfg-image-model-datalist"></datalist>
+            <div id="quick-image-chips" class="mt-1.5 flex flex-wrap gap-1.5 text-[11px]"></div>
           </div>
 
           <div>
             <label class="block font-medium text-foreground mb-1">LLM_TIMEOUT (Seconds):</label>
-            <p class="text-[11px] text-muted-foreground mb-1.5">Request timeout for 9Router inference, Vision OCR & Restructure Agent (default: 300s)</p>
-            <input type="number" id="cfg-timeout" min="30" max="1800" step="10" class="shadcn-input font-mono" placeholder="300">
+            <p class="text-[11px] text-muted-foreground mb-1.5">Request timeout for 9Router inference, Vision OCR &
+              Restructure Agent (default: 300s)</p>
+            <input type="number" id="cfg-timeout" min="30" max="1800" step="10" class="shadcn-input font-mono"
+              placeholder="300">
+          </div>
+
+          <div>
+            <label class="block font-medium text-foreground mb-1">VERIFICATION_ROUNDS:</label>
+            <p class="text-[11px] text-muted-foreground mb-1.5">Default number of iterative verification & healing
+              rounds for Step 4.5 (default: 3)</p>
+            <input type="number" id="cfg-verification-rounds" min="1" max="10" step="1" class="shadcn-input font-mono"
+              placeholder="3">
           </div>
 
           <!-- Detected Model Metadata from 9Router -->
@@ -1849,7 +2349,8 @@
               <span class="font-semibold text-foreground text-xs flex items-center gap-1.5">
                 <i data-lucide="cpu" class="w-3.5 h-3.5 text-primary"></i> 9Router Model Intelligence
               </span>
-              <button type="button" onclick="refreshModelMetadataUI()" class="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1">
+              <button type="button" onclick="refreshModelMetadataUI()"
+                class="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1">
                 <i data-lucide="refresh-cw" class="w-3 h-3"></i> Query 9Router
               </button>
             </div>
@@ -1869,6 +2370,413 @@
           <div class="pt-2">
             <button onclick="saveConfigSettings()" class="shadcn-btn shadcn-btn-default gap-2">
               <i data-lucide="save" class="w-4 h-4"></i> Save Settings (.env)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================== -->
+      <!-- DEDICATED AGENT MODELS & THINKING LEVELS SECTION -->
+      <!-- ========================================================== -->
+      <div class="max-w-2xl mx-auto shadcn-card">
+        <div
+          class="shadcn-card-header flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+          <div>
+            <h2 class="shadcn-card-title flex items-center gap-2">
+              <i data-lucide="bot" class="w-4 h-4 text-primary"></i> Dedicated Agent Models &amp; Thinking Levels
+            </h2>
+            <p class="shadcn-card-description">Assign independent 9Router models and reasoning effort (think levels) to
+              each pipeline agent. Unset fields inherit the primary model.</p>
+          </div>
+          <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+            <button type="button" onclick="applyAgentThinkingPreset('high')"
+              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
+              title="Set think level to High (Deep Reasoning) for all agents">
+              <i data-lucide="brain" class="w-3 h-3 text-amber-400"></i> High Think
+            </button>
+            <button type="button" onclick="applyAgentThinkingPreset('low')"
+              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
+              title="Set think level to Low (Fast Speed) for all agents">
+              <i data-lucide="zap" class="w-3 h-3 text-sky-400"></i> Fast Think
+            </button>
+            <button type="button" onclick="resetAllAgentsToDefault()"
+              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all"
+              title="Reset all agents to inherit primary model and default thinking">
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset All
+            </button>
+          </div>
+        </div>
+
+        <div class="shadcn-card-content space-y-3 pt-4 text-xs">
+          <!-- Active Target Notice (appears when browsing model for an agent) -->
+          <div id="agent-model-picker-banner"
+            class="hidden p-2.5 rounded-lg bg-primary/10 border border-primary/40 flex items-center justify-between text-xs animate-in fade-in">
+            <div class="flex items-center gap-2 text-foreground">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
+              <span>Selecting model for <strong id="agent-picker-target-name"
+                  class="text-primary font-mono">Agent</strong>. Pick any model from suggestions or search:</span>
+            </div>
+            <button type="button" onclick="cancelAgentModelPick()" class="text-muted-foreground hover:text-foreground">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- 1. Slide Synthesis & Blueprint Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-generator">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <i data-lucide="presentation" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Slide Synthesis &amp; Blueprint Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">synthesis</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Visual template matching, section-to-slide mapping &amp;
+                    layout infill</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-generator"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('generator')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-generator" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('generator')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('generator')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-generator" onchange="onAgentConfigChanged('generator')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Slide Verification & QA Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-verifier">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Slide Verification &amp; QA Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">qa</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Step 4.5 visual screenshot QA, typography auditing &amp;
+                    auto-healing</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-verifier"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('verifier')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-verifier" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('verifier')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('verifier')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-verifier" onchange="onAgentConfigChanged('verifier')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Autonomous AI Assistant -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-autonomous">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Autonomous AI Assistant
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">terminal</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Multi-turn Gemini-style terminal, web tool orchestration
+                    &amp; execution</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-autonomous"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('autonomous')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-autonomous" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('autonomous')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('autonomous')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-autonomous" onchange="onAgentConfigChanged('autonomous')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Template Analyzer Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-analyzer">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                  <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Template Analyzer Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">intelligence</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Extracts design intelligence, archetype classifications
+                    &amp; NOTE.md guidelines</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-analyzer"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('analyzer')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-analyzer" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('analyzer')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('analyzer')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-analyzer" onchange="onAgentConfigChanged('analyzer')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Storyboard & Structure Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-structure">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <i data-lucide="layout-template" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Storyboard &amp; Structure Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">storyboard</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Multimodal sample notes/handwriting analysis &amp;
+                    structure.md generation</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-structure"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('structure')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-structure" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('structure')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('structure')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-structure" onchange="onAgentConfigChanged('structure')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6. Human Touch / Slide Editor Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-editor">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                  <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Human Touch &amp; Slide Editor Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">interactive</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Interactive slide adjustments, conversational chat &amp;
+                    content refinement</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-editor"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('editor')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-editor" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('editor')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('editor')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-editor" onchange="onAgentConfigChanged('editor')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7. Document Parser & Vision OCR Agent -->
+          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
+            id="agent-card-parser">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-6 h-6 rounded bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                  <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                </div>
+                <div>
+                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    Document Parser &amp; Vision OCR Agent
+                    <span
+                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">parser</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Transcribes handwritten notes, worksheets &amp; complex
+                    multi-modal documents</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="cfg-agent-status-parser"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                <button type="button" onclick="resetAgentToDefault('parser')"
+                  title="Reset to Primary Model &amp; Default Think Level"
+                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
+                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                </button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
+              <div class="md:col-span-7 relative">
+                <input type="text" id="cfg-agent-model-parser" list="cfg-chat-model-datalist"
+                  oninput="onAgentConfigChanged('parser')" class="shadcn-input font-mono text-xs pr-16"
+                  placeholder="Inherit Primary Model">
+                <button type="button" onclick="pickModelForAgent('parser')"
+                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
+              </div>
+              <div class="md:col-span-5">
+                <select id="cfg-agent-think-parser" onchange="onAgentConfigChanged('parser')"
+                  class="shadcn-input font-mono text-xs w-full">
+                  <option value="default">Think: Default / Inherit</option>
+                  <option value="none">Think: None (Off)</option>
+                  <option value="low">Think: Low (Fast Reasoning)</option>
+                  <option value="medium">Think: Medium (Balanced)</option>
+                  <option value="high">Think: High (Deep Reasoning)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Footer Actions -->
+          <div class="pt-3 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-border/60">
+            <span id="agent-customized-summary" class="text-[11px] font-mono text-muted-foreground">All 7 agents
+              currently inherit the primary chat model</span>
+            <button onclick="saveConfigSettings()" class="shadcn-btn shadcn-btn-default gap-2 w-full sm:w-auto">
+              <i data-lucide="save" class="w-4 h-4"></i> Save Agent Settings (.env)
             </button>
           </div>
         </div>
@@ -2054,7 +2962,8 @@
     </div>
     <div class="flex items-center gap-3 text-[11px] text-muted-foreground">
       {% if dev_mode %}
-      <span id="dev-mode-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">
+      <span id="dev-mode-badge"
+        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
         DEV AUTO-RELOAD
       </span>
@@ -2068,61 +2977,61 @@
   {% if dev_mode %}
   <!-- DEV AUTO-RELOAD CLIENT SCRIPT -->
   <script>
-    (function setupDevAutoReload() {
-      console.log('[Dev Auto-Reload] Initializing live-reload client...');
-      let serverBootId = null;
-      let wasDisconnected = false;
-      let eventSource = null;
+      (function setupDevAutoReload() {
+        console.log('[Dev Auto-Reload] Initializing live-reload client...');
+        let serverBootId = null;
+        let wasDisconnected = false;
+        let eventSource = null;
 
-      function connect() {
-        if (eventSource) {
-          try { eventSource.close(); } catch (_) {}
+        function connect() {
+          if (eventSource) {
+            try { eventSource.close(); } catch (_) { }
+          }
+          eventSource = new EventSource('/api/dev/live-reload');
+
+          eventSource.addEventListener('init', function (e) {
+            try {
+              const data = JSON.parse(e.data);
+              if (serverBootId && serverBootId !== data.boot_id) {
+                console.log('[Dev Auto-Reload] Server restarted (Boot ID: ' + data.boot_id + '). Reloading page...');
+                window.location.reload();
+                return;
+              }
+              serverBootId = data.boot_id;
+              console.log('[Dev Auto-Reload] Connected to live reload. Server Boot ID:', serverBootId);
+              if (wasDisconnected) {
+                console.log('[Dev Auto-Reload] Reconnected after server reboot. Reloading page...');
+                window.location.reload();
+              }
+            } catch (err) {
+              console.error('[Dev Auto-Reload] Failed to parse init message:', err);
+            }
+          });
+
+          eventSource.addEventListener('reload', function (e) {
+            console.log('[Dev Auto-Reload] Reload event received:', e.data);
+            const badge = document.getElementById('dev-mode-badge');
+            if (badge) {
+              badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-spin"></span>RELOADING...';
+            }
+            setTimeout(function () {
+              window.location.reload();
+            }, 150);
+          });
+
+          eventSource.onerror = function () {
+            wasDisconnected = true;
+            try { eventSource.close(); } catch (_) { }
+            const badge = document.getElementById('dev-mode-badge');
+            if (badge) {
+              badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>RECONNECTING...';
+            }
+            setTimeout(connect, 1200);
+          };
         }
-        eventSource = new EventSource('/api/dev/live-reload');
 
-        eventSource.addEventListener('init', function(e) {
-          try {
-            const data = JSON.parse(e.data);
-            if (serverBootId && serverBootId !== data.boot_id) {
-              console.log('[Dev Auto-Reload] Server restarted (Boot ID: ' + data.boot_id + '). Reloading page...');
-              window.location.reload();
-              return;
-            }
-            serverBootId = data.boot_id;
-            console.log('[Dev Auto-Reload] Connected to live reload. Server Boot ID:', serverBootId);
-            if (wasDisconnected) {
-              console.log('[Dev Auto-Reload] Reconnected after server reboot. Reloading page...');
-              window.location.reload();
-            }
-          } catch (err) {
-            console.error('[Dev Auto-Reload] Failed to parse init message:', err);
-          }
-        });
-
-        eventSource.addEventListener('reload', function(e) {
-          console.log('[Dev Auto-Reload] Reload event received:', e.data);
-          const badge = document.getElementById('dev-mode-badge');
-          if (badge) {
-            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-spin"></span>RELOADING...';
-          }
-          setTimeout(function() {
-            window.location.reload();
-          }, 150);
-        });
-
-        eventSource.onerror = function() {
-          wasDisconnected = true;
-          try { eventSource.close(); } catch (_) {}
-          const badge = document.getElementById('dev-mode-badge');
-          if (badge) {
-            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>RECONNECTING...';
-          }
-          setTimeout(connect, 1200);
-        };
-      }
-
-      connect();
-    })();
+        connect();
+      })();
   </script>
   {% endif %}
 </body>

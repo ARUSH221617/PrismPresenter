@@ -267,14 +267,16 @@ def test_diagnostics_tracker_lifecycle():
     from pptx_jahat.tools.pptx_builder import DiagnosticsTracker, get_initial_diagnostics_steps
 
     steps = get_initial_diagnostics_steps()
-    assert len(steps) == 7
+    assert len(steps) == 9
     step_ids = [s["id"] for s in steps]
     assert "step_1" in step_ids
+    assert "step_1_font" in step_ids
     assert "step_1_5" in step_ids
     assert "step_2" in step_ids
     assert "step_2_5" in step_ids
     assert "step_3" in step_ids
     assert "step_4" in step_ids
+    assert "step_4_5" in step_ids
     assert "step_5" in step_ids
 
     events = []
@@ -308,9 +310,49 @@ def test_diagnostics_tracker_lifecycle():
     # Verify callback notifications
     assert len(events) >= 5
     summary_list = tracker.get_steps_list()
-    assert len(summary_list) == 7
+    assert len(summary_list) == 9
     for s in summary_list:
         assert not any(k.startswith("_") for k in s.keys())
+
+def test_structured_template_analyzer_and_prompt_formatting():
+    from pathlib import Path
+    from pptx_jahat.tools.template_analyzer import (
+        _extract_template_summary_for_ai,
+        _generate_fallback_template_note,
+        get_analyzed_templates,
+        format_notes_for_ai_prompt,
+        get_standard_note_schema
+    )
+
+    schema = get_standard_note_schema()
+    assert "Standard Structured Template Schema" in schema
+    assert "1. Template Profile" in schema
+    assert "3. Slide Architecture" in schema
+
+    tpl_path = Path("data/T711.pptx")
+    if tpl_path.exists():
+        summary = _extract_template_summary_for_ai(tpl_path)
+        assert summary["total_slides"] == 15
+        assert len(summary["slides_breakdown"]) == 15
+        assert "layout_pattern" in summary["slides_breakdown"][0]
+        assert "slot_roles" in summary["slides_breakdown"][0]
+
+        note = _generate_fallback_template_note(summary)
+        assert "## Template: T711.pptx" in note
+        assert "### 1. Template Profile & Visual Identity" in note
+        assert "### 2. Executive Purpose & Best Use Cases" in note
+        assert "### 3. Slide Architecture & Slot Blueprint" in note
+        assert "### 4. AI Generator Directives & Sequencing Recipes" in note
+
+        analyzed = get_analyzed_templates()
+        if "T711.pptx" in analyzed:
+            t711 = analyzed["T711.pptx"]
+            assert t711.get("is_structured") is True
+            assert len(t711.get("slide_catalog", [])) > 0
+
+        prompt_str = format_notes_for_ai_prompt(["T711.pptx"])
+        assert "Template: T711.pptx" in prompt_str
+        assert "Slide Layout Catalog" in prompt_str
 
 
 

@@ -72,8 +72,21 @@ def inspect_pptx_for_editing(pptx_path: Path | str) -> Dict[str, Any]:
             if getattr(shape, "has_text_frame", False):
                 sh_text = shape.text_frame.text.strip()
                 paragraphs = [p.text.strip() for p in shape.text_frame.paragraphs if p.text.strip()]
-                if not slide_title and (sh_type_name == "TITLE" or "TITLE" in ph_type_str or (sh_idx == 0 and len(sh_text) < 100)):
-                    slide_title = sh_text
+
+            # Extract any embedded math or drawing text runs if standard text_frame was empty
+            if not sh_text and hasattr(shape, "_element"):
+                math_or_sub_texts = [
+                    t.text.strip() for t in shape._element.iter()
+                    if t.text and t.tag.endswith("}t") and t.text.strip()
+                ]
+                if math_or_sub_texts:
+                    sh_text = " ".join(math_or_sub_texts)
+                    paragraphs = [sh_text]
+
+            is_formula = any("math" in c.tag.lower() for c in shape._element.iter()) if hasattr(shape, "_element") else False
+
+            if not slide_title and (sh_type_name == "TITLE" or "TITLE" in ph_type_str or (sh_idx == 0 and len(sh_text) < 100)):
+                slide_title = sh_text
 
             table_data = []
             if getattr(shape, "has_table", False):
@@ -87,15 +100,40 @@ def inspect_pptx_for_editing(pptx_path: Path | str) -> Dict[str, Any]:
             shapes_info.append({
                 "shape_index": sh_idx,
                 "name": shape.name,
-                "type": sh_type_name,
+                "type": "FORMULA" if is_formula else sh_type_name,
                 "is_placeholder": is_ph,
                 "placeholder_type": ph_type_str,
                 "text": sh_text,
                 "paragraphs": paragraphs,
                 "has_table": getattr(shape, "has_table", False),
                 "table_data": table_data,
-                "is_picture": shape.shape_type == MSO_SHAPE_TYPE.PICTURE or "PICTURE" in ph_type_str
+                "is_picture": shape.shape_type == MSO_SHAPE_TYPE.PICTURE or "PICTURE" in ph_type_str,
+                "is_formula": is_formula
             })
+
+        # Extract AlternateContent elements (e.g. OpenXML math equations that python-pptx doesn't index in slide.shapes)
+        try:
+            alt_elements = slide._element.xpath(".//*[local-name()='AlternateContent']")
+            for alt_i, alt_el in enumerate(alt_elements):
+                alt_texts = [t.text.strip() for t in alt_el.iter() if t.text and t.tag.endswith("}t") and t.text.strip()]
+                if alt_texts:
+                    formula_text = " ".join(alt_texts)
+                    shapes_info.append({
+                        "shape_index": len(slide.shapes) + alt_i,
+                        "name": f"Formula Equation #{alt_i + 1}",
+                        "type": "FORMULA",
+                        "is_placeholder": False,
+                        "placeholder_type": "",
+                        "text": formula_text,
+                        "paragraphs": [formula_text],
+                        "has_table": False,
+                        "table_data": [],
+                        "is_picture": False,
+                        "is_formula": True,
+                        "alternate_content_index": alt_i
+                    })
+        except Exception:
+            pass
 
         slides_info.append({
             "slide_index": s_idx,
@@ -184,8 +222,12 @@ Output ONLY valid JSON adhering to this exact schema:
 """
 
     try:
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        e_model = Config.get_agent_model("editor")
+        e_think = Config.get_agent_think_level("editor")
+        response = Config.safe_chat_completion(
+            client,
+            "editor",
+            model=e_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -300,8 +342,12 @@ Output ONLY valid JSON adhering to this exact schema:
 """
 
     try:
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        e_model = Config.get_agent_model("editor")
+        e_think = Config.get_agent_think_level("editor")
+        response = Config.safe_chat_completion(
+            client,
+            "editor",
+            model=e_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -432,10 +478,14 @@ Output ONLY valid JSON adhering strictly to:
 }}
 """
 
-    log(f"[*] Dispatching edit prompt to 9Router AI Model '{Config.NINEROUTER_CHAT_MODEL}'...")
+    e_model = Config.get_agent_model("editor")
+    e_think = Config.get_agent_think_level("editor")
+    log(f"[*] Dispatching edit prompt to 9Router AI Model '{e_model}' (thinking: {e_think})...")
     try:
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        response = Config.safe_chat_completion(
+            client,
+            "editor",
+            model=e_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}

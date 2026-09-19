@@ -2687,6 +2687,8 @@ class PPTXJahatApp(tk.Tk):
         form_frame = tk.Frame(card.body, bg=Theme.BG_SURFACE)
         form_frame.pack(fill=tk.BOTH, expand=True, pady=4)
 
+        self.model_combos = {}
+
         for k, v, is_secret, desc in fields:
             row = tk.Frame(form_frame, bg=Theme.BG_SURFACE)
             row.pack(fill=tk.X, pady=8)
@@ -2698,8 +2700,29 @@ class PPTXJahatApp(tk.Tk):
 
             var = tk.StringVar(value=v)
             self.env_vars[k] = var
-            entry = ttk.Entry(row, textvariable=var, show="*" if is_secret else "")
-            entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+
+            if k == "NINEROUTER_CHAT_MODEL":
+                combo = ttk.Combobox(row, textvariable=var)
+                combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+                self.model_combos[k] = combo
+            elif k == "NINEROUTER_SEARCH_MODEL":
+                combo = ttk.Combobox(row, textvariable=var, values=["exa/search", "tavily", "brave-search"])
+                combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+                self.model_combos[k] = combo
+            elif k == "NINEROUTER_FETCH_MODEL":
+                combo = ttk.Combobox(row, textvariable=var, values=["exa/fetch", "jina-reader", "firecrawl"])
+                combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+                self.model_combos[k] = combo
+            elif k == "NINEROUTER_IMAGE_MODEL":
+                combo = ttk.Combobox(row, textvariable=var, values=["gemini/gemini-3.1-flash-image-preview", "gemini/gemini-3-pro-image-preview", "ag/gemini-3.1-flash-image"])
+                combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+                self.model_combos[k] = combo
+            else:
+                entry = ttk.Entry(row, textvariable=var, show="*" if is_secret else "")
+                entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+
+        # Trigger async or delayed 9Router model populate
+        self.after(500, self._populate_gui_model_suggestions)
 
         btn_row = tk.Frame(card.body, bg=Theme.BG_SURFACE, pady=12)
         btn_row.pack(fill=tk.X, side=tk.BOTTOM)
@@ -2710,7 +2733,40 @@ class PPTXJahatApp(tk.Tk):
             command=self._save_env_settings,
             is_primary=True
         )
-        btn_save.pack(side=tk.LEFT)
+        btn_save.pack(side=tk.LEFT, padx=4)
+
+        btn_refresh_models = StyledActionBtn(
+            btn_row,
+            text="✨ Suggest & Refresh 9Router Models",
+            command=self._populate_gui_model_suggestions,
+            is_primary=False
+        )
+        btn_refresh_models.pack(side=tk.LEFT, padx=4)
+
+    def _populate_gui_model_suggestions(self):
+        try:
+            url = self.env_vars.get("NINEROUTER_URL", tk.StringVar()).get()
+            key = self.env_vars.get("NINEROUTER_KEY", tk.StringVar()).get()
+            res = Config.get_9router_models(category="all", base_url=url, api_key=key)
+            if res and res.get("success"):
+                cats = res.get("categories", {})
+                chat_models = [m["id"] for m in cats.get("chat", [])]
+                if "NINEROUTER_CHAT_MODEL" in self.model_combos and chat_models:
+                    self.model_combos["NINEROUTER_CHAT_MODEL"]["values"] = chat_models
+
+                img_models = [m["id"] for m in cats.get("image", [])]
+                if "NINEROUTER_IMAGE_MODEL" in self.model_combos and img_models:
+                    self.model_combos["NINEROUTER_IMAGE_MODEL"]["values"] = img_models
+
+                search_models = [m["id"] for m in cats.get("search", [])]
+                if "NINEROUTER_SEARCH_MODEL" in self.model_combos and search_models:
+                    self.model_combos["NINEROUTER_SEARCH_MODEL"]["values"] = search_models
+
+                fetch_models = [m["id"] for m in cats.get("fetch", [])]
+                if "NINEROUTER_FETCH_MODEL" in self.model_combos and fetch_models:
+                    self.model_combos["NINEROUTER_FETCH_MODEL"]["values"] = fetch_models
+        except Exception:
+            pass
 
     def _save_env_settings(self):
         env_lines = []

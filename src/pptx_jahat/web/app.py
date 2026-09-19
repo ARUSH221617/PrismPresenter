@@ -35,9 +35,15 @@ from pptx_jahat.tools.template_analyzer import (
     load_notes,
     save_notes,
     get_analyzed_templates,
+    get_standard_note_schema,
+    generate_blank_structured_note,
+    _extract_template_summary_for_ai,
+    _generate_fallback_template_note,
+    update_template_note_in_file,
     NOTE_FILE
 )
-from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog
+from pptx_jahat.tools.pptx_engine import extract_all_templates, get_components_catalog, extract_template_fonts
+from pptx_jahat.tools.font_verifier import get_available_system_fonts, verify_fonts_inventory
 from pptx_jahat.tools.structure_manager import (
     list_structure_files,
     get_structure_content,
@@ -197,6 +203,76 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
             "templates": templates
         })
 
+    @app.route("/api/fonts/system", methods=["GET"])
+    def get_system_fonts_api():
+        force_rescan = request.args.get("rescan", "").lower() in ("true", "1", "yes")
+        catalog = get_available_system_fonts(force_rescan=force_rescan)
+        return jsonify({
+            "success": True,
+            "families": catalog.get("families", []),
+            "persian_fonts": catalog.get("persian_fonts", []),
+            "latin_fonts": catalog.get("latin_fonts", []),
+            "total_count": len(catalog.get("families", []))
+        })
+
+    @app.route("/api/fonts/system/rescan", methods=["POST"])
+    def rescan_system_fonts_api():
+        catalog = get_available_system_fonts(force_rescan=True)
+        return jsonify({
+            "success": True,
+            "families": catalog.get("families", []),
+            "persian_fonts": catalog.get("persian_fonts", []),
+            "latin_fonts": catalog.get("latin_fonts", []),
+            "total_count": len(catalog.get("families", []))
+        })
+
+    @app.route("/api/fonts/verify", methods=["GET", "POST"])
+    def verify_template_fonts_api():
+        if request.method == "POST":
+            data = request.get_json() or {}
+        else:
+            data = request.args.to_dict()
+
+        if data.get("rescan", "").lower() in ("true", "1", "yes"):
+            get_available_system_fonts(force_rescan=True)
+
+        template_name = data.get("template_name", "").strip()
+        provided_fonts = data.get("fonts", [])
+        if isinstance(provided_fonts, str):
+            provided_fonts = [s.strip() for s in provided_fonts.split(",") if s.strip()]
+
+        fonts_to_check = set()
+        if isinstance(provided_fonts, list):
+            for f in provided_fonts:
+                if f and str(f).strip():
+                    fonts_to_check.add(str(f).strip())
+
+        from pptx import Presentation
+        if template_name and template_name not in ("All Templates", "✨ All Templates (Global AI Intelligent Matching)", "✨ All Templates (Global AI Matching)"):
+            candidate = DATA_DIR / template_name
+            if candidate.exists() and candidate.suffix.lower() == ".pptx":
+                try:
+                    prs = Presentation(str(candidate))
+                    tpl_f = extract_template_fonts(prs)
+                    fonts_to_check.update(tpl_f)
+                except Exception as ex:
+                    return jsonify({"success": False, "error": f"Failed to inspect template '{template_name}': {ex}"}), 400
+        elif not fonts_to_check:
+            # Check all templates in DATA_DIR
+            for p in DATA_DIR.glob("*.pptx"):
+                if not p.name.endswith("_generated.pptx"):
+                    try:
+                        prs = Presentation(str(p))
+                        fonts_to_check.update(extract_template_fonts(prs))
+                    except Exception:
+                        pass
+
+        fonts_list = sorted(list(fonts_to_check))
+        result = verify_fonts_inventory(fonts_list)
+        result["success"] = True
+        result["template_name"] = template_name or "All Templates"
+        return jsonify(result)
+
     @app.route("/api/generator/upload", methods=["POST"])
     def upload_docx():
         if "file" not in request.files:
@@ -275,10 +351,25 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
         enable_detection = bool(data.get("enable_detection", True))
         enable_restructure = bool(data.get("enable_restructure", False))
         enable_blueprint = bool(data.get("enable_blueprint", True))
+        enable_verification = bool(data.get("enable_verification", True))
+        verification_rounds_val = data.get("verification_rounds")
+        try:
+            verification_rounds = int(verification_rounds_val) if verification_rounds_val is not None else Config.VERIFICATION_ROUNDS
+        except (ValueError, TypeError):
+            verification_rounds = Config.VERIFICATION_ROUNDS
         enable_human_touch = bool(data.get("enable_human_touch", False))
-        human_touch_steps = data.get("human_touch_steps", ["extract", "restructure", "after_done"])
+        human_touch_steps = data.get("human_touch_steps", ["extract", "restructure", "verify", "after_done"])
         output_path = data.get("output_path", "").strip()
         timeout_val = data.get("timeout", None)
+        font_fallbacks = data.get("font_fallbacks", {})
+        if not isinstance(font_fallbacks, dict):
+            font_fallbacks = {}
+
+        # Allow user to specify or override active 9Router chat model per generation
+        chat_model_override = str(data.get("chat_model") or data.get("model") or "").strip()
+        if chat_model_override:
+            Config.NINEROUTER_CHAT_MODEL = chat_model_override
+            os.environ["NINEROUTER_CHAT_MODEL"] = chat_model_override
 
         try:
             req_timeout = float(timeout_val) if timeout_val is not None else None
@@ -379,8 +470,10 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                     human_event.clear()
 
                 step_titles = {
+                    "font_fallback": "Step 1.2: Verify Template Fonts & Fallbacks",
                     "extract": "Step 2: Extract Slides from Inputs",
-                    "restructure": "Step 2.5: Restructure Slides"
+                    "restructure": "Step 2.5: Restructure Slides",
+                    "verify": "Step 4.5: Visual Template Alignment & Verification"
                 }
                 title_str = step_titles.get(step, f"Step: {step}")
                 log_callback(f"[Human Touch] {title_str} ready. Pausing for human review, edit, or rerun prompt...")
@@ -452,6 +545,24 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                                         log_cb=log_callback,
                                         timeout=req_timeout
                                     )
+                                elif step == "verify":
+                                    from pptx_jahat.tools.slide_verifier import converse_with_verification_agent
+                                    chat_history = edited_data.get("conversation_history", [])
+                                    chat_history.append({"role": "user", "content": user_prompt})
+                                    active_sidx = None
+                                    if isinstance(action_info.get("data"), dict):
+                                        active_sidx = action_info.get("data", {}).get("active_slide_index")
+                                    refined = converse_with_verification_agent(
+                                        current_verification_data=edited_data,
+                                        user_message=user_prompt,
+                                        active_slide_index=active_sidx,
+                                        conversation_history=chat_history,
+                                        log_cb=log_callback,
+                                        timeout=req_timeout
+                                    )
+                                    if refined.get("agent_reply"):
+                                        chat_history.append({"role": "assistant", "content": refined.get("agent_reply", "")})
+                                    refined["conversation_history"] = chat_history
                                 else:
                                     refined = edited_data
 
@@ -501,7 +612,10 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                     on_step_update=on_step_update,
                     enable_human_touch=enable_human_touch,
                     human_touch_steps=human_touch_steps,
-                    on_human_review=on_human_review
+                    on_human_review=on_human_review,
+                    font_fallbacks=font_fallbacks,
+                    enable_verification=enable_verification,
+                    verification_rounds=verification_rounds
                 )
 
                 # Pre-render slides for instant UI loading
@@ -753,6 +867,47 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
+    @app.route("/api/generator/verify/chat", methods=["POST"])
+    def api_verify_chat():
+        data = request.get_json() or {}
+        verification_data = data.get("verification_data", {})
+        user_message = data.get("message", "").strip()
+        active_slide = data.get("active_slide_index", None)
+        history = data.get("history", [])
+        timeout_val = data.get("timeout", None)
+
+        if not user_message:
+            return jsonify({"success": False, "error": "Message cannot be empty."}), 400
+
+        try:
+            from pptx_jahat.tools.slide_verifier import converse_with_verification_agent
+            result = converse_with_verification_agent(
+                current_verification_data=verification_data,
+                user_message=user_message,
+                active_slide_index=active_slide,
+                conversation_history=history,
+                timeout=float(timeout_val) if timeout_val else None
+            )
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/generator/verify/apply", methods=["POST"])
+    def api_verify_apply():
+        data = request.get_json() or {}
+        file_path = data.get("file_path", "").strip()
+        actions = data.get("actions", [])
+
+        if not file_path or not Path(file_path).exists():
+            return jsonify({"success": False, "error": "PPTX file path does not exist."}), 400
+
+        try:
+            from pptx_jahat.tools.slide_verifier import apply_verification_edits
+            res = apply_verification_edits(file_path, actions)
+            return jsonify(res)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
     @app.route("/api/generator/edit-pptx", methods=["POST"])
     def api_edit_presentation():
         data = request.get_json() or {}
@@ -882,7 +1037,16 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "is_analyzed": is_analyzed,
                 "purpose": info.get("purpose", "Not analyzed"),
                 "style": info.get("style", "Not analyzed"),
-                "brief": info.get("brief", "")
+                "brief": info.get("brief", ""),
+                "display_name": info.get("display_name", tpl.stem),
+                "domain": info.get("domain", "General Business & Educational"),
+                "color_theme": info.get("color_theme", "Standard"),
+                "typography": info.get("typography", "Standard"),
+                "density": info.get("density", "Medium-density"),
+                "slide_catalog": info.get("slide_catalog", []),
+                "flow_recipe": info.get("flow_recipe", []),
+                "trigger_conditions": info.get("trigger_conditions", ""),
+                "is_structured": info.get("is_structured", False)
             })
 
         return jsonify({
@@ -890,6 +1054,69 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
             "templates": items,
             "total_count": len(items),
             "analyzed_count": sum(1 for i in items if i["is_analyzed"])
+        })
+
+    @app.route("/api/templates/schema", methods=["GET"])
+    def get_template_schema_spec():
+        """Returns the official standardized template note schema specification."""
+        return jsonify({
+            "success": True,
+            "schema": get_standard_note_schema()
+        })
+
+    @app.route("/api/templates/boilerplate", methods=["GET"])
+    def get_template_boilerplate():
+        """Returns structured note boilerplate pre-populated for a given template."""
+        filename = request.args.get("filename", "").strip()
+        tpl_path = (DATA_DIR / filename) if filename else None
+        boilerplate = generate_blank_structured_note(filename, pptx_path=tpl_path)
+        return jsonify({
+            "success": True,
+            "filename": filename,
+            "boilerplate": boilerplate
+        })
+
+    @app.route("/api/templates/apply-schema", methods=["POST"])
+    def apply_standard_schema_to_template():
+        """
+        Applies standardized structured template schema to a specific template or all templates.
+        """
+        data = request.get_json() or {}
+        filename = data.get("filename", "").strip()
+        apply_all = data.get("all", False)
+
+        if apply_all:
+            pptx_files = sorted(list(DATA_DIR.glob("*.pptx")))
+            templates = [f for f in pptx_files if not f.name.endswith("_generated.pptx")]
+            for tpl in templates:
+                try:
+                    summary = _extract_template_summary_for_ai(tpl)
+                    note = _generate_fallback_template_note(summary)
+                    update_template_note_in_file(tpl.name, note, NOTE_FILE)
+                except Exception as e:
+                    pass
+            return jsonify({
+                "success": True,
+                "message": f"Successfully applied standardized schema to all {len(templates)} templates.",
+                "content": load_notes(NOTE_FILE)
+            })
+
+        if not filename:
+            return jsonify({"success": False, "error": "Filename is required"}), 400
+
+        tpl_path = DATA_DIR / filename
+        if not tpl_path.exists():
+            return jsonify({"success": False, "error": f"Template '{filename}' not found."}), 404
+
+        summary = _extract_template_summary_for_ai(tpl_path)
+        note = _generate_fallback_template_note(summary)
+        updated_content = update_template_note_in_file(filename, note, NOTE_FILE)
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully formatted note for {filename} into standardized structured schema.",
+            "note": note,
+            "content": updated_content
         })
 
     @app.route("/api/templates/notes", methods=["GET", "POST"])
@@ -1495,29 +1722,81 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
     # -------------------------------------------------------------
     # 6. CONFIGURATION & SETTINGS ENDPOINTS
     # -------------------------------------------------------------
+    @app.route("/api/models", methods=["GET"])
+    def list_models():
+        """
+        Discovers models available from 9Router gateway.
+        Supports category query ('chat', 'image', 'web', 'search', 'fetch', 'all').
+        Accepts optional overrides 'url' and 'key' for real-time testing before saving.
+        """
+        category = request.args.get("category", "chat").strip().lower()
+        url = request.args.get("url", "").strip() or None
+        key = request.args.get("key", "").strip() or None
+        refresh = request.args.get("refresh", "").lower() in ("1", "true", "yes")
+
+        result = Config.get_9router_models(
+            category=category,
+            base_url=url,
+            api_key=key,
+            force_refresh=refresh
+        )
+        return jsonify(result)
+
     @app.route("/api/config", methods=["GET", "POST"])
     def handle_config():
+        from pptx_jahat.config import AGENTS_CONFIG_SCHEMA
         if request.method == "GET":
+            cfg_dict = {
+                "NINEROUTER_URL": Config.NINEROUTER_URL,
+                "NINEROUTER_KEY": Config.NINEROUTER_KEY,
+                "NINEROUTER_CHAT_MODEL": Config.NINEROUTER_CHAT_MODEL,
+                "NINEROUTER_SEARCH_MODEL": Config.NINEROUTER_SEARCH_MODEL,
+                "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
+                "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
+                "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
+                "LLM_TIMEOUT": Config.LLM_TIMEOUT,
+                "VERIFICATION_ROUNDS": Config.VERIFICATION_ROUNDS
+            }
+            for aid in AGENTS_CONFIG_SCHEMA:
+                cfg_dict[f"AGENT_MODEL_{aid.upper()}"] = getattr(Config, f"AGENT_MODEL_{aid.upper()}", "")
+                cfg_dict[f"AGENT_THINK_LEVEL_{aid.upper()}"] = getattr(Config, f"AGENT_THINK_LEVEL_{aid.upper()}", "default")
+
             return jsonify({
                 "success": True,
-                "config": {
-                    "NINEROUTER_URL": Config.NINEROUTER_URL,
-                    "NINEROUTER_KEY": Config.NINEROUTER_KEY,
-                    "NINEROUTER_CHAT_MODEL": Config.NINEROUTER_CHAT_MODEL,
-                    "NINEROUTER_SEARCH_MODEL": Config.NINEROUTER_SEARCH_MODEL,
-                    "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
-                    "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
-                    "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
-                    "LLM_TIMEOUT": Config.LLM_TIMEOUT
-                },
+                "config": cfg_dict,
+                "agents": Config.get_agents_config(),
                 "model_metadata": Config.get_model_metadata()
             })
         else:
             data = request.get_json() or {}
-            cfg = data.get("config", {})
+            cfg = data.get("config") if isinstance(data.get("config"), dict) else dict(data)
 
-            env_lines = []
-            for k in [
+            agents_payload = data.get("agents")
+            if isinstance(agents_payload, dict):
+                for aid, ainfo in agents_payload.items():
+                    if isinstance(ainfo, dict):
+                        if "model" in ainfo:
+                            cfg[f"AGENT_MODEL_{aid.upper()}"] = ainfo.get("model", "")
+                        if "think_level" in ainfo:
+                            cfg[f"AGENT_THINK_LEVEL_{aid.upper()}"] = ainfo.get("think_level", "default")
+
+            from pptx_jahat.config import BASE_DIR
+            env_path = BASE_DIR / ".env"
+
+            # Parse existing .env to preserve existing values/comments
+            existing_env = {}
+            if env_path.exists():
+                try:
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line_s = line.strip()
+                            if line_s and not line_s.startswith("#") and "=" in line_s:
+                                ek, ev = line_s.split("=", 1)
+                                existing_env[ek.strip()] = ev.strip()
+                except Exception:
+                    pass
+
+            managed_keys = [
                 "NINEROUTER_URL",
                 "NINEROUTER_KEY",
                 "NINEROUTER_CHAT_MODEL",
@@ -1525,20 +1804,62 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "NINEROUTER_FETCH_MODEL",
                 "NINEROUTER_IMAGE_MODEL",
                 "PURE_PIL_ACTIVE",
-                "LLM_TIMEOUT"
-            ]:
-                if k in cfg:
-                    env_lines.append(f"{k}={str(cfg[k]).strip()}")
+                "LLM_TIMEOUT",
+                "VERIFICATION_ROUNDS"
+            ]
+            for aid in AGENTS_CONFIG_SCHEMA:
+                managed_keys.append(f"AGENT_MODEL_{aid.upper()}")
+                managed_keys.append(f"AGENT_THINK_LEVEL_{aid.upper()}")
 
-            env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+            for k in managed_keys:
+                if k in cfg and cfg[k] is not None:
+                    val = str(cfg[k]).strip()
+                    existing_env[k] = val
+                    os.environ[k] = val
+                    if hasattr(Config, k):
+                        if k == "LLM_TIMEOUT":
+                            try:
+                                setattr(Config, k, float(val))
+                            except ValueError:
+                                pass
+                        elif k == "VERIFICATION_ROUNDS":
+                            try:
+                                setattr(Config, k, int(val))
+                            except ValueError:
+                                pass
+                        elif k == "PURE_PIL_ACTIVE":
+                            setattr(Config, k, val.lower() in ("1", "true", "yes", "on"))
+                        else:
+                            setattr(Config, k, val)
+
+            env_lines = [f"{k}={v}" for k, v in existing_env.items()]
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(env_lines) + "\n")
 
-            Config.reload()
+            Config.reload(env_path)
+
+            resp_cfg = {
+                "NINEROUTER_URL": Config.NINEROUTER_URL,
+                "NINEROUTER_KEY": Config.NINEROUTER_KEY,
+                "NINEROUTER_CHAT_MODEL": Config.NINEROUTER_CHAT_MODEL,
+                "NINEROUTER_SEARCH_MODEL": Config.NINEROUTER_SEARCH_MODEL,
+                "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
+                "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
+                "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
+                "LLM_TIMEOUT": Config.LLM_TIMEOUT,
+                "VERIFICATION_ROUNDS": Config.VERIFICATION_ROUNDS
+            }
+            for aid in AGENTS_CONFIG_SCHEMA:
+                resp_cfg[f"AGENT_MODEL_{aid.upper()}"] = getattr(Config, f"AGENT_MODEL_{aid.upper()}", "")
+                resp_cfg[f"AGENT_THINK_LEVEL_{aid.upper()}"] = getattr(Config, f"AGENT_THINK_LEVEL_{aid.upper()}", "default")
+
             return jsonify({
                 "success": True,
-                "message": "Configuration saved to .env and reloaded.",
-                "model": Config.NINEROUTER_CHAT_MODEL
+                "message": f"Configuration saved to .env and applied. Model: {Config.NINEROUTER_CHAT_MODEL}",
+                "model": Config.NINEROUTER_CHAT_MODEL,
+                "config": resp_cfg,
+                "agents": Config.get_agents_config(),
+                "model_metadata": Config.get_model_metadata()
             })
 
     return app

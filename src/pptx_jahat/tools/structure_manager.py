@@ -217,8 +217,12 @@ Generate the full Markdown content for `{output_filename}`. Ensure it has all 4 
 """
 
     try:
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        s_model = Config.get_agent_model("structure")
+        s_think = Config.get_agent_think_level("structure")
+        response = Config.safe_chat_completion(
+            client,
+            "structure",
+            model=s_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
@@ -381,12 +385,17 @@ Generate the full Markdown content for `{output_filename}`. Ensure it provides c
     user_content.insert(0, {"type": "text", "text": prompt_text})
 
     try:
+        s_model = Config.get_agent_model("structure")
+        s_think = Config.get_agent_think_level("structure")
+        log(f"[*] Calling 9Router AI Model '{s_model}' (thinking: {s_think}) to analyze {len(valid_paths)} sample(s) (timeout={effective_timeout}s)...")
         messages_payload: Any = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ]
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        response = Config.safe_chat_completion(
+            client,
+            "structure",
+            model=s_model,
             messages=messages_payload,
             temperature=0.25,
             max_tokens=min(Config.get_model_metadata().get("max_tokens", 65536), 32768)
@@ -688,14 +697,18 @@ Instructions:
 }}
 """
 
-    log(f"[*] Dispatching prompt to 9Router AI Model '{Config.NINEROUTER_CHAT_MODEL}' (timeout={Config.LLM_TIMEOUT}s)...")
+    s_model = Config.get_agent_model("structure")
+    s_think = Config.get_agent_think_level("structure")
+    log(f"[*] Dispatching prompt to 9Router AI Model '{s_model}' (thinking: {s_think}, timeout={Config.LLM_TIMEOUT}s)...")
     meta = Config.get_model_metadata()
     max_output = min(meta.get("max_tokens", 65536), 32768)
 
     for attempt in range(2):
         try:
-            response = client.chat.completions.create(
-                model=Config.NINEROUTER_CHAT_MODEL,
+            response = Config.safe_chat_completion(
+                client,
+                "structure",
+                model=s_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt if attempt == 0 else (user_prompt[:3000] + "\n\nProvide 2-4 structured slides now.")}

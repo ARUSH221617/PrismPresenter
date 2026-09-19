@@ -177,7 +177,9 @@ TOOLS_DEFINITIONS = [
                 "properties": {
                     "docx_path": {"type": "string", "description": "Path to input docx file"},
                     "output_path": {"type": "string", "description": "Optional output pptx path"},
-                    "template_name": {"type": "string", "description": "Optional template filename from data folder (defaults to global multi-template scan)"}
+                    "template_name": {"type": "string", "description": "Optional template filename from data folder (defaults to global multi-template scan)"},
+                    "enable_verification": {"type": "boolean", "description": "Enable Step 4.5 Visual Template Alignment & Verification Agent (default true)"},
+                    "verification_rounds": {"type": "integer", "description": "Number of iterative verification & healing rounds (default 3)"}
                 },
                 "required": ["docx_path"]
             }
@@ -430,9 +432,11 @@ class AIAgent:
 
         for step in range(max_steps):
             try:
-                log(f"[Agent Step {step+1}] Calling 9Router model '{Config.NINEROUTER_CHAT_MODEL}' at {Config.NINEROUTER_URL}...")
+                model = Config.get_agent_model("autonomous")
+                think_level = Config.get_agent_think_level("autonomous")
+                log(f"[Agent Step {step+1}] Calling 9Router model '{model}' (thinking: {think_level}) at {Config.NINEROUTER_URL}...")
                 kwargs: Dict[str, Any] = {
-                    "model": Config.NINEROUTER_CHAT_MODEL,
+                    "model": model,
                     "messages": self.messages,
                     "temperature": 0.2
                 }
@@ -440,7 +444,7 @@ class AIAgent:
                     kwargs["tools"] = active_tools
                     kwargs["tool_choice"] = "auto"
 
-                response = client.chat.completions.create(**kwargs)
+                response = Config.safe_chat_completion(client, "autonomous", **kwargs)
             except Exception as e:
                 err_msg = f"9Router LLM API Call Error: {str(e)}"
                 log(err_msg)

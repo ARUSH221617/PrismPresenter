@@ -76,10 +76,17 @@ from pptx_jahat.tools.cache.render_cache import render_pptx_parallel
 class TestRenderEngine(unittest.TestCase):
 
     def setUp(self):
+        self._orig_pure_pil = getattr(Config, "PURE_PIL_ACTIVE", True)
+        self._orig_render_mode = getattr(Config, "RENDER_MODE", "auto")
         Config.PURE_PIL_ACTIVE = True
+        Config.RENDER_MODE = "auto"
         self.theme = Theme()
         self.fonts = FontResolver()
         self.sample_box = (20.0, 20.0, 300.0, 200.0)
+
+    def tearDown(self):
+        Config.PURE_PIL_ACTIVE = self._orig_pure_pil
+        Config.RENDER_MODE = self._orig_render_mode
 
     # 1. Color Resolver Tests
     def test_hex_to_rgb(self):
@@ -194,41 +201,78 @@ class TestRenderEngine(unittest.TestCase):
 
     # 6. PowerPoint COM Slide Export Integration Tests
     def test_com_export_pipeline(self):
-        if os.environ.get("TEST_COM") != "1":
-            self.skipTest("Skipping PowerPoint COM integration test in headless runner (set TEST_COM=1 to enable).")
-
         sample_pptx = DATA_DIR / "T711.pptx"
         if not sample_pptx.exists():
             tpls = list(DATA_DIR.glob("*.pptx"))
             sample_pptx = tpls[0] if tpls else None
 
         if sample_pptx and is_powerpoint_com_available():
-            try:
-                # Test direct COM export
-                com_imgs = export_pptx_slides_com(sample_pptx, width=640, slide_numbers=[1, 2])
-                self.assertEqual(len(com_imgs), 2)
-                self.assertIsInstance(com_imgs[0], Image.Image)
-                self.assertEqual(com_imgs[0].size[0], 640)
+            # Test direct COM export
+            com_imgs = export_pptx_slides_com(sample_pptx, width=640, slide_numbers=[1, 2])
+            self.assertEqual(len(com_imgs), 2)
+            self.assertIsInstance(com_imgs[0], Image.Image)
+            self.assertEqual(com_imgs[0].size[0], 640)
 
-                # Test preview dispatch with COM
-                previews = render_pptx_file_previews(str(sample_pptx), target_width_px=640, use_com=True)
-                self.assertTrue(len(previews) > 0)
-                self.assertIsInstance(previews[0], Image.Image)
-                self.assertEqual(previews[0].size[0], 640)
+            # Test preview dispatch with COM and engine info
+            previews, engine_name = render_pptx_file_previews(
+                str(sample_pptx), target_width_px=640, use_com=True, return_engine_info=True
+            )
+            self.assertTrue(len(previews) > 0)
+            self.assertIsInstance(previews[0], Image.Image)
+            self.assertEqual(previews[0].size[0], 640)
+            self.assertEqual(engine_name, "Native PowerPoint")
 
-                # Test PURE_PIL_ACTIVE=False enforcement
-                Config.PURE_PIL_ACTIVE = False
-                previews_strict = render_pptx_file_previews(str(sample_pptx), target_width_px=640, use_com=True)
-                self.assertEqual(len(previews_strict), 15)
+            # Test PURE_PIL_ACTIVE=False enforcement
+            Config.PURE_PIL_ACTIVE = False
+            previews_strict = render_pptx_file_previews(str(sample_pptx), target_width_px=640, use_com=True)
+            prs_actual = Presentation(str(sample_pptx))
+            self.assertEqual(len(previews_strict), len(prs_actual.slides))
 
-                # Non-existent file should raise RuntimeError when pure PIL is deactivated
-                with self.assertRaises(RuntimeError):
-                    render_pptx_file_previews("non_existent_file.pptx", target_width_px=640, use_com=True)
-            except Exception:
-                self.assertTrue(True)
+            # Non-existent file should raise RuntimeError when pure PIL is deactivated
+            with self.assertRaises(RuntimeError):
+                render_pptx_file_previews("non_existent_file.pptx", target_width_px=640, use_com=True)
         else:
             # Fallback assertion when COM or PowerPoint is unavailable
             self.assertTrue(True)
+
+    def test_text_frame_dynamic_sizing_and_no_wrap(self):
+        from pptx_jahat.tools.pptx_builder import _safe_update_text_frame, run_slidecheck_qa
+        prs = Presentation()
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+        # Add textbox with narrow width (e.g. 2.5 inches) with 60pt font (like template badges)
+        tb = slide.shapes.add_textbox(Inches(5.0), Inches(4.0), Inches(2.5), Inches(1.0))
+        orig_right = tb.left + tb.width
+        p = tb.text_frame.paragraphs[0]
+        r = p.add_run()
+        r.text = "فصل اول:"
+        r.font.name = "IRANYekanXFaNum Heavy"
+        r.font.size = Pt(60)
+        tb.text_frame.word_wrap = False
+
+        # Update with longer Persian text "فصل پنجم:"
+        _safe_update_text_frame(tb.text_frame, "فصل پنجم:", shape=tb)
+
+        # 1. word_wrap must be False for single-line badge/title to avoid breaking into 2 lines
+        self.assertFalse(tb.text_frame.word_wrap)
+
+        # 2. Width must be expanded to fit the text
+        self.assertGreater(tb.width, Inches(2.5))
+
+        # 3. For RTL/right-aligned text, right edge must be preserved
+        self.assertAlmostEqual(tb.left + tb.width, orig_right, delta=50000)
+
+        # 4. SlideCheck QA should not force word_wrap=True on single line
+        tmp_pptx = OUTPUT_DIR / "test_qa_single_line.pptx"
+        prs.save(str(tmp_pptx))
+        report = run_slidecheck_qa(tmp_pptx, auto_heal=True)
+        self.assertTrue(report["passed"])
+        prs_checked = Presentation(str(tmp_pptx))
+        self.assertFalse(prs_checked.slides[0].shapes[0].text_frame.word_wrap)
+        if tmp_pptx.exists():
+            tmp_pptx.unlink()
 
 
 if __name__ == "__main__":

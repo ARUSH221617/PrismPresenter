@@ -52,27 +52,66 @@ def _get_shape_line(shape: Any) -> Dict[str, Any]:
 
 def extract_template_fonts(prs: Presentation) -> List[str]:
     """
-    Extracts all distinct font names used across slide shapes, paragraphs, and runs.
+    Extracts all distinct font names used across slide shapes, tables, groups,
+    paragraphs, runs (including DrawingML cs, latin, and ea typefaces),
+    as well as slide layouts and slide masters.
     """
-    fonts = set()
+    fonts: Set[str] = set()
+    a_ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+
+    def inspect_text_frame(tf: Any) -> None:
+        if not tf:
+            return
+        for p in tf.paragraphs:
+            for r in p.runs:
+                if r.font and r.font.name:
+                    f = r.font.name.strip()
+                    if f and not f.startswith("+"):
+                        fonts.add(f)
+                if hasattr(r, "_r"):
+                    rPr = r._r.find(f"{a_ns}rPr")
+                    if rPr is not None:
+                        for tag in ("cs", "latin", "ea"):
+                            elem = rPr.find(f"{a_ns}{tag}")
+                            if elem is not None and elem.get("typeface"):
+                                tf_val = elem.get("typeface").strip()
+                                if tf_val and not tf_val.startswith("+"):
+                                    fonts.add(tf_val)
+            if hasattr(p, "_p"):
+                pPr = p._p.find(f"{a_ns}pPr")
+                if pPr is not None:
+                    defRPr = pPr.find(f"{a_ns}defRPr")
+                    if defRPr is not None:
+                        for tag in ("cs", "latin", "ea"):
+                            elem = defRPr.find(f"{a_ns}{tag}")
+                            if elem is not None and elem.get("typeface"):
+                                tf_val = elem.get("typeface").strip()
+                                if tf_val and not tf_val.startswith("+"):
+                                    fonts.add(tf_val)
+
+    def inspect_shape(shape: Any) -> None:
+        if shape.has_text_frame:
+            inspect_text_frame(shape.text_frame)
+        if shape.has_table:
+            for row in shape.table.rows:
+                for cell in row.cells:
+                    if cell.text_frame:
+                        inspect_text_frame(cell.text_frame)
+        if hasattr(shape, "shapes"):
+            for child in shape.shapes:
+                inspect_shape(child)
+
     for slide in prs.slides:
         for shape in slide.shapes:
-            if shape.has_text_frame:
-                for p in shape.text_frame.paragraphs:
-                    for r in p.runs:
-                        if r.font and r.font.name:
-                            fonts.add(r.font.name)
-                    if hasattr(p, "_p"):
-                        pPr = p._p.find("{http://schemas.openxmlformats.org/drawingml/2006/main}pPr")
-                        if pPr is not None:
-                            defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
-                            if defRPr is not None:
-                                cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
-                                if cs is not None and cs.get("typeface"):
-                                    fonts.add(cs.get("typeface"))
-                                latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
-                                if latin is not None and latin.get("typeface"):
-                                    fonts.add(latin.get("typeface"))
+            inspect_shape(shape)
+
+    for master in getattr(prs, "slide_masters", []):
+        for shape in master.shapes:
+            inspect_shape(shape)
+        for layout in getattr(master, "slide_layouts", []):
+            for shape in layout.shapes:
+                inspect_shape(shape)
+
     return sorted(list(fonts))
 
 def _calculate_char_budget(width: Optional[int], height: Optional[int], font_size_pt: Optional[float]) -> int:
@@ -102,8 +141,18 @@ def _get_shape_font(shape: Any) -> Dict[str, Any]:
                                 font_info["color"] = _rgb_to_hex(r.font.color.rgb)
                         except Exception:
                             pass
-                        if font_info["name"] or font_info["size_pt"]:
-                            return font_info
+                    if not font_info["name"] and hasattr(r, "_r"):
+                        rPr = r._r.find("{http://schemas.openxmlformats.org/drawingml/2006/main}rPr")
+                        if rPr is not None:
+                            for tag in ("cs", "latin", "ea"):
+                                elem = rPr.find(f"{{http://schemas.openxmlformats.org/drawingml/2006/main}}{tag}")
+                                if elem is not None and elem.get("typeface"):
+                                    tf = elem.get("typeface").strip()
+                                    if tf and not tf.startswith("+"):
+                                        font_info["name"] = tf
+                                        break
+                    if font_info["name"] or font_info["size_pt"]:
+                        return font_info
                 # Check defRPr if font name or size not found on runs
                 if hasattr(p, "_p"):
                     pPr = p._p.find("{http://schemas.openxmlformats.org/drawingml/2006/main}pPr")
@@ -112,11 +161,11 @@ def _get_shape_font(shape: Any) -> Dict[str, Any]:
                         if defRPr is not None:
                             if not font_info["name"]:
                                 cs = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}cs")
-                                if cs is not None and cs.get("typeface"):
+                                if cs is not None and cs.get("typeface") and not cs.get("typeface").startswith("+"):
                                     font_info["name"] = cs.get("typeface")
                                 else:
                                     latin = defRPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}latin")
-                                    if latin is not None and latin.get("typeface"):
+                                    if latin is not None and latin.get("typeface") and not latin.get("typeface").startswith("+"):
                                         font_info["name"] = latin.get("typeface")
                             if not font_info["size_pt"] and defRPr.get("sz"):
                                 try:

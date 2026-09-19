@@ -91,10 +91,25 @@ def _com_scope() -> Iterator[None]:
         yield
     finally:
         if initialized:
+            was_fault_enabled = False
+            try:
+                import faulthandler
+                was_fault_enabled = faulthandler.is_enabled()
+                if was_fault_enabled:
+                    faulthandler.disable()
+            except Exception:
+                pass
+
             try:
                 pythoncom.CoUninitialize()
             except Exception:
                 pass
+            finally:
+                if was_fault_enabled:
+                    try:
+                        faulthandler.enable()
+                    except Exception:
+                        pass
 
 
 def _iter_registry_access() -> Iterator[int]:
@@ -349,12 +364,16 @@ def _terminate_powerpoint_process(
 
     if pid:
         try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            import win32process
+            if pid in win32process.EnumProcesses():
+                flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=flags,
+                    check=False,
+                )
         except Exception:
             pass
 
@@ -454,6 +473,7 @@ def _acquire_powerpoint(
         )
 
     import win32com.client
+    import win32process
 
     last_error: Optional[Exception] = None
 
@@ -477,18 +497,29 @@ def _acquire_powerpoint(
             "No running PowerPoint application could be attached."
         ) from last_error
 
-    already_running = _process_exists("POWERPNT.EXE")
+    # Snapshot running PIDs before creating new instance to accurately track spawned process
+    pids_before = set()
+    try:
+        pids_before = set(win32process.EnumProcesses())
+    except Exception:
+        pass
 
-    # Prefer a dedicated instance. If PowerPoint is already running, do not assume
-    # ownership unless we are reasonably sure no pre-existing process was present.
+    # Prefer a dedicated instance via DispatchEx.
     try:
         app = win32com.client.DispatchEx("PowerPoint.Application")
-        return _wrap_powerpoint_app(app, owns_process=not already_running)
+        pids_after = set()
+        try:
+            pids_after = set(win32process.EnumProcesses())
+        except Exception:
+            pass
+        new_pids = pids_after - pids_before
+        spawned_pid = next(iter(new_pids), None) if new_pids else None
+        return _PowerPointSession(app=app, owns_process=True, pid=spawned_pid)
     except Exception as exc:
         last_error = exc
         log.debug("DispatchEx failed: %s", exc)
 
-    # If an instance is already active, avoid hijacking it.
+    # If DispatchEx fails but an instance is already active, reuse it without terminating
     try:
         app = win32com.client.GetActiveObject("PowerPoint.Application")
         log.warning(
@@ -596,21 +627,37 @@ def _powerpoint_session(
             _configure_powerpoint_app(session.app, force_visible=force_visible)
             yield session
         finally:
-            if session.owns_process:
-                try:
-                    session.app.Quit()
+            was_fault_enabled = False
+            try:
+                import faulthandler
+                was_fault_enabled = faulthandler.is_enabled()
+                if was_fault_enabled:
+                    faulthandler.disable()
+            except Exception:
+                pass
 
-                    if session.process is not None:
-                        try:
-                            session.process.wait(timeout=5.0)
-                        except subprocess.TimeoutExpired:
-                            _terminate_powerpoint_process(session.pid, session.process)
-                except Exception as exc:
-                    log.debug("PowerPoint Quit failed; attempting termination: %s", exc)
-                    _terminate_powerpoint_process(session.pid, session.process)
+            try:
+                if session.owns_process:
+                    try:
+                        session.app.Quit()
 
-            session.app = None
-            gc.collect()
+                        if session.process is not None:
+                            try:
+                                session.process.wait(timeout=5.0)
+                            except subprocess.TimeoutExpired:
+                                _terminate_powerpoint_process(session.pid, session.process)
+                    except Exception as exc:
+                        log.debug("PowerPoint Quit failed; attempting termination: %s", exc)
+                        _terminate_powerpoint_process(session.pid, session.process)
+
+                session.app = None
+                gc.collect()
+            finally:
+                if was_fault_enabled:
+                    try:
+                        faulthandler.enable()
+                    except Exception:
+                        pass
 
 
 def is_powerpoint_com_available(
@@ -890,7 +937,7 @@ def _open_presentation(
                 "Presentations.Open failed with WithWindow=%s: %s", with_window, exc
             )
 
-    raise PowerPointCOMError("Unable to open presentation in PowerPoint.") from last_exc
+    raise PowerPointCOMError(f"Unable to open presentation in PowerPoint: {_format_com_error(last_exc)}") from last_exc
 
 
 def export_pptx_slides_com(
@@ -1216,7 +1263,8 @@ def export_pptx_slides_com(
                         log.debug("Presentation close failed: %s", exc)
 
                     pres = None
-                    gc.collect()
+                app = None
+                gc.collect()
 
     except (PowerPointCOMError, ValueError, FileNotFoundError):
         raise

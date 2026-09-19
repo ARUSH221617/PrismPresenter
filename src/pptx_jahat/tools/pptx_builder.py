@@ -2,6 +2,7 @@ import json
 import re
 import copy
 import io
+import math
 import time
 import zipfile
 import collections
@@ -29,7 +30,11 @@ from pptx_jahat.tools.structure_manager import (
 from pptx_jahat.tools.pptx_engine import inspect_template_slides, inspect_all_templates
 from pptx_jahat.tools.image_gen import generate_image
 from pptx_jahat.tools.preview import render_pptx_file_previews, image_to_base64_jpeg
-from pptx_jahat.tools.template_analyzer import load_notes
+from pptx_jahat.tools.template_analyzer import load_notes, format_notes_for_ai_prompt
+from pptx_jahat.tools.font_verifier import (
+    verify_fonts_inventory,
+    apply_font_fallbacks_to_presentation
+)
 from openai import OpenAI
 
 def _is_rtl_text(text: str) -> bool:
@@ -99,17 +104,28 @@ def _safe_update_text_frame(
     is_rtl: Optional[bool] = None,
     max_box_width_emu: Optional[int] = None,
     max_box_height_emu: Optional[int] = None,
-    font_override: Optional[str] = None
+    font_override: Optional[str] = None,
+    shape: Optional[Any] = None,
+    font_fallbacks: Optional[Dict[str, str]] = None
 ) -> None:
     """
     Updates text in a text_frame while:
     1. Preserving run-level formatting (color, bold, italic, font face).
-    2. Dynamic font auto-sizing based on character count, bounding box dimensions, and auto_fit.
+    2. Dynamic font auto-sizing based on character count, bounding box dimensions, and auto_size.
     3. Applying true DrawingML RTL properties on both paragraph and run levels.
-    4. Managing TextFrame.auto_fit and word_wrap to eliminate text overflow.
+    4. Dynamically adjusting text box width and coordinates to eliminate text overflow and unwanted wrapping.
+    5. Managing TextFrame.auto_size and word_wrap to prevent clipping while preserving single-line badges/titles.
+    6. Applying mapped font fallbacks when original template font is missing on system.
     """
     if not tf:
         return
+
+    # Resolve target shape if available
+    target_shape = shape if shape is not None else getattr(tf, "_parent", None)
+
+    # Capture initial wrapping and auto_size state from text frame before clearing
+    orig_word_wrap = getattr(tf, "word_wrap", None)
+    orig_auto_size = getattr(tf, "auto_size", None)
 
     # Determine RTL based on content if not explicitly specified
     if is_rtl is None:
@@ -168,7 +184,15 @@ def _safe_update_text_frame(
     except Exception:
         pass
 
-    final_font_name = font_override or saved_font["name"]
+    raw_font_name = saved_font["name"]
+    if font_fallbacks and raw_font_name:
+        for src_f, dst_f in font_fallbacks.items():
+            if src_f and dst_f:
+                if src_f.lower() == raw_font_name.lower() or src_f.lower() in raw_font_name.lower():
+                    raw_font_name = dst_f
+                    break
+
+    final_font_name = font_override or raw_font_name
 
     # Dynamic Font Auto-Sizing calculation based on improve-workflow.pdf formula
     total_chars = sum(len(line) for line in lines)
@@ -194,16 +218,85 @@ def _safe_update_text_frame(
         else:
             calculated_size_pt = 20
 
-    # Ensure word wrapping and auto-fit are enabled to prevent bounding box overflow
+    # Dynamic Text Box Width & Positioning Calculation:
+    # Measures the longest line to ensure the text box boundary actually accommodates the text.
+    needed_w_emu = None
+    try:
+        from pptx_jahat.tools.renderers.typography_engine import FontResolver
+        font_res = FontResolver()
+        target_f_name = final_font_name or "IRANYekanXFaNum Heavy"
+        f_obj, _ = font_res.get_font(target_f_name, int(calculated_size_pt or 14))
+        max_line_w_pt = 0.0
+        for line in lines:
+            bbox = f_obj.getbbox(line)
+            w_pt = (bbox[2] - bbox[0]) * 72.0 / 96.0
+            if w_pt > max_line_w_pt:
+                max_line_w_pt = w_pt
+        text_w_emu = int(max_line_w_pt * 12700)
+    except Exception:
+        char_factor = 0.62 if is_rtl else 0.55
+        max_line_len = max(len(line) for line in lines)
+        max_line_w_pt = max_line_len * (calculated_size_pt or 14) * char_factor
+        text_w_emu = int(max_line_w_pt * 12700)
+
+    margin_l = int(tf.margin_left) if getattr(tf, "margin_left", None) is not None else 91440
+    margin_r = int(tf.margin_right) if getattr(tf, "margin_right", None) is not None else 91440
+    buffer_emu = int(Pt(12))  # ~152,400 EMU padding
+    needed_w_emu = text_w_emu + margin_l + margin_r + buffer_emu
+
+    # Expand text box dimensions if shape is accessible and width is insufficient
+    is_single_line = len(lines) == 1
+    if target_shape is not None and hasattr(target_shape, "width") and hasattr(target_shape, "left"):
+        current_w = int(target_shape.width)
+        current_l = int(target_shape.left)
+
+        slide_w = 12192000
+        try:
+            slide_w = target_shape.part.package.presentation_part.presentation.slide_width
+        except Exception:
+            pass
+
+        # If single line or original template had word_wrap=False, expand width to fit content
+        if (is_single_line or orig_word_wrap is False) and current_w < needed_w_emu:
+            target_w = min(needed_w_emu, slide_w)
+            # RTL right-aligned: anchor right edge and expand towards left
+            if is_rtl or saved_font["algn"] == "r":
+                right_edge = current_l + current_w
+                target_w = min(target_w, right_edge)
+                target_shape.width = target_w
+                target_shape.left = max(0, right_edge - target_w)
+            elif saved_font["algn"] == "ctr":
+                center_x = current_l + current_w // 2
+                target_shape.width = target_w
+                target_shape.left = max(0, min(center_x - target_w // 2, slide_w - target_w))
+            else:
+                target_shape.width = min(target_w, slide_w - current_l)
+
+    # Set word wrap and auto-size appropriately:
+    # Single-line titles/badges and templates with word_wrap=False must NOT wrap into multiple lines!
     try:
         from pptx.enum.text import MSO_AUTO_SIZE
-        tf.word_wrap = True
-        tf.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        if is_single_line or orig_word_wrap is False:
+            tf.word_wrap = False
+            tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+        else:
+            tf.word_wrap = True
+            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     except Exception:
         pass
 
     # Clear old paragraphs and populate with new text lines
     tf.clear()
+
+    # Clear any residual DrawingML math / OMML elements from target shape so old formulas don't linger
+    if target_shape is not None and hasattr(target_shape, "_element"):
+        try:
+            for m_node in list(target_shape._element.xpath(".//*[local-name()='oMath' or local-name()='oMathPara' or local-name()='m']")):
+                mp = m_node.getparent()
+                if mp is not None:
+                    mp.remove(m_node)
+        except Exception:
+            pass
 
     for idx, line in enumerate(lines):
         p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
@@ -267,15 +360,27 @@ def _replace_image_in_shape(shape: Any, new_image_path: Path | str) -> bool:
 def _remove_shape(slide: Any, shape_index: int) -> bool:
     """
     Safely removes a shape from slide XML by shape_index.
+    Supports both direct slide.shapes and AlternateContent elements (e.g. math equations).
     """
     try:
         if 0 <= shape_index < len(slide.shapes):
             shape = slide.shapes[shape_index]
-            sp_elem = shape._element
-            parent = sp_elem.getparent()
-            if parent is not None:
-                parent.remove(sp_elem)
-                return True
+            sp_elem = getattr(shape, "_element", None)
+            if sp_elem is not None:
+                parent = sp_elem.getparent()
+                if parent is not None:
+                    parent.remove(sp_elem)
+                    return True
+        else:
+            # Check AlternateContent elements (e.g. math equations beyond slide.shapes)
+            alt_idx = shape_index - len(slide.shapes)
+            alts = slide._element.xpath(".//*[local-name()='AlternateContent']")
+            if 0 <= alt_idx < len(alts):
+                target_alt = alts[alt_idx]
+                parent = target_alt.getparent()
+                if parent is not None:
+                    parent.remove(target_alt)
+                    return True
     except Exception:
         pass
     return False
@@ -435,11 +540,20 @@ def generate_slide_replacements_with_ai(
         "Strictly return valid JSON adhering to the specified schema."
     )
 
-    # Load Template Intelligence Notes from data/NOTE.md if available
-    template_notes = load_notes()
+    # Load Standardized Template Intelligence Notes from data/NOTE.md
+    available_tpl_names = sorted(list({str(s["template_file"]) for s in template_inventory if s.get("template_file")}))
+    formatted_notes = format_notes_for_ai_prompt(template_names=available_tpl_names if available_tpl_names else None)
     notes_prompt_block = ""
-    if template_notes and template_notes.strip():
+    if formatted_notes and formatted_notes.strip():
         notes_prompt_block = f"""
+Step 0 - Standardized Template Intelligence & Architecture Notes (from data/NOTE.md):
+Use these structured template profiles, slide layout blueprints, slot roles, and sequencing recipes to select the best template and slide archetypes:
+{formatted_notes}
+"""
+    else:
+        template_notes = load_notes()
+        if template_notes and template_notes.strip():
+            notes_prompt_block = f"""
 Step 0 - Template Intelligence & Style Notes (from data/NOTE.md):
 Use these analyzed notes to guide Step 1 (Best Template Selection by style, purpose, feel) and Step 2 (Best Slide Selection):
 {template_notes}
@@ -649,14 +763,18 @@ Return a JSON object with this exact schema:
                 "image_url": {"url": b64}
             })
 
-    log(f"[Step 3] Sending prompt with {len(diverse_candidates)} visual slide previews to 9Router AI '{Config.NINEROUTER_CHAT_MODEL}'...")
+    gen_model = Config.get_agent_model("generator")
+    gen_think = Config.get_agent_think_level("generator")
+    log(f"[Step 3] Sending prompt with {len(diverse_candidates)} visual slide previews to 9Router AI '{gen_model}' (thinking: {gen_think})...")
     try:
         messages_vision: Any = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content_multimodal}
         ]
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        response = Config.safe_chat_completion(
+            client,
+            "generator",
+            model=gen_model,
             messages=messages_vision,
             temperature=0.25,
             max_tokens=max_output,
@@ -674,14 +792,16 @@ Return a JSON object with this exact schema:
     # -------------------------------------------------------------
     # Tier 2: High-Speed Text Blueprint Reasoning (Zero image overhead, ultra-fast & immune to gateway timeouts)
     # -------------------------------------------------------------
-    log(f"[Step 3] Dispatching high-speed text blueprint reasoning to '{Config.NINEROUTER_CHAT_MODEL}'...")
+    log(f"[Step 3] Dispatching high-speed text blueprint reasoning to '{gen_model}' (thinking: {gen_think})...")
     try:
         messages_text: Any = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": text_prompt}
         ]
-        response = client.chat.completions.create(
-            model=Config.NINEROUTER_CHAT_MODEL,
+        response = Config.safe_chat_completion(
+            client,
+            "generator",
+            model=gen_model,
             messages=messages_text,
             temperature=0.2,
             max_tokens=max_output,
@@ -700,7 +820,7 @@ Return a JSON object with this exact schema:
     # -------------------------------------------------------------
     candidate_alt_models = [
         m for m in ["gemini/gemini-3.8-flash", "aval/gemini-3.8-flash", "ag/gemini-3.7-flash-high"]
-        if m != Config.NINEROUTER_CHAT_MODEL
+        if m != gen_model
     ]
     for alt_model in candidate_alt_models:
         try:
@@ -709,7 +829,9 @@ Return a JSON object with this exact schema:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text_prompt}
             ]
-            response = client.chat.completions.create(
+            response = Config.safe_chat_completion(
+                client,
+                "generator",
                 model=alt_model,
                 messages=messages_alt,
                 temperature=0.2,
@@ -728,7 +850,7 @@ Return a JSON object with this exact schema:
     return None
 
 def get_initial_diagnostics_steps() -> List[Dict[str, Any]]:
-    """Returns the baseline list of 7 pipeline steps for diagnostics display."""
+    """Returns the baseline list of 8 pipeline steps for diagnostics display."""
     return [
         {
             "id": "step_1",
@@ -736,6 +858,14 @@ def get_initial_diagnostics_steps() -> List[Dict[str, Any]]:
             "status": "pending",
             "input": "Template catalog (data/), selected template style, visual slide screenshots",
             "output": "Awaiting template inspection...",
+            "duration": None,
+        },
+        {
+            "id": "step_1_font",
+            "name": "Step 1.2: Verify Template Fonts & Fallbacks",
+            "status": "pending",
+            "input": "Template typography inventory vs installed system & project fonts",
+            "output": "Awaiting font verification...",
             "duration": None,
         },
         {
@@ -776,6 +906,14 @@ def get_initial_diagnostics_steps() -> List[Dict[str, Any]]:
             "status": "pending",
             "input": "AI synthesis plan, source template slides, target layout parameters",
             "output": "Awaiting presentation assembly...",
+            "duration": None,
+        },
+        {
+            "id": "step_4_5",
+            "name": "Step 4.5: Visual Template Alignment & Verification",
+            "status": "pending",
+            "input": "Paired template vs generated slide screenshots, shape inventories, visual fidelity audit",
+            "output": "Awaiting visual template verification...",
             "duration": None,
         },
         {
@@ -873,11 +1011,15 @@ def build_pptx_with_agent(
     on_step_update: Optional[Callable[[Dict[str, Any]], None]] = None,
     enable_human_touch: bool = False,
     human_touch_steps: Optional[List[str]] = None,
-    on_human_review: Optional[Callable[[str, Dict[str, Any]], Optional[Dict[str, Any]]]] = None
+    on_human_review: Optional[Callable[[str, Dict[str, Any]], Optional[Dict[str, Any]]]] = None,
+    font_fallbacks: Optional[Dict[str, str]] = None,
+    enable_verification: bool = True,
+    verification_rounds: Optional[int] = None
 ) -> str:
     """
     Multi-Template & Storyboard-Guided Presentation Generation:
     Step 1: Scan & inspect candidate slides across all templates with rendered screenshots.
+    Step 1.2: Verify template typography against system fonts and resolve user fallbacks.
     Step 2: Read and parse multi-modal sources (Word, PowerPoint, Text, Image OCR, Audio, raw text).
     Step 2.5 (Optional): Restructure & rewrite slide contents conforming to structure.md.
     Step 3: Vision AI reasons on slide screenshots & doc content, selecting best slides across templates.
@@ -935,6 +1077,80 @@ def build_pptx_with_agent(
             output_desc=f"Loaded {len(template_inventory)} candidate slides across {len(tpl_files_set)} templates ({', '.join(tpl_files_set)}){fonts_str}."
         )
         log(f"[Step 1] Loaded {len(template_inventory)} candidate slides across templates.")
+
+        # ----------------------------------------------------
+        # Step 1.2: Verify Template Fonts & Fallback Resolution
+        # ----------------------------------------------------
+        detected_fonts = set()
+        for s in template_inventory:
+            for f in s.get("template_fonts", []):
+                if f and not f.startswith("+"):
+                    detected_fonts.add(f)
+        detected_fonts_list = sorted(list(detected_fonts))
+
+        tracker.start_step(
+            "step_1_font",
+            input_desc=f"Template fonts: {', '.join(detected_fonts_list) if detected_fonts_list else 'None detected'}"
+        )
+
+        font_verif = verify_fonts_inventory(detected_fonts_list)
+        missing_fonts = font_verif.get("missing_fonts", [])
+        installed_fonts = font_verif.get("installed_fonts", [])
+        active_font_fallbacks: Dict[str, str] = dict(font_fallbacks or {})
+
+        unresolved_missing = [
+            f for f in missing_fonts
+            if f not in active_font_fallbacks and f.lower() not in {k.lower() for k in active_font_fallbacks}
+        ]
+
+        if not missing_fonts:
+            msg = f"All {len(installed_fonts)} template font(s) verified on system: {', '.join(installed_fonts)}."
+            log(f"[Step 1.2] {msg}")
+            tracker.complete_step("step_1_font", output_desc=msg)
+        elif not unresolved_missing:
+            mapped_str = ", ".join(f"'{k}' -> '{v}'" for k, v in active_font_fallbacks.items())
+            msg = f"Missing font(s) resolved with pre-configured fallbacks: {mapped_str}."
+            log(f"[Step 1.2] {msg}")
+            tracker.complete_step("step_1_font", output_desc=msg)
+        else:
+            missing_str = ", ".join(f"'{f}'" for f in unresolved_missing)
+            log(f"[Step 1.2] Missing template font(s) detected on system: {missing_str}. Asking user for fallback selection...")
+
+            step_data = {
+                "missing_fonts": unresolved_missing,
+                "installed_fonts": installed_fonts,
+                "all_template_fonts": detected_fonts_list,
+                "recommendations": font_verif.get("recommendations", {}),
+                "available_persian": font_verif.get("available_persian", []),
+                "available_latin": font_verif.get("available_latin", []),
+                "system_fonts": font_verif.get("system_fonts", []),
+                "current_fallbacks": active_font_fallbacks
+            }
+
+            if on_human_review:
+                user_feedback = on_human_review("font_fallback", step_data)
+                if user_feedback and isinstance(user_feedback, dict):
+                    user_fallbacks = (
+                        user_feedback.get("font_fallbacks")
+                        or user_feedback.get("data", {}).get("font_fallbacks")
+                        or user_feedback
+                    )
+                    if isinstance(user_fallbacks, dict):
+                        for k, v in user_fallbacks.items():
+                            if v and str(v).strip():
+                                active_font_fallbacks[k] = str(v).strip()
+            else:
+                log(f"[Step 1.2] Non-interactive execution; applying recommended fallback fonts...")
+
+            # Ensure every missing font has a fallback assigned
+            for f in unresolved_missing:
+                if f not in active_font_fallbacks and f.lower() not in {k.lower() for k in active_font_fallbacks}:
+                    active_font_fallbacks[f] = font_verif.get("recommendations", {}).get(f, "Segoe UI")
+
+            mapped_str = ", ".join(f"'{k}' -> '{v}'" for k, v in active_font_fallbacks.items())
+            msg = f"Applied fallback font(s) for missing template fonts: {mapped_str}."
+            log(f"[Step 1.2] {msg}")
+            tracker.complete_step("step_1_font", output_desc=msg)
 
         # ----------------------------------------------------
         # Step 1.5: Pre-load Detection / Storyboard Schema if specified
@@ -1180,7 +1396,9 @@ def build_pptx_with_agent(
                             str(new_text),
                             is_rtl=None,
                             max_box_width_emu=getattr(shape, "width", None),
-                            max_box_height_emu=getattr(shape, "height", None)
+                            max_box_height_emu=getattr(shape, "height", None),
+                            shape=shape,
+                            font_fallbacks=active_font_fallbacks
                         )
 
                 # Table replacements (supporting both shape_index and placeholder_idx)
@@ -1215,9 +1433,10 @@ def build_pptx_with_agent(
                                         cell.text = str(cell_val)
                                         if cell.text_frame and cell.text_frame.paragraphs:
                                             p = cell.text_frame.paragraphs[0]
-                                            _set_paragraph_rtl_and_fonts(p, is_rtl=_is_rtl_text(str(cell_val)))
+                                            cell_fallback_font = next(iter(active_font_fallbacks.values()), None) if active_font_fallbacks else None
+                                            _set_paragraph_rtl_and_fonts(p, font_name=cell_fallback_font, is_rtl=_is_rtl_text(str(cell_val)))
                                             if p.runs:
-                                                _set_run_rtl_and_fonts(p.runs[0], is_rtl=_is_rtl_text(str(cell_val)))
+                                                _set_run_rtl_and_fonts(p.runs[0], font_name=cell_fallback_font, is_rtl=_is_rtl_text(str(cell_val)))
 
                 # Image replacements via Image Gen API (supporting pictures and image placeholders)
                 image_repl_by_sh = {}
@@ -1284,7 +1503,9 @@ def build_pptx_with_agent(
                         shape.text_frame,
                         parsed_doc.get("document_title", "Presentation"),
                         max_box_width_emu=getattr(shape, "width", None),
-                        max_box_height_emu=getattr(shape, "height", None)
+                        max_box_height_emu=getattr(shape, "height", None),
+                        shape=shape,
+                        font_fallbacks=active_font_fallbacks
                     )
                     break
                     
@@ -1302,7 +1523,9 @@ def build_pptx_with_agent(
                         text_shapes[0].text_frame,
                         section.get("title", ""),
                         max_box_width_emu=getattr(text_shapes[0], "width", None),
-                        max_box_height_emu=getattr(text_shapes[0], "height", None)
+                        max_box_height_emu=getattr(text_shapes[0], "height", None),
+                        shape=text_shapes[0],
+                        font_fallbacks=active_font_fallbacks
                     )
                     if len(text_shapes) > 1:
                         body = "\n".join(section.get("paragraphs", []) + [f"• {b}" for b in section.get("bullets", [])])
@@ -1310,8 +1533,16 @@ def build_pptx_with_agent(
                             text_shapes[1].text_frame,
                             body,
                             max_box_width_emu=getattr(text_shapes[1], "width", None),
-                            max_box_height_emu=getattr(text_shapes[1], "height", None)
+                            max_box_height_emu=getattr(text_shapes[1], "height", None),
+                            shape=text_shapes[1],
+                            font_fallbacks=active_font_fallbacks
                         )
+
+        # Apply font fallbacks across all shapes, runs, and tables in the target deck
+        if active_font_fallbacks:
+            updated_font_count = apply_font_fallbacks_to_presentation(target_prs, active_font_fallbacks)
+            if updated_font_count > 0:
+                log(f"[Step 4] Applied font fallbacks to {updated_font_count} run(s) and element(s) in target presentation.")
 
         if not output_path:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1330,13 +1561,104 @@ def build_pptx_with_agent(
         log(f"[Step 4] Finished. Output presentation saved to: {output_path}")
 
         # ----------------------------------------------------
+        # Step 4.5: Visual Template Alignment & Verification Loop
+        # ----------------------------------------------------
+        effective_verification_rounds = max(1, int(verification_rounds if verification_rounds is not None else Config.VERIFICATION_ROUNDS))
+
+        if enable_verification:
+            tracker.start_step(
+                "step_4_5",
+                input_desc=f"Presentation: '{target_out_name}', Max iterative rounds: {effective_verification_rounds}, Paired template slides: {len(target_prs.slides)}, Visual AI: 9Router"
+            )
+            log(f"[Step 4.5] Running Visual Template Alignment & Slide Verification Loop (Max {effective_verification_rounds} rounds)...")
+            try:
+                from pptx_jahat.tools.slide_verifier import (
+                    run_presentation_visual_verification,
+                    apply_verification_edits
+                )
+
+                total_healed_across_rounds = 0
+                final_round_completed = 0
+                all_clean = False
+
+                for round_idx in range(1, effective_verification_rounds + 1):
+                    final_round_completed = round_idx
+                    log(f"[Step 4.5] --- Verification Round {round_idx}/{effective_verification_rounds} ---")
+
+                    verif_report = run_presentation_visual_verification(
+                        pptx_path=output_path,
+                        ai_plan=ai_plan,
+                        template_inventory=template_inventory,
+                        doc_context=parsed_doc,
+                        log_cb=log,
+                        timeout=effective_timeout,
+                        round_num=round_idx,
+                        max_rounds=effective_verification_rounds
+                    )
+                    verif_report["round"] = round_idx
+                    verif_report["max_rounds"] = effective_verification_rounds
+
+                    # Human Touch: Review template alignment & converse with verification agent
+                    if enable_human_touch and on_human_review and (not human_touch_steps or "verify" in human_touch_steps):
+                        log(f"[Human Touch] Slide visual verification (Round {round_idx}/{effective_verification_rounds}) ready for human review & conversation...")
+                        reviewed_verif = on_human_review("verify", verif_report)
+                        if reviewed_verif and isinstance(reviewed_verif, dict):
+                            verif_report = reviewed_verif
+
+                    actions_to_apply = verif_report.get("aggregated_actions", [])
+                    issues_count = verif_report.get("total_issues_found", 0)
+
+                    # If clean with zero issues or actions, verify passed!
+                    if verif_report.get("all_correct", False) or (issues_count == 0 and len(actions_to_apply) == 0):
+                        log(f"[Step 4.5] Visual verification PASSED on Round {round_idx}/{effective_verification_rounds}: All slides cleanly aligned with 0 issues.")
+                        all_clean = True
+                        break
+
+                    if actions_to_apply:
+                        log(f"[Step 4.5] Round {round_idx}: Applying {len(actions_to_apply)} healing action(s) to presentation...")
+                        edit_res = apply_verification_edits(output_path, actions_to_apply, log_cb=log)
+                        applied_c = edit_res.get("applied_count", len(actions_to_apply))
+                        total_healed_across_rounds += applied_c
+                    else:
+                        # Issues noted but no automated actions formulated
+                        break
+
+                if all_clean:
+                    tracker.complete_step(
+                        "step_4_5",
+                        output_desc=f"Visual verification PASSED (Round {final_round_completed}/{effective_verification_rounds}): Slides cleanly match chosen templates. Total healed edits: {total_healed_across_rounds}."
+                    )
+                else:
+                    tracker.complete_step(
+                        "step_4_5",
+                        output_desc=f"Visual verification completed {final_round_completed}/{effective_verification_rounds} rounds. Applied {total_healed_across_rounds} healing edit(s) across slides."
+                    )
+            except Exception as v_ex:
+                log(f"[Step 4.5 Warning] Visual verification notice: {v_ex}. Proceeding to SlideCheck QA.")
+                tracker.complete_step(
+                    "step_4_5",
+                    output_desc=f"Visual verification notice: {v_ex}. Proceeded to SlideCheck QA."
+                )
+        else:
+            tracker.skip_step(
+                "step_4_5",
+                reason="Visual template verification toggle disabled by user at generation time."
+            )
+
+        # ----------------------------------------------------
         # Step 5: Verification & Automated SlideCheck QA Loop
         # ----------------------------------------------------
         log("[Step 5] Running Automated SlideCheck QA & Integrity Verification Loop...")
 
-        expected_tpl_fonts = []
+        expected_tpl_fonts: List[str] = []
         if template_inventory and "template_fonts" in template_inventory[0]:
-            expected_tpl_fonts = template_inventory[0].get("template_fonts", [])
+            raw_exp = list(template_inventory[0].get("template_fonts", []))
+            if active_font_fallbacks:
+                expected_tpl_fonts = [
+                    str(active_font_fallbacks.get(f, f)) for f in raw_exp if f
+                ]
+            else:
+                expected_tpl_fonts = [str(f) for f in raw_exp if f]
 
         tracker.start_step(
             "step_5",
@@ -1480,7 +1802,15 @@ def run_slidecheck_qa(
                     h_in = shape.height / 914400.0
                     chars_per_line = max(10, int((w_in * 72.0) / (current_sz_pt * 0.52)))
                     max_lines_allowed = max(1, int((h_in * 72.0) / (current_sz_pt * 1.30)))
-                    estimated_lines = sum(max(1, int(len(ln) / chars_per_line) + 1) for ln in lines)
+                    estimated_lines = sum(max(1, math.ceil(len(ln) / max(1, chars_per_line))) for ln in lines)
+
+                    is_single_line = len(lines) == 1
+                    if is_single_line:
+                        # Single-line titles and badges should never wrap into two lines
+                        if tf.word_wrap is not False:
+                            tf.word_wrap = False
+                            needs_save = True
+                        continue
 
                     if estimated_lines > max_lines_allowed * 1.15:
                         heal_pt = max(9.5, current_sz_pt - 2.5)
@@ -1490,7 +1820,7 @@ def run_slidecheck_qa(
                         try:
                             from pptx.enum.text import MSO_AUTO_SIZE
                             tf.word_wrap = True
-                            tf.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+                            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
                         except Exception:
                             pass
                         report["overflow_issues_healed"] += 1
@@ -1676,8 +2006,9 @@ Ensure no conflicting shape removals or malformed tables are generated.
                 {"role": "system", "content": "You are a PowerPoint Diagnostic & Repair Agent. Fix presentation generation errors and output clean valid JSON."},
                 {"role": "user", "content": user_msg_parts}
             ]
-            response = client.chat.completions.create(
-                model=Config.NINEROUTER_CHAT_MODEL,
+            response = Config.safe_chat_completion(
+                client,
+                "verifier",
                 messages=messages_repair,
                 temperature=0.1
             )
@@ -1709,7 +2040,7 @@ Ensure no conflicting shape removals or malformed tables are generated.
                         if sh_i is not None and sh_i < len(t_slide.shapes):
                             sh = t_slide.shapes[sh_i]
                             if sh.has_text_frame:
-                                _safe_update_text_frame(sh.text_frame, str(r.get("text", "")))
+                                _safe_update_text_frame(sh.text_frame, str(r.get("text", "")), shape=sh)
                                 
                     if s_plan.get("speaker_notes"):
                         try:

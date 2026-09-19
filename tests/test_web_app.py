@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from pptx_jahat.web.app import create_app
-from pptx_jahat.config import DATA_DIR, OUTPUT_DIR
+from pptx_jahat.config import DATA_DIR, OUTPUT_DIR, Config
 
 @pytest.fixture
 def client():
@@ -23,6 +23,40 @@ def test_templates_api(client):
     assert data["success"] is True
     assert "templates" in data
     assert isinstance(data["templates"], list)
+    if data["templates"]:
+        first = data["templates"][0]
+        assert "filename" in first
+        assert "domain" in first
+        assert "is_structured" in first
+
+def test_template_schema_api(client):
+    res = client.get("/api/templates/schema")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "schema" in data
+    assert "Standard Structured Template Schema" in data["schema"]
+    assert "1. Template Profile & Visual Identity" in data["schema"]
+    assert "3. Slide Architecture & Slot Blueprint" in data["schema"]
+
+def test_template_boilerplate_api(client):
+    res = client.get("/api/templates/boilerplate?filename=T711.pptx")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "boilerplate" in data
+    assert "T711.pptx" in data["boilerplate"]
+    assert "Slide Architecture & Slot Blueprint" in data["boilerplate"]
+
+def test_template_apply_schema_api(client):
+    templates = list(DATA_DIR.glob("*.pptx"))
+    target_name = templates[0].name if templates else "T711.pptx"
+    res = client.post("/api/templates/apply-schema", json={"filename": target_name})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "note" in data
+    assert "Slide Architecture & Slot Blueprint" in data["note"]
 
 def test_generator_templates_api(client):
     res = client.get("/api/generator/templates")
@@ -54,6 +88,69 @@ def test_config_api(client):
     assert "config" in data
     assert "NINEROUTER_URL" in data["config"]
 
+def test_config_post_updates_model(client):
+    prev_model = Config.NINEROUTER_CHAT_MODEL
+    try:
+        post_res = client.post("/api/config", json={
+            "config": {
+                "NINEROUTER_CHAT_MODEL": "ag/gemini-3.8-flash-high"
+            }
+        })
+        assert post_res.status_code == 200
+        data = post_res.get_json()
+        assert data["success"] is True
+        assert data["model"] == "ag/gemini-3.8-flash-high"
+        assert Config.NINEROUTER_CHAT_MODEL == "ag/gemini-3.8-flash-high"
+    finally:
+        Config.NINEROUTER_CHAT_MODEL = prev_model
+
+def test_models_api_default(client):
+    res = client.get("/api/models")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "models" in data
+    assert isinstance(data["models"], list)
+    assert len(data["models"]) > 0
+    assert "providers" in data
+    assert "categories" in data
+    assert "recommended" in data
+    # Test that model structure contains expected fields
+    sample = data["models"][0]
+    assert "id" in sample
+    assert "owned_by" in sample
+    assert "provider" in sample
+    assert "capabilities" in sample
+
+def test_models_api_categories(client):
+    for cat in ["chat", "image", "web", "search", "fetch", "all"]:
+        res = client.get(f"/api/models?category={cat}")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert "models" in data
+        assert isinstance(data["models"], list)
+        assert len(data["models"]) > 0
+
+def test_models_api_with_custom_endpoint(client):
+    # Test that offline / invalid URL returns fallback models safely without crashing
+    res = client.get("/api/models?url=http://127.0.0.1:59999&refresh=1")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert data["connected"] is False
+    assert len(data["models"]) > 0
+    assert data["source"] == "fallback"
+
+def test_index_page_contains_model_browser(client):
+    res = client.get("/")
+    assert res.status_code == 200
+    # Check that the 9Router model suggestion elements are in the template
+    assert b"btn-toggle-model-browser" in res.data
+    assert b"cfg-chat-model-datalist" in res.data
+    assert b"model-browser-drawer" in res.data
+    assert b"quick-model-chips" in res.data
+
 def test_generator_diagnostics_api(client):
     res = client.get("/api/generator/diagnostics")
     assert res.status_code == 200
@@ -61,8 +158,14 @@ def test_generator_diagnostics_api(client):
     assert data["success"] is True
     assert "diagnostics" in data
     assert isinstance(data["diagnostics"], list)
-    assert len(data["diagnostics"]) == 7
+    assert len(data["diagnostics"]) == 9
     # Check that each diagnostic item has status, input, output
+    step_ids = [s["id"] for s in data["diagnostics"]]
+    assert "step_1" in step_ids
+    assert "step_1_font" in step_ids
+    assert "step_1_5" in step_ids
+    assert "step_2" in step_ids
+    assert "step_4_5" in step_ids
     for step in data["diagnostics"]:
         assert "id" in step
         assert "name" in step
@@ -70,6 +173,43 @@ def test_generator_diagnostics_api(client):
         assert "input" in step
         assert "output" in step
         assert step["status"] in ("pending", "running", "completed", "skipped")
+
+def test_system_fonts_api(client):
+    res = client.get("/api/fonts/system")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "families" in data
+    assert "persian_fonts" in data
+    assert "latin_fonts" in data
+    assert len(data["families"]) > 0
+    assert "total_count" in data
+
+def test_system_fonts_rescan_api(client):
+    res = client.post("/api/fonts/system/rescan")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert data["total_count"] > 0
+
+def test_verify_fonts_api(client):
+    # Test GET with explicit font query
+    res = client.get("/api/fonts/verify?fonts=FakeMissingFont123,IRANYekanXFaNum")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "missing_fonts" in data
+    assert "FakeMissingFont123" in data["missing_fonts"]
+    assert "recommendations" in data
+    assert "FakeMissingFont123" in data["recommendations"]
+
+    # Test POST with template name
+    res_tpl = client.post("/api/fonts/verify", json={"template_name": "T711.pptx"})
+    assert res_tpl.status_code == 200
+    data_tpl = res_tpl.get_json()
+    assert data_tpl["success"] is True
+    assert "installed_fonts" in data_tpl
+    assert "missing_fonts" in data_tpl
 
 def test_dev_status_disabled_by_default(client):
     res = client.get("/api/dev/status")
@@ -134,5 +274,54 @@ def test_cli_dev_mode_invocation(monkeypatch):
     assert kwargs["debug"] is True
     assert kwargs["use_reloader"] is True
     assert kwargs["port"] == 5555
+
+
+def test_local_static_assets_served(client):
+    """Ensure all critical frontend assets are hosted locally and served with HTTP 200."""
+    local_assets = [
+        "/static/js/tailwindcss.min.js",
+        "/static/js/lucide.min.js",
+        "/static/js/marked.min.js",
+        "/static/fonts/Geist-Variable.woff2",
+        "/static/fonts/GeistMono-Variable.woff2",
+        "/static/fonts/Inter-Variable.woff2",
+        "/static/css/custom.css",
+        "/static/js/app.js",
+        "/static/js/pptx-web-renderer.js",
+    ]
+    for asset_url in local_assets:
+        res = client.get(asset_url)
+        assert res.status_code == 200, f"Failed to load local asset: {asset_url}"
+        assert len(res.data) > 0, f"Local asset is empty: {asset_url}"
+
+
+def test_no_external_cdn_in_templates_or_css(client):
+    """Ensure templates and css do not load scripts or styles from outside providers."""
+    # Check index.html rendered page
+    res = client.get("/")
+    assert res.status_code == 200
+    html_content = res.data.decode("utf-8")
+
+    external_cdns = [
+        "https://cdn.tailwindcss.com",
+        "https://unpkg.com/lucide",
+        "https://cdn.jsdelivr.net/npm/marked",
+        "https://fonts.googleapis.com",
+    ]
+    for cdn in external_cdns:
+        assert cdn not in html_content, f"Found external CDN in index.html: {cdn}"
+
+    # Check that local assets are referenced
+    assert "/static/js/tailwindcss.min.js" in html_content
+    assert "/static/js/lucide.min.js" in html_content
+    assert "/static/js/marked.min.js" in html_content
+
+    # Check custom.css does not import external fonts
+    css_res = client.get("/static/css/custom.css")
+    assert css_res.status_code == 200
+    css_content = css_res.data.decode("utf-8")
+    assert "fonts.googleapis.com" not in css_content
+    assert "/static/fonts/Geist-Variable.woff2" in css_content
+
 
 

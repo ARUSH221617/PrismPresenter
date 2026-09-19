@@ -29,10 +29,11 @@ def clean_pptx_file(pptx_path: str):
                 zout.writestr(item, data)
     os.replace(temp_p, p)
 
-clean_pptx_file("data/output/t8.pptx")
-print("Sanitized data/output/t8.pptx")
+if __name__ == "__main__":
+    clean_pptx_file("data/output/t8.pptx")
+    print("Sanitized data/output/t8.pptx")
 
-sys.path.insert(0, "src")
-from pptx_jahat.tools.renderers.com_renderer import export_pptx_slides_com
-imgs = export_pptx_slides_com("data/output/t8.pptx", width=750)
-print("SUCCESSFULLY EXPORTED T8.PPTX:", len(imgs), "slides via Native PowerPoint COM!")
+    sys.path.insert(0, "src")
+    from pptx_jahat.tools.renderers.com_renderer import export_pptx_slides_com
+    imgs = export_pptx_slides_com("data/output/t8.pptx", width=750)
+    print("SUCCESSFULLY EXPORTED T8.PPTX:", len(imgs), "slides via Native PowerPoint COM!")

@@ -824,6 +824,7 @@
       </button>
       <button onclick="switchTab('settings')" id="tab-btn-settings" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
         <i data-lucide="settings-2" class="w-3.5 h-3.5"></i> <span>Settings</span>
+        <span id="tab-settings-health-dot" class="tab-health-dot" title="9Router Gateway status: Unknown"></span>
       </button>
       <button onclick="switchTab('help')" id="tab-btn-help" class="shadcn-tab-trigger gap-1.5 sm:gap-2">
         <i data-lucide="help-circle" class="w-3.5 h-3.5 text-sky-400"></i> <span>Help</span>
@@ -2247,7 +2248,7 @@
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-border">
         <div>
           <h2 class="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <i data-lucide="settings-2" class="w-5 h-5 text-primary"></i> Settings & Engine Configuration
+            <i data-lucide="settings-2" class="w-5 h-5 text-primary"></i> Settings &amp; Engine Configuration
           </h2>
           <p class="text-xs text-muted-foreground mt-0.5">
             Configure 9Router gateway connectivity, autonomous model routing, 3-tier cascade render engines, and host diagnostics.
@@ -2255,7 +2256,7 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <!-- Preset Profiles Dropdown / Group -->
+          <!-- Preset Profiles Group -->
           <div class="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border">
             <span class="text-[10px] font-medium text-muted-foreground px-1.5 flex items-center gap-1">
               <i data-lucide="sliders" class="w-3 h-3 text-primary"></i> Presets:
@@ -2266,23 +2267,21 @@
             <button onclick="applyPreset('fast')" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1" title="High-Speed Lightweight Routing">
               <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i> Fast
             </button>
-            <button onclick="applyPreset('reasoning')" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1" title="Deep Reasoning & High-Fidelity Synthesis">
+            <button onclick="applyPreset('reasoning')" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1" title="Deep Reasoning &amp; High-Fidelity Synthesis">
               <i data-lucide="brain" class="w-3 h-3 text-purple-400"></i> Reasoning
             </button>
             <button onclick="applyPreset('local')" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1" title="Localhost Gateway / Offline Mode">
               <i data-lucide="laptop" class="w-3 h-3 text-sky-400"></i> Local
             </button>
+            <button onclick="openPresetDiffModal()" class="shadcn-btn shadcn-btn-ghost h-6 px-2 text-[11px] gap-1 text-primary hover:bg-primary/10" title="Compare Preset Profiles">
+              <i data-lucide="sliders-horizontal" class="w-3 h-3"></i> Compare
+            </button>
           </div>
 
-          <!-- View Mode Toggle: Form vs Raw -->
-          <div class="shadcn-tabs-list h-8 p-0.5">
-            <button onclick="switchSettingsView('form')" id="btn-view-form" class="shadcn-tab-trigger active h-7 text-xs px-2.5 gap-1.5">
-              <i data-lucide="layout-grid" class="w-3 h-3"></i> Form
-            </button>
-            <button onclick="switchSettingsView('raw')" id="btn-view-raw" class="shadcn-tab-trigger h-7 text-xs px-2.5 gap-1.5">
-              <i data-lucide="code-2" class="w-3 h-3"></i> Raw .env
-            </button>
-          </div>
+          <!-- Backup & Restore Quick Access Button -->
+          <button onclick="openBackupRestoreModal()" class="shadcn-btn shadcn-btn-outline h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5" title="Configuration Backup &amp; Restore">
+            <i data-lucide="history" class="w-3.5 h-3.5 text-primary"></i> Backups
+          </button>
 
           <!-- Restore Defaults Button -->
           <button onclick="openResetDefaultsModal()" class="shadcn-btn shadcn-btn-outline h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5" title="Restore Default Settings">
@@ -2291,527 +2290,1106 @@
         </div>
       </div>
 
-      <!-- VIEW 1: VISUAL STUDIO FORM (DEFAULT) -->
-      <div id="settings-form-view" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Settings Sub-Navigation Tabs Bar (5 Distinct Focus Areas) -->
+      <div class="settings-subnav">
+        <button onclick="switchSettingsSubTab('gateway')" id="settings-subtab-btn-gateway" class="settings-subnav-btn active">
+          <i data-lucide="network" class="w-4 h-4"></i>
+          <span>1. Gateway &amp; Auth</span>
+          <span id="subtab-badge-gateway" class="settings-subnav-badge">Unknown</span>
+        </button>
+        <button onclick="switchSettingsSubTab('models')" id="settings-subtab-btn-models" class="settings-subnav-btn">
+          <i data-lucide="brain-circuit" class="w-4 h-4"></i>
+          <span>2. Models &amp; Pipeline</span>
+          <span class="settings-subnav-badge">7 Agents</span>
+        </button>
+        <button onclick="switchSettingsSubTab('render')" id="settings-subtab-btn-render" class="settings-subnav-btn">
+          <i data-lucide="layers" class="w-4 h-4"></i>
+          <span>3. Render Cascade</span>
+          <span id="subtab-badge-render" class="settings-subnav-badge">Auto</span>
+        </button>
+        <button onclick="switchSettingsSubTab('diagnostics')" id="settings-subtab-btn-diagnostics" class="settings-subnav-btn">
+          <i data-lucide="gauge" class="w-4 h-4"></i>
+          <span>4. Diagnostics &amp; Storage</span>
+          <span id="subtab-badge-storage" class="settings-subnav-badge">Cache</span>
+        </button>
+        <button onclick="switchSettingsSubTab('raw_env')" id="settings-subtab-btn-raw_env" class="settings-subnav-btn">
+          <i data-lucide="file-code" class="w-4 h-4"></i>
+          <span>5. Environment &amp; Raw .env</span>
+          <span class="settings-subnav-badge">.env</span>
+        </button>
+      </div>
 
-        <!-- LEFT COLUMN: GATEWAY & RENDER ENGINE (7 COLS) -->
-        <div class="lg:col-span-7 space-y-6">
-
-          <!-- CARD 1: 9ROUTER GATEWAY & CREDENTIALS -->
-          <div class="shadcn-card">
-            <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
-              <div>
-                <h3 class="shadcn-card-title flex items-center gap-2">
-                  <i data-lucide="network" class="w-4 h-4 text-primary"></i> 9Router Gateway & Authentication
-                </h3>
-                <p class="shadcn-card-description">Base gateway endpoint and API security credentials</p>
+      <!-- ============================================================== -->
+      <!-- SUBTAB 1: GATEWAY & AUTHENTICATION -->
+      <!-- ============================================================== -->
+      <div id="settings-subtab-gateway" class="settings-subtab-pane active space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-8 space-y-6">
+            <!-- 9Router Gateway Card -->
+            <div class="shadcn-card">
+              <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+                <div>
+                  <h3 class="shadcn-card-title flex items-center gap-2">
+                    <i data-lucide="network" class="w-4 h-4 text-primary"></i> 9Router Gateway &amp; Authentication
+                  </h3>
+                  <p class="shadcn-card-description">Base gateway endpoint, live ping speedometer &amp; security credentials</p>
+                </div>
+                <div id="gateway-status-pill" class="shadcn-badge shadcn-badge-outline gap-1.5 font-mono text-[10px] py-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/60"></span> Not Verified
+                </div>
               </div>
-              <div id="gateway-status-pill" class="shadcn-badge shadcn-badge-outline gap-1.5 font-mono text-[10px] py-0.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/60"></span> Not Verified
+
+              <div class="shadcn-card-content space-y-5 text-xs">
+                <!-- Endpoint URL -->
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <label for="cfg-url" class="font-medium text-foreground flex items-center gap-1.5">
+                      Gateway Endpoint URL
+                    </label>
+                    <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">NINEROUTER_URL</code>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground mb-2">
+                    Base URL of your 9Router reverse proxy or OpenAI-compatible gateway
+                  </p>
+
+                  <!-- Endpoint Quick Presets -->
+                  <div class="flex items-center gap-1.5 flex-wrap mb-2">
+                    <span class="text-[10px] text-muted-foreground font-medium mr-1">Quick Presets:</span>
+                    <button type="button" onclick="applyGatewayPreset('http://localhost:20128')" class="gw-preset-chip">
+                      Localhost :20128
+                    </button>
+                    <button type="button" onclick="applyGatewayPreset('http://127.0.0.1:11434')" class="gw-preset-chip">
+                      Ollama :11434
+                    </button>
+                    <button type="button" onclick="applyGatewayPreset('https://api.openai.com')" class="gw-preset-chip">
+                      OpenAI Direct
+                    </button>
+                    <button type="button" onclick="applyGatewayPreset('https://openrouter.ai/api')" class="gw-preset-chip">
+                      OpenRouter
+                    </button>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <div class="relative flex-1">
+                      <input type="text" id="cfg-url" class="shadcn-input font-mono pr-20" placeholder="http://localhost:20128" oninput="markSettingsDirty(); validateGatewayUrlInline();" onblur="sanitizeGatewayUrl()">
+                      <span id="cfg-url-protocol-badge" class="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">HTTP</span>
+                    </div>
+                    <button id="btn-test-connection" onclick="testGatewayConnection()" class="shadcn-btn shadcn-btn-outline gap-1.5 shrink-0 text-xs h-9">
+                      <i data-lucide="activity" id="ping-icon" class="w-3.5 h-3.5 text-primary"></i>
+                      <i data-lucide="loader-2" id="ping-spinner" class="w-3.5 h-3.5 animate-spin hidden text-primary"></i>
+                      <span>Test Connection</span>
+                    </button>
+                  </div>
+
+                  <!-- Live Ping Speedometer & Result -->
+                  <div id="cfg-ping-result" class="hidden mt-3 p-3 rounded-lg border bg-secondary/30 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2" id="cfg-ping-text">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <span class="font-medium text-foreground">Gateway Online</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span id="cfg-ping-tier" class="shadcn-badge shadcn-badge-secondary text-[10px] font-mono">--</span>
+                        <span id="cfg-ping-latency" class="font-mono text-xs font-semibold text-foreground">-- ms</span>
+                        <span id="cfg-ping-model-count" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">0 models</span>
+                      </div>
+                    </div>
+                    <!-- Latency Meter Bar -->
+                    <div class="ping-meter-container">
+                      <div id="cfg-ping-meter-bar" class="ping-meter-fill bg-emerald-500" style="width: 0%;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- API Key Section -->
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <label for="cfg-key" class="font-medium text-foreground flex items-center gap-1.5">
+                      API Key / Authentication Token
+                    </label>
+                    <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">NINEROUTER_KEY</code>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground mb-1.5">
+                    Authentication token for 9Router or target model gateway. Can remain empty for local instances.
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <div class="relative flex-1">
+                      <input type="password" id="cfg-key" class="shadcn-input font-mono pr-28" placeholder="sk-••••••••••••••••" oninput="markSettingsDirty(); updateKeyStatusIndicator();">
+                      <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <button type="button" onclick="copyKeyToClipboard()" id="btn-copy-key" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Copy Key to Clipboard">
+                          <i data-lucide="copy" id="copy-key-icon" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button type="button" onclick="pasteKeyFromClipboard()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Paste from Clipboard">
+                          <i data-lucide="clipboard" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button type="button" onclick="toggleKeyVisibility()" id="btn-toggle-key" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Toggle Secret Visibility">
+                          <i data-lucide="eye" id="key-icon-eye" class="w-3.5 h-3.5"></i>
+                          <i data-lucide="eye-off" id="key-icon-eye-off" class="w-3.5 h-3.5 hidden"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Dynamic Key Status Feedback -->
+                  <div class="mt-2 flex items-center justify-between text-[11px]">
+                    <span id="cfg-key-status" class="text-muted-foreground flex items-center gap-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"></span> Checking key status...
+                    </span>
+                    <span id="cfg-key-format-badge" class="font-mono text-[10px] px-1.5 py-0.2 rounded bg-muted border border-border text-muted-foreground">Standard</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Gateway Guide Card -->
+          <div class="lg:col-span-4 space-y-6">
+            <div class="shadcn-card p-5 space-y-3 text-xs">
+              <div class="flex items-center gap-2 text-foreground font-semibold">
+                <i data-lucide="info" class="w-4 h-4 text-primary"></i> 9Router Gateway Architecture
+              </div>
+              <p class="text-muted-foreground leading-relaxed">
+                9Router acts as an intelligent local reverse proxy and load-balancer. It multiplexes LLM requests across local backends (Ollama, vLLM) and upstream providers (Anthropic, Google Gemini, OpenAI).
+              </p>
+              <div class="p-3 rounded-lg bg-secondary/50 border border-border space-y-1.5 font-mono text-[11px]">
+                <div class="text-primary font-semibold">Fast Connectivity Checklist:</div>
+                <div class="text-muted-foreground">• Port 20128 open on localhost</div>
+                <div class="text-muted-foreground">• Model discovery via <span class="text-foreground">/v1/models</span></div>
+                <div class="text-muted-foreground">• Streaming SSE response enabled</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- SUBTAB 2: AI MODELS & PIPELINE ROUTING -->
+      <!-- ============================================================== -->
+      <div id="settings-subtab-models" class="settings-subtab-pane space-y-6">
+        
+        <!-- Primary Chat Model & Capability Strip -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+            <div>
+              <h3 class="shadcn-card-title flex items-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4 text-primary"></i> Primary Synthesis Model &amp; Capability Intelligence
+              </h3>
+              <p class="shadcn-card-description">Core model powering slide outline extraction, structural infill and reasoning</p>
+            </div>
+            <button type="button" id="btn-toggle-model-browser" onclick="toggleModelBrowser()"
+              class="text-xs font-medium text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors cursor-pointer py-1 px-2 rounded-md hover:bg-primary/10 border border-primary/30">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
+              <span id="btn-toggle-model-text">Suggest 9Router Models</span>
+              <span id="model-count-badge" class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-mono">...</span>
+              <i data-lucide="chevron-down" id="model-browser-chevron" class="w-3 h-3 transition-transform"></i>
+            </button>
+          </div>
+
+          <div class="shadcn-card-content space-y-4 text-xs">
+            <div>
+              <div class="relative">
+                <input type="text" id="cfg-chat-model" list="cfg-chat-model-datalist"
+                  oninput="if(typeof onModelInputChanged==='function')onModelInputChanged(this.value); markSettingsDirty()" class="shadcn-input font-mono pr-20"
+                  placeholder="e.g. ag/gemini-3.7-flash-high">
+                <datalist id="cfg-chat-model-datalist"></datalist>
+                <button type="button" onclick="toggleModelBrowser()"
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] px-2 py-0.5 rounded bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all">
+                  <i data-lucide="list-filter" class="w-3 h-3 text-primary"></i> Browse
+                </button>
+              </div>
+
+              <!-- Quick Recommended Model Chips with Star Favorites -->
+              <div class="mt-2.5 flex items-center flex-wrap gap-1.5 text-[11px]">
+                <span class="text-muted-foreground font-mono text-[10px] uppercase tracking-wider flex items-center gap-1 mr-1">
+                  <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i> Recommended:
+                </span>
+                <div id="quick-model-chips" class="flex flex-wrap gap-1.5">
+                  <span onclick="setFieldChip('cfg-chat-model', 'ag/gemini-3.7-flash-high')" class="model-chip" title="Fast, high-context reasoning">
+                    gemini-3.7-flash-high
+                  </span>
+                  <span onclick="setFieldChip('cfg-chat-model', 'aval/claude-sonnet-4-6')" class="model-chip" title="State-of-the-art analytical infill">
+                    claude-sonnet-4-6
+                  </span>
+                  <span onclick="setFieldChip('cfg-chat-model', 'aval/gpt-4o-2024-11-20')" class="model-chip">
+                    gpt-4o
+                  </span>
+                  <span onclick="setFieldChip('cfg-chat-model', 'aval/qwen3.5-plus')" class="model-chip">
+                    qwen3.5-plus
+                  </span>
+                </div>
+              </div>
+
+              <!-- Live Model Capability & Spec Strip -->
+              <div class="mt-3 p-3 rounded-lg bg-secondary/40 border border-border/80 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="space-y-0.5">
+                  <span class="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Max Output Tokens</span>
+                  <div id="cfg-meta-max-tokens" class="font-mono text-xs font-semibold text-foreground">--</div>
+                </div>
+                <div class="space-y-0.5">
+                  <span class="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Context Window</span>
+                  <div id="cfg-meta-context" class="font-mono text-xs font-semibold text-foreground">--</div>
+                </div>
+                <div class="space-y-0.5">
+                  <span class="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">Capabilities</span>
+                  <div id="cfg-meta-caps" class="flex flex-wrap gap-1 pt-0.5">
+                    <span class="cap-pill cap-pill-reasoning"><i data-lucide="brain" class="w-3 h-3"></i> Reasoning</span>
+                    <span class="cap-pill cap-pill-vision"><i data-lucide="eye" class="w-3 h-3"></i> Vision</span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="shadcn-card-content space-y-4 text-xs">
-              <!-- Endpoint URL -->
-              <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label for="cfg-url" class="font-medium text-foreground flex items-center gap-1.5">
-                    Gateway Endpoint URL
-                  </label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">NINEROUTER_URL</code>
-                </div>
-                <p class="text-[11px] text-muted-foreground mb-1.5">
-                  Base URL of your 9Router reverse proxy or OpenAI-compatible gateway
-                </p>
+            <!-- Expandable 9Router Model Suggestion & Discovery Drawer -->
+            <div id="model-browser-drawer" class="hidden p-3.5 rounded-lg border border-border bg-secondary/30 space-y-3 transition-all">
+              <div class="flex items-center justify-between pb-2 border-b border-border/60">
                 <div class="flex items-center gap-2">
-                  <input type="text" id="cfg-url" class="shadcn-input font-mono flex-1" placeholder="http://localhost:20128" oninput="markSettingsDirty()" onblur="sanitizeGatewayUrl()">
-                  <button id="btn-test-connection" onclick="testGatewayConnection()" class="shadcn-btn shadcn-btn-outline gap-1.5 shrink-0 text-xs h-9">
-                    <i data-lucide="activity" id="ping-icon" class="w-3.5 h-3.5 text-primary"></i>
-                    <i data-lucide="loader-2" id="ping-spinner" class="w-3.5 h-3.5 animate-spin hidden text-primary"></i>
-                    <span>Test Connection</span>
+                  <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" id="model-status-dot"></div>
+                  <span class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                    <i data-lucide="server" class="w-3.5 h-3.5 text-primary"></i> 9Router Available Models
+                  </span>
+                  <span id="model-browser-status" class="text-[10px] text-muted-foreground font-mono"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="button" onclick="refresh9RouterModels(true)"
+                    class="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 py-0.5 rounded border border-border/80 bg-background/50 hover:bg-background transition-colors">
+                    <i data-lucide="refresh-cw" id="model-refresh-icon" class="w-3 h-3"></i> Refresh Live
                   </button>
                 </div>
-
-                <!-- Connection Ping Alert Result -->
-                <div id="cfg-ping-result" class="hidden mt-2.5 p-2.5 rounded-md border text-xs flex items-center justify-between">
-                  <div class="flex items-center gap-2" id="cfg-ping-text">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>Ready</span>
-                  </div>
-                  <span id="cfg-ping-latency" class="font-mono text-[10px] text-muted-foreground"></span>
-                </div>
               </div>
 
-              <!-- API Key -->
-              <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label for="cfg-key" class="font-medium text-foreground flex items-center gap-1.5">
-                    API Key / Bearer Secret
-                  </label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">NINEROUTER_KEY</code>
+              <!-- Search Bar & Capability Filters -->
+              <div class="space-y-2">
+                <div class="relative">
+                  <i data-lucide="search" class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                  <input type="text" id="model-search-input" oninput="filterModelsList()"
+                    placeholder="Search by name, provider, or ID (e.g. gemini, gpt, claude, combo, deepseek)..."
+                    class="shadcn-input text-xs font-mono pl-8 py-1.5">
                 </div>
-                <p class="text-[11px] text-muted-foreground mb-1.5">
-                  Authentication token for 9Router or target model gateway. Can remain empty for local instances.
-                </p>
-                <div class="flex items-center gap-2">
-                  <div class="relative flex-1">
-                    <input type="password" id="cfg-key" class="shadcn-input font-mono pr-20" placeholder="sk-••••••••••••••••" oninput="markSettingsDirty(); updateKeyStatusIndicator();">
-                    <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                      <button type="button" onclick="toggleKeyVisibility()" id="btn-toggle-key" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Toggle Secret Visibility">
-                        <i data-lucide="eye" id="key-icon-eye" class="w-3.5 h-3.5"></i>
-                        <i data-lucide="eye-off" id="key-icon-eye-off" class="w-3.5 h-3.5 hidden"></i>
-                      </button>
-                      <button type="button" onclick="pasteKeyFromClipboard()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Paste from Clipboard">
-                        <i data-lucide="clipboard" class="w-3.5 h-3.5"></i>
-                      </button>
-                    </div>
-                  </div>
+
+                <!-- Filter Pills -->
+                <div class="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <span class="text-[10px] text-muted-foreground font-medium">Filter:</span>
+                  <button type="button" onclick="setCapabilityFilter('all')" class="cap-filter-btn active" id="cap-filter-all">All</button>
+                  <button type="button" onclick="setCapabilityFilter('vision')" class="cap-filter-btn" id="cap-filter-vision">Vision</button>
+                  <button type="button" onclick="setCapabilityFilter('reasoning')" class="cap-filter-btn" id="cap-filter-reasoning">Reasoning</button>
+                  <button type="button" onclick="setCapabilityFilter('tools')" class="cap-filter-btn" id="cap-filter-tools">Tools</button>
+                  <button type="button" onclick="setCapabilityFilter('favs')" class="cap-filter-btn" id="cap-filter-favs">★ Favorites</button>
                 </div>
-                <!-- Dynamic Key Status Feedback -->
-                <div class="mt-1.5 flex items-center justify-between text-[11px]">
-                  <span id="cfg-key-status" class="text-muted-foreground flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"></span> Checking key status...
-                  </span>
-                  <span class="text-muted-foreground/70">Stored securely in <code class="font-mono">.env</code></span>
-                </div>
+
+                <!-- Provider Filter Tabs -->
+                <div class="flex items-center gap-1.5 flex-wrap pt-0.5" id="model-provider-tabs"></div>
               </div>
+
+              <!-- Scrollable Model Cards List -->
+              <div id="model-cards-container" class="max-h-72 overflow-y-auto space-y-1.5 pr-1 divide-y divide-border/30"></div>
             </div>
           </div>
-
-          <!-- CARD 2: SLIDE RENDER CASCADE ENGINE -->
-          <div class="shadcn-card">
-            <div class="shadcn-card-header">
-              <h3 class="shadcn-card-title flex items-center gap-2">
-                <i data-lucide="layers" class="w-4 h-4 text-primary"></i> 3-Tier Cascade Render Engine
-              </h3>
-              <p class="shadcn-card-description">Configure the rendering engine hierarchy, native COM automation, and fallback rasterization</p>
-            </div>
-
-            <div class="shadcn-card-content space-y-4 text-xs">
-              <!-- Render Mode Selector -->
-              <div>
-                <div class="flex items-center justify-between mb-1.5">
-                  <label class="font-medium text-foreground">Active Cascade Strategy</label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">RENDER_MODE</code>
-                </div>
-                <input type="hidden" id="cfg-render-mode" value="auto">
-                
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <!-- Auto Mode -->
-                  <div onclick="selectRenderMode('auto')" id="render-mode-auto" class="render-mode-card selected">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
-                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i> Auto Cascade
-                      </div>
-                      <span class="shadcn-badge shadcn-badge-default text-[9px] py-0 px-1.5">Recommended</span>
-                    </div>
-                    <p class="text-[11px] text-muted-foreground leading-snug">
-                      PowerPoint COM &rarr; Web Vector Engine &rarr; Pure PIL fallback. Optimal reliability & fidelity.
-                    </p>
-                  </div>
-
-                  <!-- Native COM -->
-                  <div onclick="selectRenderMode('native')" id="render-mode-native" class="render-mode-card">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
-                        <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i> Native PowerPoint COM
-                      </div>
-                    </div>
-                    <p class="text-[11px] text-muted-foreground leading-snug">
-                      Direct automation of Microsoft Office. Pixel-perfect geometry, shapes, tables, and Persian fonts.
-                    </p>
-                  </div>
-
-                  <!-- Web Vector -->
-                  <div onclick="selectRenderMode('web')" id="render-mode-web" class="render-mode-card">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
-                        <i data-lucide="globe" class="w-3.5 h-3.5 text-emerald-400"></i> Web Vector DOM
-                      </div>
-                    </div>
-                    <p class="text-[11px] text-muted-foreground leading-snug">
-                      Headless browser vector DOM engine. Cross-platform, fast, lightweight slide preview generation.
-                    </p>
-                  </div>
-
-                  <!-- Pure PIL -->
-                  <div onclick="selectRenderMode('pil')" id="render-mode-pil" class="render-mode-card">
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
-                        <i data-lucide="image" class="w-3.5 h-3.5 text-amber-400"></i> Pure Python PIL
-                      </div>
-                    </div>
-                    <p class="text-[11px] text-muted-foreground leading-snug">
-                      Zero-dependency Pillow rasterizer. Portable fallback for Linux, Docker, and headless servers.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- PURE_PIL_ACTIVE Safety Switch -->
-              <div class="pt-2 border-t border-border/60">
-                <div class="flex items-center justify-between">
-                  <div class="space-y-0.5">
-                    <div class="flex items-center gap-2">
-                      <label for="cfg-pure-pil" class="font-medium text-foreground cursor-pointer">
-                        Enable Pure-Python PIL Fallback
-                      </label>
-                      <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">PURE_PIL_ACTIVE</code>
-                    </div>
-                    <p class="text-[11px] text-muted-foreground">
-                      When enabled, ensures slide previews are produced even if PowerPoint COM is unavailable or fails.
-                    </p>
-                  </div>
-                  <label class="shadcn-switch-label">
-                    <input type="checkbox" id="cfg-pure-pil" class="shadcn-switch-input" onchange="markSettingsDirty(); updateCascadeWaterfall();">
-                    <div class="shadcn-switch-track">
-                      <div class="shadcn-switch-thumb"></div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <!-- Visual Waterfall Cascade Flowchart -->
-              <div class="space-y-1.5 pt-1">
-                <span class="text-[11px] font-medium text-muted-foreground">Live Cascade Failover Chain:</span>
-                <div class="cascade-flow-container">
-                  <div class="cascade-flow-step active" id="flow-step-com">
-                    <div class="flex items-center gap-1 text-foreground font-semibold">
-                      <i data-lucide="monitor" class="w-3 h-3 text-sky-400"></i> Tier 1: COM
-                    </div>
-                    <span class="text-[10px] text-muted-foreground">PowerPoint Native</span>
-                  </div>
-
-                  <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
-
-                  <div class="cascade-flow-step active" id="flow-step-web">
-                    <div class="flex items-center gap-1 text-foreground font-semibold">
-                      <i data-lucide="globe" class="w-3 h-3 text-emerald-400"></i> Tier 2: Web
-                    </div>
-                    <span class="text-[10px] text-muted-foreground">Vector DOM</span>
-                  </div>
-
-                  <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
-
-                  <div class="cascade-flow-step active" id="flow-step-pil">
-                    <div class="flex items-center gap-1 text-foreground font-semibold">
-                      <i data-lucide="image" class="w-3 h-3 text-amber-400"></i> Tier 3: PIL
-                    </div>
-                    <span id="flow-pil-status" class="text-[10px] text-emerald-400 font-mono">Active (OK)</span>
-                  </div>
-                </div>
-                <p id="flow-warning-text" class="text-[10px] text-muted-foreground/80 italic"></p>
-              </div>
-            </div>
-          </div>
-
         </div>
 
-        <!-- RIGHT COLUMN: MODEL MATRIX & DIAGNOSTICS (5 COLS) -->
-        <div class="lg:col-span-5 space-y-6">
-
-          <!-- CARD 3: AI MODEL ROUTING MATRIX -->
-          <div class="shadcn-card">
-            <div class="shadcn-card-header">
-              <h3 class="shadcn-card-title flex items-center gap-2">
-                <i data-lucide="brain-circuit" class="w-4 h-4 text-primary"></i> AI Model Routing Matrix
-              </h3>
-              <p class="shadcn-card-description">Specialized LLMs & multimodal tools dispatched per generation phase</p>
+        <!-- Specialized Pipeline Models (Search, Fetch, Image) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <!-- Search Provider -->
+          <div class="shadcn-card p-4 space-y-2.5 text-xs">
+            <div class="flex items-center justify-between">
+              <label for="cfg-search-model" class="font-semibold text-foreground flex items-center gap-1.5">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-sky-400"></i> Web Research
+              </label>
+              <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">SEARCH_MODEL</code>
             </div>
-
-            <div class="shadcn-card-content space-y-4 text-xs">
-              
-              <!-- 1. Chat & Synthesis Model -->
-              <div>
-                <div class="flex items-center justify-between mb-0.5">
-                  <label for="cfg-chat-model" class="font-medium text-foreground">
-                    Primary Chat & Reasoning Model
-                  </label>
-                  <button type="button" id="btn-toggle-model-browser" onclick="toggleModelBrowser()"
-                    class="text-[11px] font-medium text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-primary/10"
-                    title="Browse and pick models from 9Router">
-                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
-                    <span id="btn-toggle-model-text">Suggest 9Router Models</span>
-                    <span id="model-count-badge"
-                      class="px-1.5 py-0.2 rounded-full bg-primary/20 text-primary text-[10px] font-mono">...</span>
-                    <i data-lucide="chevron-down" id="model-browser-chevron" class="w-3 h-3 transition-transform"></i>
-                  </button>
-                </div>
-                <div class="flex items-center gap-1.5 mb-1.5">
-                  <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5 text-primary border-primary/20">Step 3: Document Ingestion & Slide Infill</span>
-                </div>
-                <div class="relative">
-                  <input type="text" id="cfg-chat-model" list="cfg-chat-model-datalist"
-                    oninput="if(typeof onModelInputChanged==='function')onModelInputChanged(this.value); markSettingsDirty()" class="shadcn-input font-mono pr-20"
-                    placeholder="e.g. ag/gemini-3.7-flash-high">
-                  <datalist id="cfg-chat-model-datalist"></datalist>
-                  <button type="button" onclick="toggleModelBrowser()"
-                    class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] px-2 py-0.5 rounded bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all">
-                    <i data-lucide="list-filter" class="w-3 h-3 text-primary"></i> Browse
-                  </button>
-                </div>
-
-                <!-- Quick Recommended Model Chips -->
-                <div class="mt-2 flex items-center flex-wrap gap-1.5 text-[11px]">
-                  <span
-                    class="text-muted-foreground font-mono text-[10px] uppercase tracking-wider flex items-center gap-1">
-                    <i data-lucide="zap" class="w-3 h-3 text-amber-400"></i> Suggest:
-                  </span>
-                  <div id="quick-model-chips" class="flex flex-wrap gap-1.5">
-                    <span onclick="setFieldChip('cfg-chat-model', 'ag/gemini-3.7-flash-high')" class="model-chip" title="Fast, high-context reasoning">
-                      gemini-3.7-flash-high
-                    </span>
-                    <span onclick="setFieldChip('cfg-chat-model', 'aval/claude-sonnet-4-6')" class="model-chip" title="State-of-the-art analytical infill">
-                      claude-sonnet-4-6
-                    </span>
-                    <span onclick="setFieldChip('cfg-chat-model', 'aval/gpt-4o-2024-11-20')" class="model-chip">
-                      gpt-4o
-                    </span>
-                    <span onclick="setFieldChip('cfg-chat-model', 'aval/qwen3.5-plus')" class="model-chip">
-                      qwen3.5-plus
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Expandable 9Router Model Suggestion & Discovery Drawer -->
-                <div id="model-browser-drawer"
-                  class="hidden mt-3 p-3.5 rounded-lg border border-border bg-secondary/30 space-y-3 transition-all">
-                  <div class="flex items-center justify-between pb-2 border-b border-border/60">
-                    <div class="flex items-center gap-2">
-                      <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" id="model-status-dot"></div>
-                      <span class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                        <i data-lucide="server" class="w-3.5 h-3.5 text-primary"></i> 9Router Available Models
-                      </span>
-                      <span id="model-browser-status" class="text-[10px] text-muted-foreground font-mono"></span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <button type="button" onclick="refresh9RouterModels(true)"
-                        class="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 py-0.5 rounded border border-border/80 bg-background/50 hover:bg-background transition-colors">
-                        <i data-lucide="refresh-cw" id="model-refresh-icon" class="w-3 h-3"></i> Refresh Live
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Search Bar & Capability Filters -->
-                  <div class="space-y-2">
-                    <div class="relative">
-                      <i data-lucide="search"
-                        class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2"></i>
-                      <input type="text" id="model-search-input" oninput="filterModelsList()"
-                        placeholder="Search by name, provider, or ID (e.g. gemini, gpt, claude, combo, deepseek)..."
-                        class="shadcn-input text-xs font-mono pl-8 py-1.5">
-                    </div>
-
-                    <!-- Provider Filter Tabs -->
-                    <div class="flex items-center gap-1.5 flex-wrap pt-0.5" id="model-provider-tabs">
-                    </div>
-                  </div>
-
-                  <!-- Scrollable Model Cards List -->
-                  <div id="model-cards-container"
-                    class="max-h-72 overflow-y-auto space-y-1.5 pr-1 divide-y divide-border/30">
-                  </div>
-                </div>
-              </div>
-
-              <!-- 2. Search Provider -->
-              <div>
-                <div class="flex items-center justify-between mb-0.5">
-                  <label for="cfg-search-model" class="font-medium text-foreground">
-                    Live Web Research Provider
-                  </label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">SEARCH_MODEL</code>
-                </div>
-                <div class="flex items-center gap-1.5 mb-1.5">
-                  <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5 text-sky-400 border-sky-400/20">Step 3: Real-time Web Intelligence</span>
-                </div>
-                <input type="text" id="cfg-search-model" list="cfg-search-model-datalist" class="shadcn-input font-mono" oninput="markSettingsDirty()">
-                <datalist id="cfg-search-model-datalist"></datalist>
-                <div id="quick-search-chips" class="flex flex-wrap gap-1 mt-1.5">
-                  <span onclick="setFieldChip('cfg-search-model', 'tavily')" class="model-chip">tavily</span>
-                  <span onclick="setFieldChip('cfg-search-model', 'exa_ai-search')" class="model-chip">exa_ai-search</span>
-                  <span onclick="setFieldChip('cfg-search-model', 'brave-search')" class="model-chip">brave-search</span>
-                </div>
-              </div>
-
-              <!-- 3. Web Scraper / Reader -->
-              <div>
-                <div class="flex items-center justify-between mb-0.5">
-                  <label for="cfg-fetch-model" class="font-medium text-foreground">
-                    Web Reader & Scraper
-                  </label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">FETCH_MODEL</code>
-                </div>
-                <div class="flex items-center gap-1.5 mb-1.5">
-                  <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5 text-emerald-400 border-emerald-400/20">Step 3: Deep Markdown Page Extraction</span>
-                </div>
-                <input type="text" id="cfg-fetch-model" list="cfg-fetch-model-datalist" class="shadcn-input font-mono" oninput="markSettingsDirty()">
-                <datalist id="cfg-fetch-model-datalist"></datalist>
-                <div id="quick-fetch-chips" class="flex flex-wrap gap-1 mt-1.5">
-                  <span onclick="setFieldChip('cfg-fetch-model', 'jina-reader')" class="model-chip">jina-reader</span>
-                  <span onclick="setFieldChip('cfg-fetch-model', 'firecrawl-search')" class="model-chip">firecrawl-search</span>
-                  <span onclick="setFieldChip('cfg-fetch-model', 'exa_ai-search')" class="model-chip">exa_ai-search</span>
-                </div>
-              </div>
-
-              <!-- 4. Slide Image Model -->
-              <div>
-                <div class="flex items-center justify-between mb-0.5">
-                  <label for="cfg-image-model" class="font-medium text-foreground">
-                    Slide Image Generation Model
-                  </label>
-                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">IMAGE_MODEL</code>
-                </div>
-                <div class="flex items-center gap-1.5 mb-1.5">
-                  <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5 text-purple-400 border-purple-400/20">Step 4: Vector & Raster Slide Imagery</span>
-                </div>
-                <input type="text" id="cfg-image-model" list="cfg-image-model-datalist" class="shadcn-input font-mono" oninput="markSettingsDirty()">
-                <datalist id="cfg-image-model-datalist"></datalist>
-                <div id="quick-image-chips" class="flex flex-wrap gap-1 mt-1.5">
-                  <span onclick="setFieldChip('cfg-image-model', 'gemini/gemini-3-pro-image-preview')" class="model-chip">
-                    gemini-3-pro-image-preview
-                  </span>
-                  <span onclick="setFieldChip('cfg-image-model', 'openai/dall-e-3')" class="model-chip">
-                    dall-e-3
-                  </span>
-                  <span onclick="setFieldChip('cfg-image-model', 'aval/wan2.2-t2i-flash')" class="model-chip">
-                    wan2.2-t2i-flash
-                  </span>
-                </div>
-              </div>
-
-              <!-- 5. Advanced Engine Parameters: Timeout & Verification Rounds -->
-              <div class="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label for="cfg-timeout" class="font-medium text-foreground">Timeout (Seconds)</label>
-                    <code class="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">TIMEOUT</code>
-                  </div>
-                  <input type="number" id="cfg-timeout" min="30" max="1800" step="10" class="shadcn-input font-mono" placeholder="300" oninput="markSettingsDirty()">
-                </div>
-                <div>
-                  <div class="flex items-center justify-between mb-0.5">
-                    <label for="cfg-verification-rounds" class="font-medium text-foreground">Verify Rounds</label>
-                    <code class="font-mono text-[9px] text-muted-foreground bg-muted px-1 rounded">ROUNDS</code>
-                  </div>
-                  <input type="number" id="cfg-verification-rounds" min="1" max="10" step="1" class="shadcn-input font-mono" placeholder="3" oninput="markSettingsDirty()">
-                </div>
-              </div>
-
-              <!-- 6. Detected Model Metadata from 9Router -->
-              <div class="p-3.5 rounded-lg bg-secondary/50 border border-border space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    <i data-lucide="cpu" class="w-3.5 h-3.5 text-primary"></i> 9Router Model Intelligence
-                  </span>
-                  <button type="button" onclick="refreshModelMetadataUI()"
-                    class="text-muted-foreground hover:text-foreground text-[11px] flex items-center gap-1">
-                    <i data-lucide="refresh-cw" class="w-3 h-3"></i> Query 9Router
-                  </button>
-                </div>
-                <div class="grid grid-cols-2 gap-2 font-mono text-[11px] pt-1">
-                  <div class="p-2 rounded bg-background border border-border">
-                    <div class="text-muted-foreground text-[10px]">MAX OUTPUT TOKENS</div>
-                    <div id="cfg-meta-max-tokens" class="font-bold text-foreground mt-0.5">--</div>
-                  </div>
-                  <div class="p-2 rounded bg-background border border-border">
-                    <div class="text-muted-foreground text-[10px]">CONTEXT WINDOW</div>
-                    <div id="cfg-meta-context" class="font-bold text-foreground mt-0.5">--</div>
-                  </div>
-                </div>
-                <div id="cfg-meta-caps" class="text-[11px] text-muted-foreground flex flex-wrap gap-1.5 pt-1"></div>
-              </div>
-
+            <p class="text-[11px] text-muted-foreground">Real-time intelligence provider</p>
+            <input type="text" id="cfg-search-model" list="cfg-search-model-datalist" class="shadcn-input font-mono text-xs" oninput="markSettingsDirty()">
+            <datalist id="cfg-search-model-datalist"></datalist>
+            <div id="quick-search-chips" class="flex flex-wrap gap-1 pt-1">
+              <span onclick="setFieldChip('cfg-search-model', 'tavily')" class="model-chip">tavily</span>
+              <span onclick="setFieldChip('cfg-search-model', 'exa_ai-search')" class="model-chip">exa_ai</span>
+              <span onclick="setFieldChip('cfg-search-model', 'brave-search')" class="model-chip">brave</span>
             </div>
           </div>
 
-          <!-- CARD 4: HOST RUNTIME & SYSTEM DIAGNOSTICS -->
-          <div class="shadcn-card">
-            <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
-              <div>
-                <h3 class="shadcn-card-title flex items-center gap-2">
-                  <i data-lucide="gauge" class="w-4 h-4 text-primary"></i> Host Runtime & Diagnostics
-                </h3>
-                <p class="shadcn-card-description">System environment, COM detection, and storage</p>
+          <!-- Web Fetch / Scraper -->
+          <div class="shadcn-card p-4 space-y-2.5 text-xs">
+            <div class="flex items-center justify-between">
+              <label for="cfg-fetch-model" class="font-semibold text-foreground flex items-center gap-1.5">
+                <i data-lucide="file-text" class="w-3.5 h-3.5 text-emerald-400"></i> Web Scraper
+              </label>
+              <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">FETCH_MODEL</code>
+            </div>
+            <p class="text-[11px] text-muted-foreground">Deep Markdown page reader</p>
+            <input type="text" id="cfg-fetch-model" list="cfg-fetch-model-datalist" class="shadcn-input font-mono text-xs" oninput="markSettingsDirty()">
+            <datalist id="cfg-fetch-model-datalist"></datalist>
+            <div id="quick-fetch-chips" class="flex flex-wrap gap-1 pt-1">
+              <span onclick="setFieldChip('cfg-fetch-model', 'jina-reader')" class="model-chip">jina-reader</span>
+              <span onclick="setFieldChip('cfg-fetch-model', 'firecrawl-search')" class="model-chip">firecrawl</span>
+            </div>
+          </div>
+
+          <!-- Slide Image Generator -->
+          <div class="shadcn-card p-4 space-y-2.5 text-xs">
+            <div class="flex items-center justify-between">
+              <label for="cfg-image-model" class="font-semibold text-foreground flex items-center gap-1.5">
+                <i data-lucide="image" class="w-3.5 h-3.5 text-purple-400"></i> Image Generator
+              </label>
+              <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">IMAGE_MODEL</code>
+            </div>
+            <p class="text-[11px] text-muted-foreground">Vector &amp; raster visual assets</p>
+            <input type="text" id="cfg-image-model" list="cfg-image-model-datalist" class="shadcn-input font-mono text-xs" oninput="markSettingsDirty()">
+            <datalist id="cfg-image-model-datalist"></datalist>
+            <div id="quick-image-chips" class="flex flex-wrap gap-1 pt-1">
+              <span onclick="setFieldChip('cfg-image-model', 'gemini/gemini-3-pro-image-preview')" class="model-chip">gemini-3-pro</span>
+              <span onclick="setFieldChip('cfg-image-model', 'openai/dall-e-3')" class="model-chip">dall-e-3</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Engine Parameters -->
+        <div class="shadcn-card p-4">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div>
+              <label for="cfg-timeout" class="font-medium text-foreground block mb-1">Timeout (Seconds)</label>
+              <input type="number" id="cfg-timeout" min="30" max="1800" step="10" class="shadcn-input font-mono" placeholder="300" oninput="markSettingsDirty()">
+            </div>
+            <div>
+              <label for="cfg-verification-rounds" class="font-medium text-foreground block mb-1">Verify Rounds</label>
+              <input type="number" id="cfg-verification-rounds" min="1" max="10" step="1" class="shadcn-input font-mono" placeholder="3" oninput="markSettingsDirty()">
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- DEDICATED MULTI-AGENT GRID & SEGMENTED REASONING CHIPS -->
+        <!-- ============================================================== -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+            <div>
+              <h3 class="shadcn-card-title flex items-center gap-2">
+                <i data-lucide="bot" class="w-4 h-4 text-primary"></i> Dedicated Agent Models &amp; Thinking Levels
+              </h3>
+              <p class="shadcn-card-description">
+                Assign independent 9Router models and reasoning effort (think levels) to each pipeline agent. Unset fields inherit the primary model.
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+              <button type="button" onclick="applyAgentThinkingPreset('high')"
+                class="text-[11px] px-2.5 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
+                title="Set think level to High for all agents">
+                <i data-lucide="brain" class="w-3 h-3 text-amber-400"></i> High Think
+              </button>
+              <button type="button" onclick="applyAgentThinkingPreset('low')"
+                class="text-[11px] px-2.5 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
+                title="Set think level to Low for all agents">
+                <i data-lucide="zap" class="w-3 h-3 text-sky-400"></i> Fast Think
+              </button>
+              <button type="button" onclick="resetAllAgentsToDefault()"
+                class="text-[11px] px-2.5 py-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all"
+                title="Reset all agents to inherit primary model">
+                <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset All
+              </button>
+            </div>
+          </div>
+
+          <div class="shadcn-card-content space-y-4 pt-4 text-xs">
+            <!-- Active Target Notice -->
+            <div id="agent-model-picker-banner" class="hidden p-2.5 rounded-lg bg-primary/10 border border-primary/40 flex items-center justify-between text-xs">
+              <div class="flex items-center gap-2 text-foreground">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
+                <span>Selecting model for <strong id="agent-picker-target-name" class="text-primary font-mono">Agent</strong>. Pick from suggestions:</span>
               </div>
-              <button onclick="loadDiagnostics()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Refresh Diagnostics">
-                <i data-lucide="refresh-cw" id="diag-refresh-icon" class="w-3.5 h-3.5"></i>
+              <button type="button" onclick="cancelAgentModelPick()" class="text-muted-foreground hover:text-foreground">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
               </button>
             </div>
 
-            <div class="shadcn-card-content space-y-3 text-xs">
-              <div class="flex items-center justify-between py-1 border-b border-border/50">
-                <span class="text-muted-foreground">Operating System</span>
-                <span id="diag-os" class="font-mono text-foreground">Detecting...</span>
-              </div>
-              <div class="flex items-center justify-between py-1 border-b border-border/50">
-                <span class="text-muted-foreground">PowerPoint COM Engine</span>
-                <span id="diag-com" class="font-mono text-foreground flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"></span> Checking...
-                </span>
-              </div>
-              <div class="flex items-center justify-between py-1 border-b border-border/50">
-                <span class="text-muted-foreground">Slide Output Storage</span>
-                <span id="diag-storage" class="font-mono text-foreground">Calculating...</span>
-              </div>
-              <div class="flex items-center justify-between py-1 border-b border-border/50">
-                <span class="text-muted-foreground">Component Archetypes</span>
-                <span id="diag-components" class="font-mono text-foreground">Querying...</span>
-              </div>
-              <div class="flex items-center justify-between py-1">
-                <span class="text-muted-foreground">Template Decks</span>
-                <span id="diag-templates" class="font-mono text-foreground">Querying...</span>
+            <!-- 2-Column Responsive Agent Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <!-- 1. Slide Synthesis & Blueprint Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-generator">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                      <i data-lucide="presentation" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Slide Synthesis &amp; Blueprint Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Visual template matching &amp; layout infill</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-generator" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('generator')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-generator" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('generator')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('generator')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <!-- Segmented Reasoning Chips -->
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-generator" onchange="onAgentConfigChanged('generator')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="generator">
+                    <button type="button" onclick="setAgentThinkChip('generator', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('generator', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('generator', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('generator', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('generator', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
               </div>
 
-              <!-- Clean Cache Action Button -->
-              <div class="pt-2">
-                <button id="btn-clean-cache" onclick="cleanRenderCache()" class="shadcn-btn shadcn-btn-secondary w-full h-8 text-xs gap-1.5">
-                  <i data-lucide="trash-2" id="clean-cache-icon" class="w-3.5 h-3.5 text-destructive"></i>
-                  <i data-lucide="loader-2" id="clean-cache-spinner" class="w-3.5 h-3.5 animate-spin hidden text-destructive"></i>
-                  <span>Clean Slide Preview Cache</span>
-                </button>
-                <p class="text-[10px] text-muted-foreground text-center mt-1">
-                  Purges generated slide preview images without touching deck files (.pptx)
-                </p>
+              <!-- 2. Slide Verification & QA Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-verifier">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Slide Verification &amp; QA Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Screenshot QA &amp; typography auditing</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-verifier" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('verifier')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-verifier" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('verifier')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('verifier')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-verifier" onchange="onAgentConfigChanged('verifier')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="verifier">
+                    <button type="button" onclick="setAgentThinkChip('verifier', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('verifier', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('verifier', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('verifier', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('verifier', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. Autonomous AI Assistant -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-autonomous">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                      <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Autonomous AI Assistant</div>
+                      <span class="text-[10px] text-muted-foreground">Multi-turn terminal &amp; tool orchestration</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-autonomous" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('autonomous')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-autonomous" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('autonomous')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('autonomous')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-autonomous" onchange="onAgentConfigChanged('autonomous')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="autonomous">
+                    <button type="button" onclick="setAgentThinkChip('autonomous', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('autonomous', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('autonomous', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('autonomous', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('autonomous', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4. Template Analyzer Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-analyzer">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                      <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Template Analyzer Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Design archetypes &amp; NOTE.md guidelines</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-analyzer" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('analyzer')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-analyzer" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('analyzer')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('analyzer')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-analyzer" onchange="onAgentConfigChanged('analyzer')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="analyzer">
+                    <button type="button" onclick="setAgentThinkChip('analyzer', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('analyzer', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('analyzer', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('analyzer', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('analyzer', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 5. Storyboard & Structure Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-structure">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                      <i data-lucide="layout-template" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Storyboard &amp; Structure Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Multimodal notes &amp; structure.md planner</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-structure" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('structure')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-structure" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('structure')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('structure')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-structure" onchange="onAgentConfigChanged('structure')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="structure">
+                    <button type="button" onclick="setAgentThinkChip('structure', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('structure', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('structure', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('structure', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('structure', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 6. Human Touch / Slide Editor Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5" id="agent-card-editor">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                      <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Human Touch &amp; Slide Editor Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Interactive slide adjustments &amp; refinements</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-editor" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('editor')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="relative">
+                  <input type="text" id="cfg-agent-model-editor" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('editor')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                  <button type="button" onclick="pickModelForAgent('editor')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                  <select id="cfg-agent-think-editor" onchange="onAgentConfigChanged('editor')" class="hidden">
+                    <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                  </select>
+                  <div class="think-segmented-group" data-agent="editor">
+                    <button type="button" onclick="setAgentThinkChip('editor', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                    <button type="button" onclick="setAgentThinkChip('editor', 'none')" class="think-chip" data-level="none">Off</button>
+                    <button type="button" onclick="setAgentThinkChip('editor', 'low')" class="think-chip" data-level="low">Low</button>
+                    <button type="button" onclick="setAgentThinkChip('editor', 'medium')" class="think-chip" data-level="medium">Med</button>
+                    <button type="button" onclick="setAgentThinkChip('editor', 'high')" class="think-chip" data-level="high">High</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 7. Document Parser & Vision OCR Agent -->
+              <div class="p-3.5 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2.5 lg:col-span-2" id="agent-card-parser">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-6 h-6 rounded bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+                      <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                    </div>
+                    <div>
+                      <div class="font-semibold text-foreground text-xs">Document Parser &amp; Vision OCR Agent</div>
+                      <span class="text-[10px] text-muted-foreground">Transcribes handwriting, notes &amp; complex multi-modal documents</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="cfg-agent-status-parser" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
+                    <button type="button" onclick="resetAgentToDefault('parser')" title="Reset agent" class="text-muted-foreground hover:text-foreground p-1">
+                      <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  <div class="md:col-span-7 relative">
+                    <input type="text" id="cfg-agent-model-parser" list="cfg-chat-model-datalist" oninput="onAgentConfigChanged('parser')" class="shadcn-input font-mono text-xs pr-16" placeholder="Inherit Primary Model">
+                    <button type="button" onclick="pickModelForAgent('parser')" class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground">Browse</button>
+                  </div>
+                  <div class="md:col-span-5 flex items-center justify-between">
+                    <span class="text-[11px] text-muted-foreground">Reasoning Level:</span>
+                    <select id="cfg-agent-think-parser" onchange="onAgentConfigChanged('parser')" class="hidden">
+                      <option value="default">default</option><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
+                    </select>
+                    <div class="think-segmented-group" data-agent="parser">
+                      <button type="button" onclick="setAgentThinkChip('parser', 'default')" class="think-chip active" data-level="default">Inherit</button>
+                      <button type="button" onclick="setAgentThinkChip('parser', 'none')" class="think-chip" data-level="none">Off</button>
+                      <button type="button" onclick="setAgentThinkChip('parser', 'low')" class="think-chip" data-level="low">Low</button>
+                      <button type="button" onclick="setAgentThinkChip('parser', 'medium')" class="think-chip" data-level="medium">Med</button>
+                      <button type="button" onclick="setAgentThinkChip('parser', 'high')" class="think-chip" data-level="high">High</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
+            <!-- Agent Summary Footer -->
+            <div class="pt-2 flex items-center justify-between border-t border-border/50 text-[11px]">
+              <span id="agent-customized-summary" class="font-mono text-muted-foreground">All 7 agents currently inherit the primary chat model</span>
+              <button onclick="saveConfigSettings()" class="shadcn-btn shadcn-btn-default h-7 px-3 text-xs gap-1.5">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Settings (.env)
+              </button>
+            </div>
+          </div>
         </div>
 
       </div>
 
-      <!-- VIEW 2: RAW .ENV SYNTAX EDITOR (TOGGLED VIA HEADER BUTTON) -->
-      <div id="settings-raw-view" class="hidden shadcn-card max-w-4xl mx-auto">
-        <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
-          <div>
+      <!-- ============================================================== -->
+      <!-- SUBTAB 3: RENDER CASCADE & DPI ENGINE -->
+      <!-- ============================================================== -->
+      <div id="settings-subtab-render" class="settings-subtab-pane space-y-6">
+        
+        <!-- Render Strategy Cards -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header">
             <h3 class="shadcn-card-title flex items-center gap-2">
-              <i data-lucide="file-code" class="w-4 h-4 text-primary"></i> Environment Configuration (.env)
+              <i data-lucide="layers" class="w-4 h-4 text-primary"></i> 3-Tier Cascade Render Strategy
             </h3>
-            <p class="shadcn-card-description">Inspect or edit raw environment keys directly</p>
+            <p class="shadcn-card-description">Engine hierarchy, native Microsoft Office COM automation &amp; rasterization fallback</p>
           </div>
-          <div class="flex items-center gap-2">
-            <button onclick="copyRawConfig()" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs gap-1.5">
-              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+
+          <div class="shadcn-card-content space-y-5 text-xs">
+            <input type="hidden" id="cfg-render-mode" value="auto">
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <!-- Auto Mode -->
+              <div onclick="selectRenderMode('auto')" id="render-mode-auto" class="render-mode-card selected">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i> Auto Cascade
+                  </div>
+                  <span class="shadcn-badge shadcn-badge-default text-[9px] py-0 px-1.5">Optimal</span>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-snug">
+                  PowerPoint COM &rarr; Web Vector DOM &rarr; Pure PIL. Best fidelity &amp; reliability.
+                </p>
+              </div>
+
+              <!-- Native COM -->
+              <div onclick="selectRenderMode('native')" id="render-mode-native" class="render-mode-card">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                    <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i> Native COM
+                  </div>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-snug">
+                  Direct Office automation. Pixel-perfect geometry, shapes &amp; Persian fonts.
+                </p>
+              </div>
+
+              <!-- Web Vector -->
+              <div onclick="selectRenderMode('web')" id="render-mode-web" class="render-mode-card">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                    <i data-lucide="globe" class="w-3.5 h-3.5 text-emerald-400"></i> Web Vector
+                  </div>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-snug">
+                  Headless browser vector DOM engine. Fast cross-platform preview generation.
+                </p>
+              </div>
+
+              <!-- Pure PIL -->
+              <div onclick="selectRenderMode('pil')" id="render-mode-pil" class="render-mode-card">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                    <i data-lucide="image" class="w-3.5 h-3.5 text-amber-400"></i> Pure Python PIL
+                  </div>
+                </div>
+                <p class="text-[11px] text-muted-foreground leading-snug">
+                  Zero-dependency Pillow rasterizer. Portable fallback for Linux &amp; Docker.
+                </p>
+              </div>
+            </div>
+
+            <!-- Slide Render Quality / DPI Scaling Selector (UI/UX Improvement #8) -->
+            <div class="pt-3 border-t border-border/60">
+              <div class="flex items-center justify-between mb-2">
+                <label class="font-medium text-foreground flex items-center gap-1.5">
+                  <i data-lucide="scaling" class="w-3.5 h-3.5 text-primary"></i> Render Quality &amp; DPI Resolution
+                </label>
+                <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">RENDER_DPI</code>
+              </div>
+              <input type="hidden" id="cfg-render-dpi" value="150">
+
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <!-- 72 DPI -->
+                <div onclick="selectRenderDpi(72)" id="dpi-card-72" class="dpi-quality-card">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="font-bold text-xs text-foreground">Draft (72 DPI)</span>
+                    <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5">Fastest (~200ms)</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Minimal memory footprint, rapid layout iteration &amp; low RAM.</p>
+                </div>
+
+                <!-- 150 DPI -->
+                <div onclick="selectRenderDpi(150)" id="dpi-card-150" class="dpi-quality-card selected">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="font-bold text-xs text-foreground">Standard HD (150 DPI)</span>
+                    <span class="shadcn-badge shadcn-badge-default text-[9px] py-0 px-1.5">Recommended</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Balanced crispness and rendering speed. Optimal for deck review.</p>
+                </div>
+
+                <!-- 300 DPI -->
+                <div onclick="selectRenderDpi(300)" id="dpi-card-300" class="dpi-quality-card">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="font-bold text-xs text-foreground">Print Ultra (300 DPI)</span>
+                    <span class="shadcn-badge shadcn-badge-secondary text-[9px] py-0 px-1.5">Archival</span>
+                  </div>
+                  <p class="text-[11px] text-muted-foreground">Ultra-sharp vector rasterization for large displays &amp; print exports.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- PURE_PIL_ACTIVE Safety Switch -->
+            <div class="pt-2 border-t border-border/60 flex items-center justify-between">
+              <div class="space-y-0.5">
+                <div class="flex items-center gap-2">
+                  <label for="cfg-pure-pil" class="font-medium text-foreground cursor-pointer">
+                    Enable Pure-Python PIL Fallback Safety Net
+                  </label>
+                  <code class="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">PURE_PIL_ACTIVE</code>
+                </div>
+                <p class="text-[11px] text-muted-foreground">
+                  Guarantees slide preview generation even if PowerPoint COM is crashed or running headless.
+                </p>
+              </div>
+              <label class="shadcn-switch-label">
+                <input type="checkbox" id="cfg-pure-pil" class="shadcn-switch-input" onchange="markSettingsDirty(); updateCascadeWaterfall();">
+                <div class="shadcn-switch-track"><div class="shadcn-switch-thumb"></div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Cascade Failover Simulator & Telemetry (UI/UX Improvement #7) -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+            <div>
+              <h3 class="shadcn-card-title flex items-center gap-2">
+                <i data-lucide="play" class="w-4 h-4 text-primary"></i> Live Cascade Failover Simulator
+              </h3>
+              <p class="shadcn-card-description">Simulate slide generation through the 3-tier cascade and inspect failover logs</p>
+            </div>
+            <button type="button" onclick="runCascadeSimulation()" id="btn-run-sim" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs gap-1.5">
+              <i data-lucide="play" class="w-3.5 h-3.5 text-primary"></i>
+              <span>Simulate Failover</span>
             </button>
-            <button onclick="syncRawToForm()" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs gap-1.5" title="Synchronize raw variables into the form">
-              <i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Sync to Form
+          </div>
+
+          <div class="shadcn-card-content space-y-4 text-xs">
+            <div class="cascade-flow-container">
+              <div class="cascade-flow-step active" id="flow-step-com">
+                <div class="flex items-center gap-1 text-foreground font-semibold">
+                  <i data-lucide="monitor" class="w-3 h-3 text-sky-400"></i> Tier 1: COM
+                </div>
+                <span class="text-[10px] text-muted-foreground">PowerPoint Native</span>
+              </div>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
+              <div class="cascade-flow-step active" id="flow-step-web">
+                <div class="flex items-center gap-1 text-foreground font-semibold">
+                  <i data-lucide="globe" class="w-3 h-3 text-emerald-400"></i> Tier 2: Web
+                </div>
+                <span class="text-[10px] text-muted-foreground">Vector DOM</span>
+              </div>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
+              <div class="cascade-flow-step active" id="flow-step-pil">
+                <div class="flex items-center gap-1 text-foreground font-semibold">
+                  <i data-lucide="image" class="w-3 h-3 text-amber-400"></i> Tier 3: PIL
+                </div>
+                <span id="flow-pil-status" class="text-[10px] text-emerald-400 font-mono">Active (OK)</span>
+              </div>
+            </div>
+            <p id="flow-warning-text" class="text-[10px] text-muted-foreground/80 italic"></p>
+
+            <!-- Simulator Telemetry Log Output -->
+            <div id="cascade-sim-telemetry" class="hidden p-3 rounded-lg bg-black/40 border border-border font-mono text-[11px] space-y-1 max-h-32 overflow-y-auto">
+            </div>
+          </div>
+        </div>
+
+        <!-- Engine Capability & Fallback Matrix Table (UI/UX Improvement #9) -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header">
+            <h3 class="shadcn-card-title flex items-center gap-2">
+              <i data-lucide="table-2" class="w-4 h-4 text-primary"></i> Engine Capability &amp; Fallback Matrix
+            </h3>
+            <p class="shadcn-card-description">Detailed fidelity, typography and platform breakdown across all 3 tiers</p>
+          </div>
+          <div class="shadcn-card-content overflow-x-auto text-xs">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-border text-muted-foreground font-mono text-[10px] uppercase">
+                  <th class="py-2 px-3">Engine Tier</th>
+                  <th class="py-2 px-3">Shape Geometry</th>
+                  <th class="py-2 px-3">Persian / RTL</th>
+                  <th class="py-2 px-3">Average Latency</th>
+                  <th class="py-2 px-3">Cross-Platform / Linux</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border/40 font-mono text-[11px]">
+                <tr>
+                  <td class="py-2.5 px-3 font-semibold text-foreground flex items-center gap-1.5">
+                    <i data-lucide="monitor" class="w-3.5 h-3.5 text-sky-400"></i> Tier 1: COM
+                  </td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-green">Pixel Perfect (100%)</span></td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-green">Native Uniscribe</span></td>
+                  <td class="py-2.5 px-3 text-muted-foreground">~800ms / slide</td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-red">Windows Only</span></td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-semibold text-foreground flex items-center gap-1.5">
+                    <i data-lucide="globe" class="w-3.5 h-3.5 text-emerald-400"></i> Tier 2: Web Vector
+                  </td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-blue">High Fidelity (95%)</span></td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-blue">HarfBuzz Web Fonts</span></td>
+                  <td class="py-2.5 px-3 text-muted-foreground">~250ms / slide</td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-green">Linux &amp; macOS (Headless)</span></td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-semibold text-foreground flex items-center gap-1.5">
+                    <i data-lucide="image" class="w-3.5 h-3.5 text-amber-400"></i> Tier 3: Pure PIL
+                  </td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-amber">Basic Raster (80%)</span></td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-amber">Bidi-reshaped Pillow</span></td>
+                  <td class="py-2.5 px-3 text-muted-foreground">~45ms / slide</td>
+                  <td class="py-2.5 px-3"><span class="matrix-pill pill-green">Zero-Dependency Everywhere</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- SUBTAB 4: DIAGNOSTICS & STORAGE MANAGEMENT -->
+      <!-- ============================================================== -->
+      <div id="settings-subtab-diagnostics" class="settings-subtab-pane space-y-6">
+        
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left: Storage Breakdown & Purge Cache Card (UI/UX Improvement #10 & #12) -->
+          <div class="lg:col-span-6 space-y-6">
+            <div class="shadcn-card">
+              <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+                <div>
+                  <h3 class="shadcn-card-title flex items-center gap-2">
+                    <i data-lucide="hard-drive" class="w-4 h-4 text-primary"></i> Output Storage &amp; Cache Allocation
+                  </h3>
+                  <p class="shadcn-card-description">Multi-segment storage telemetry and safe cache purging</p>
+                </div>
+                <button onclick="loadDiagnostics()" class="shadcn-btn shadcn-btn-ghost h-7 w-7 p-0 text-muted-foreground hover:text-foreground" title="Refresh Storage">
+                  <i data-lucide="refresh-cw" id="diag-refresh-icon" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <div class="shadcn-card-content space-y-4 text-xs">
+                <!-- Multi-segment progress bar -->
+                <div>
+                  <div class="flex items-center justify-between text-[11px] mb-1.5">
+                    <span class="text-muted-foreground font-medium">Storage Distribution</span>
+                    <span id="diag-storage-total-pill" class="font-mono text-foreground font-bold">Calculating...</span>
+                  </div>
+                  <div class="storage-multi-meter">
+                    <div id="storage-bar-cache" class="storage-segment-cache" style="width: 40%;" title="Cache Images"></div>
+                    <div id="storage-bar-decks" class="storage-segment-decks" style="width: 35%;" title="Saved PPTX Decks"></div>
+                    <div class="storage-segment-free"></div>
+                  </div>
+                  <div class="flex items-center justify-between text-[10px] text-muted-foreground pt-1.5">
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-400"></span> Cache Images: <strong id="diag-cache-mb" class="text-foreground">-- MB</strong></span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-400"></span> PPTX Decks: <strong id="diag-decks-mb" class="text-foreground">-- MB</strong></span>
+                    <span>Total Output: <strong id="diag-storage" class="text-foreground">--</strong></span>
+                  </div>
+                </div>
+
+                <!-- Clean Cache Action Button & Dry-Run Preview Modal Trigger -->
+                <div class="pt-2 border-t border-border/60">
+                  <button id="btn-clean-cache" onclick="openPurgeCacheModal()" class="shadcn-btn shadcn-btn-secondary w-full h-9 text-xs gap-1.5">
+                    <i data-lucide="trash-2" id="clean-cache-icon" class="w-3.5 h-3.5 text-destructive"></i>
+                    <i data-lucide="loader-2" id="clean-cache-spinner" class="w-3.5 h-3.5 animate-spin hidden text-destructive"></i>
+                    <span>Purge Slide Preview Cache...</span>
+                  </button>
+                  <p class="text-[10px] text-muted-foreground text-center mt-1.5">
+                    Safely purges cached preview PNG/JPEGs without deleting any generated <code class="font-mono">.pptx</code> presentations.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Component Archetypes & Template Inventory -->
+            <div class="shadcn-card p-5 space-y-3 text-xs">
+              <div class="flex items-center justify-between pb-2 border-b border-border/50">
+                <span class="text-muted-foreground">Component Archetypes</span>
+                <span id="diag-components" class="font-mono text-foreground font-semibold">Querying...</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-muted-foreground">Template Decks</span>
+                <span id="diag-templates" class="font-mono text-foreground font-semibold">Querying...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: PowerPoint COM Diagnostics & Live Health Probe (UI/UX Improvement #11) -->
+          <div class="lg:col-span-6 space-y-6">
+            <div class="shadcn-card">
+              <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+                <div>
+                  <h3 class="shadcn-card-title flex items-center gap-2">
+                    <i data-lucide="stethoscope" class="w-4 h-4 text-primary"></i> PowerPoint COM Health Diagnostics
+                  </h3>
+                  <p class="shadcn-card-description">Live COM automation probe and host environment verification</p>
+                </div>
+                <span id="com-probe-badge" class="shadcn-badge shadcn-badge-outline font-mono text-[10px] py-0.5">Idle</span>
+              </div>
+
+              <div class="shadcn-card-content space-y-4 text-xs">
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between py-1 border-b border-border/50">
+                    <span class="text-muted-foreground">Host Operating System</span>
+                    <span id="diag-os" class="font-mono text-foreground">Detecting...</span>
+                  </div>
+                  <div class="flex items-center justify-between py-1 border-b border-border/50">
+                    <span class="text-muted-foreground">COM Engine Status</span>
+                    <span id="diag-com" class="font-mono text-foreground flex items-center gap-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50"></span> Checking...
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Live COM Dispatch Probe Button -->
+                <div class="pt-1">
+                  <button id="btn-probe-com" onclick="runComHealthProbe()" class="shadcn-btn shadcn-btn-outline w-full h-8 text-xs gap-1.5">
+                    <i data-lucide="play-circle" id="com-probe-icon" class="w-3.5 h-3.5 text-primary"></i>
+                    <i data-lucide="loader-2" id="com-probe-spinner" class="w-3.5 h-3.5 animate-spin hidden text-primary"></i>
+                    <span>Probe Win32COM Dispatch</span>
+                  </button>
+                  <p id="com-probe-detail" class="text-[10px] text-muted-foreground mt-2 leading-relaxed font-mono">
+                    Click probe to verify whether Microsoft PowerPoint COM Application instance can be instantiated on this host.
+                  </p>
+                </div>
+
+                <!-- COM Troubleshooting Guide Accordion -->
+                <div class="p-3 rounded-lg bg-secondary/30 border border-border space-y-1.5 text-[11px]">
+                  <div class="font-semibold text-foreground flex items-center gap-1.5">
+                    <i data-lucide="help-circle" class="w-3.5 h-3.5 text-primary"></i> Troubleshooting COM
+                  </div>
+                  <div class="text-muted-foreground leading-relaxed">
+                    If COM fails or hangs: Close any open "Save As" prompts in Microsoft PowerPoint, run <code class="font-mono">taskkill /f /im powerpnt.exe</code> in cmd, or let Tier 2 (Web Vector) handle rendering seamlessly.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- SUBTAB 5: ENVIRONMENT & RAW .ENV CONFIGURATION -->
+      <!-- ============================================================== -->
+      <div id="settings-subtab-raw_env" class="settings-subtab-pane space-y-6">
+        
+        <!-- Raw .env Code Editor -->
+        <div class="shadcn-card">
+          <div class="shadcn-card-header flex-row items-center justify-between space-y-0">
+            <div>
+              <h3 class="shadcn-card-title flex items-center gap-2">
+                <i data-lucide="file-code" class="w-4 h-4 text-primary"></i> Environment Configuration (.env)
+              </h3>
+              <p class="shadcn-card-description">Directly inspect, edit, or copy raw environment variables</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="copyRawConfig()" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs gap-1.5">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+              </button>
+              <button onclick="syncRawToForm()" class="shadcn-btn shadcn-btn-outline h-7 px-2 text-xs gap-1.5" title="Synchronize raw variables into the form">
+                <i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Sync to Form
+              </button>
+            </div>
+          </div>
+          <div class="shadcn-card-content space-y-3">
+            <textarea id="cfg-raw-text" rows="14" class="shadcn-input font-mono text-xs w-full h-80 p-3 bg-secondary/70 leading-relaxed resize-y"></textarea>
+            <div class="flex justify-end gap-2">
+              <button onclick="saveRawConfig()" class="shadcn-btn shadcn-btn-default h-8 text-xs gap-1.5">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Raw .env
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Configuration Backup History & 1-Click Restore (UI/UX Improvement #15) -->
+        <div class="shadcn-card p-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="space-y-1">
+              <h4 class="font-semibold text-foreground text-xs flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i> Configuration Automatic Safeguards
+              </h4>
+              <p class="text-[11px] text-muted-foreground">
+                Before every save or factory reset, the engine snapshots your active settings to <code class="font-mono">.env.backup</code>.
+              </p>
+            </div>
+            <button onclick="openBackupRestoreModal()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs gap-1.5 shrink-0">
+              <i data-lucide="history" class="w-3.5 h-3.5 text-primary"></i> Inspect &amp; Restore Backup
             </button>
           </div>
         </div>
-        <div class="shadcn-card-content space-y-3">
-          <textarea id="cfg-raw-text" rows="12" class="shadcn-input font-mono text-xs w-full h-72 p-3 bg-secondary/70 leading-relaxed resize-y"></textarea>
-          <div class="flex justify-end gap-2">
-            <button onclick="saveRawConfig()" class="shadcn-btn shadcn-btn-default h-8 text-xs gap-1.5">
-              <i data-lucide="save" class="w-3.5 h-3.5"></i> Save Raw .env
-            </button>
-          </div>
-        </div>
+
       </div>
 
     </div>
 
+    <!-- ============================================================== -->
     <!-- FLOATING UN-SAVED CHANGES ACTION BAR (SLIDES UP ON DIRTY STATE) -->
+    <!-- ============================================================== -->
     <div id="settings-floating-bar" class="hidden settings-floating-bar">
       <div class="flex items-center gap-2">
         <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
@@ -2832,7 +3410,9 @@
       </div>
     </div>
 
-    <!-- RESET TO DEFAULTS CONFIRMATION MODAL -->
+    <!-- ============================================================== -->
+    <!-- MODAL 1: RESET TO DEFAULTS CONFIRMATION MODAL -->
+    <!-- ============================================================== -->
     <div id="reset-defaults-modal" class="hidden fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div class="shadcn-card max-w-md w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3">
@@ -2846,7 +3426,7 @@
         </div>
         <div class="shadcn-card-content space-y-3 text-xs pt-3">
           <p class="text-muted-foreground leading-relaxed">
-            This will reset your model endpoints, search providers, and cascade flags to the factory recommended defaults:
+            This will reset your model endpoints, search providers, cascade flags, and DPI to factory recommended defaults:
           </p>
           <div class="bg-secondary/60 rounded-md p-2.5 font-mono text-[11px] space-y-1 text-muted-foreground border border-border">
             <div><span class="text-foreground">NINEROUTER_URL:</span> http://localhost:20128</div>
@@ -2855,6 +3435,7 @@
             <div><span class="text-foreground">FETCH_MODEL:</span> jina-reader</div>
             <div><span class="text-foreground">IMAGE_MODEL:</span> gemini/gemini-3-pro-image-preview</div>
             <div><span class="text-foreground">RENDER_MODE:</span> auto</div>
+            <div><span class="text-foreground">RENDER_DPI:</span> 150</div>
             <div><span class="text-foreground">PURE_PIL_ACTIVE:</span> true</div>
           </div>
           <p class="text-[11px] text-amber-400/90 flex items-center gap-1.5">
@@ -2871,411 +3452,168 @@
           </button>
         </div>
       </div>
+    </div>
 
-      <!-- ========================================================== -->
-      <!-- DEDICATED AGENT MODELS & THINKING LEVELS SECTION -->
-      <!-- ========================================================== -->
-      <div class="max-w-2xl mx-auto shadcn-card">
-        <div
-          class="shadcn-card-header flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-          <div>
-            <h2 class="shadcn-card-title flex items-center gap-2">
-              <i data-lucide="bot" class="w-4 h-4 text-primary"></i> Dedicated Agent Models &amp; Thinking Levels
-            </h2>
-            <p class="shadcn-card-description">Assign independent 9Router models and reasoning effort (think levels) to
-              each pipeline agent. Unset fields inherit the primary model.</p>
+    <!-- ============================================================== -->
+    <!-- MODAL 2: PURGE CACHE WITH DRY-RUN PREVIEW (UI/UX IMPROVEMENT #12) -->
+    <!-- ============================================================== -->
+    <div id="purge-cache-modal" class="hidden fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="shadcn-card max-w-md w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="trash-2" class="w-4 h-4 text-destructive"></i>
+            <h3 class="shadcn-card-title">Purge Slide Preview Cache</h3>
           </div>
-          <div class="flex items-center gap-1.5 flex-wrap shrink-0">
-            <button type="button" onclick="applyAgentThinkingPreset('high')"
-              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
-              title="Set think level to High (Deep Reasoning) for all agents">
-              <i data-lucide="brain" class="w-3 h-3 text-amber-400"></i> High Think
-            </button>
-            <button type="button" onclick="applyAgentThinkingPreset('low')"
-              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-foreground border border-border flex items-center gap-1 transition-all"
-              title="Set think level to Low (Fast Speed) for all agents">
-              <i data-lucide="zap" class="w-3 h-3 text-sky-400"></i> Fast Think
-            </button>
-            <button type="button" onclick="resetAllAgentsToDefault()"
-              class="text-[11px] px-2 py-1 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border flex items-center gap-1 transition-all"
-              title="Reset all agents to inherit primary model and default thinking">
-              <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset All
-            </button>
+          <button onclick="closePurgeCacheModal()" class="text-muted-foreground hover:text-foreground">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="shadcn-card-content space-y-3 text-xs pt-3">
+          <p class="text-muted-foreground leading-relaxed">
+            Preview cache purges cached slide images while protecting your PowerPoint deck files:
+          </p>
+          <div class="p-3 rounded-lg bg-secondary/50 border border-border space-y-2 font-mono text-[11px]">
+            <div class="flex items-center justify-between">
+              <span class="text-muted-foreground">Cached images to remove:</span>
+              <strong id="purge-preview-count" class="text-destructive font-bold">-- files</strong>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-muted-foreground">Estimated disk space freed:</span>
+              <strong id="purge-preview-size" class="text-foreground font-bold">-- MB</strong>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-border/50 text-emerald-400">
+              <span>Saved PowerPoint presentations (.pptx):</span>
+              <strong id="purge-preview-decks">Safe (Untouched)</strong>
+            </div>
           </div>
         </div>
+        <div class="shadcn-card-footer flex justify-end gap-2 pt-3 pb-3">
+          <button onclick="closePurgeCacheModal()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs">
+            Cancel
+          </button>
+          <button onclick="confirmPurgeCache()" id="btn-confirm-purge" class="shadcn-btn shadcn-btn-destructive h-8 px-3.5 text-xs gap-1.5">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Purge Now
+          </button>
+        </div>
+      </div>
+    </div>
 
-        <div class="shadcn-card-content space-y-3 pt-4 text-xs">
-          <!-- Active Target Notice (appears when browsing model for an agent) -->
-          <div id="agent-model-picker-banner"
-            class="hidden p-2.5 rounded-lg bg-primary/10 border border-primary/40 flex items-center justify-between text-xs animate-in fade-in">
-            <div class="flex items-center gap-2 text-foreground">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>
-              <span>Selecting model for <strong id="agent-picker-target-name"
-                  class="text-primary font-mono">Agent</strong>. Pick any model from suggestions or search:</span>
-            </div>
-            <button type="button" onclick="cancelAgentModelPick()" class="text-muted-foreground hover:text-foreground">
-              <i data-lucide="x" class="w-3.5 h-3.5"></i>
-            </button>
+    <!-- ============================================================== -->
+    <!-- MODAL 3: PRESET PROFILE COMPARISON DIFF (UI/UX IMPROVEMENT #14) -->
+    <!-- ============================================================== -->
+    <div id="preset-diff-modal" class="hidden fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="shadcn-card max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-primary"></i>
+            <h3 class="shadcn-card-title">Preset Profile Comparison</h3>
           </div>
+          <button onclick="closePresetDiffModal()" class="text-muted-foreground hover:text-foreground">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="shadcn-card-content space-y-3 text-xs pt-2 overflow-x-auto">
+          <table class="w-full text-left border-collapse font-mono text-[11px]">
+            <thead>
+              <tr class="border-b border-border text-muted-foreground text-[10px] uppercase">
+                <th class="py-2 px-2.5">Key</th>
+                <th class="py-2 px-2.5 text-primary">Studio</th>
+                <th class="py-2 px-2.5 text-amber-400">Fast</th>
+                <th class="py-2 px-2.5 text-purple-400">Reasoning</th>
+                <th class="py-2 px-2.5 text-sky-400">Local</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border/40">
+              <tr>
+                <td class="py-2 px-2.5 font-bold text-foreground">CHAT_MODEL</td>
+                <td class="py-2 px-2.5 text-muted-foreground">gemini-3.7-flash</td>
+                <td class="py-2 px-2.5 text-muted-foreground">gemini-2.5-flash</td>
+                <td class="py-2 px-2.5 text-muted-foreground">claude-sonnet-4-6</td>
+                <td class="py-2 px-2.5 text-muted-foreground">qwen2.5-14b</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-2.5 font-bold text-foreground">SEARCH_MODEL</td>
+                <td class="py-2 px-2.5 text-muted-foreground">tavily</td>
+                <td class="py-2 px-2.5 text-muted-foreground">brave</td>
+                <td class="py-2 px-2.5 text-muted-foreground">exa_ai</td>
+                <td class="py-2 px-2.5 text-muted-foreground">none</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-2.5 font-bold text-foreground">RENDER_MODE</td>
+                <td class="py-2 px-2.5 text-muted-foreground">auto</td>
+                <td class="py-2 px-2.5 text-muted-foreground">web</td>
+                <td class="py-2 px-2.5 text-muted-foreground">native</td>
+                <td class="py-2 px-2.5 text-muted-foreground">pil</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-2.5 font-bold text-foreground">RENDER_DPI</td>
+                <td class="py-2 px-2.5 text-muted-foreground">150</td>
+                <td class="py-2 px-2.5 text-muted-foreground">72</td>
+                <td class="py-2 px-2.5 text-muted-foreground">300</td>
+                <td class="py-2 px-2.5 text-muted-foreground">150</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-2.5 font-bold text-foreground">ROUNDS</td>
+                <td class="py-2 px-2.5 text-muted-foreground">3</td>
+                <td class="py-2 px-2.5 text-muted-foreground">1</td>
+                <td class="py-2 px-2.5 text-muted-foreground">5</td>
+                <td class="py-2 px-2.5 text-muted-foreground">2</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="shadcn-card-footer flex justify-end gap-2 pt-3 pb-3">
+          <button onclick="closePresetDiffModal()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
 
-          <!-- 1. Slide Synthesis & Blueprint Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-generator">
+    <!-- ============================================================== -->
+    <!-- MODAL 4: CONFIGURATION BACKUP INSPECTOR & RESTORE (UI/UX #15) -->
+    <!-- ============================================================== -->
+    <div id="backup-restore-modal" class="hidden fixed inset-0 z-[9990] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="shadcn-card max-w-md w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div class="shadcn-card-header flex-row items-center justify-between space-y-0 pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="history" class="w-4 h-4 text-primary"></i>
+            <h3 class="shadcn-card-title">Configuration Backup Inspector</h3>
+          </div>
+          <button onclick="closeBackupRestoreModal()" class="text-muted-foreground hover:text-foreground">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="shadcn-card-content space-y-3 text-xs pt-3">
+          <p class="text-muted-foreground leading-relaxed">
+            Status of automatic backup file (<code class="font-mono">.env.backup</code>):
+          </p>
+          <div id="backup-modal-status-box" class="p-3 rounded-lg bg-secondary/50 border border-border space-y-2 font-mono text-[11px]">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                  <i data-lucide="presentation" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Slide Synthesis &amp; Blueprint Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">synthesis</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Visual template matching, section-to-slide mapping &amp;
-                    layout infill</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-generator"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('generator')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
+              <span class="text-muted-foreground">Backup File:</span>
+              <strong id="backup-file-status" class="text-foreground">Checking...</strong>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-generator" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('generator')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('generator')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-generator" onchange="onAgentConfigChanged('generator')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. Slide Verification & QA Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-verifier">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Slide Verification &amp; QA Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">qa</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Step 4.5 visual screenshot QA, typography auditing &amp;
-                    auto-healing</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-verifier"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('verifier')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
+              <span class="text-muted-foreground">Last Modified:</span>
+              <strong id="backup-file-time" class="text-muted-foreground">--</strong>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-verifier" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('verifier')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('verifier')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-verifier" onchange="onAgentConfigChanged('verifier')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3. Autonomous AI Assistant -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-autonomous">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Autonomous AI Assistant
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">terminal</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Multi-turn Gemini-style terminal, web tool orchestration
-                    &amp; execution</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-autonomous"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('autonomous')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-autonomous" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('autonomous')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('autonomous')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-autonomous" onchange="onAgentConfigChanged('autonomous')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
+              <span class="text-muted-foreground">Size:</span>
+              <strong id="backup-file-size" class="text-muted-foreground">-- bytes</strong>
             </div>
           </div>
-
-          <!-- 4. Template Analyzer Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-analyzer">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                  <i data-lucide="scan" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Template Analyzer Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">intelligence</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Extracts design intelligence, archetype classifications
-                    &amp; NOTE.md guidelines</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-analyzer"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('analyzer')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-analyzer" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('analyzer')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('analyzer')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-analyzer" onchange="onAgentConfigChanged('analyzer')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 5. Storyboard & Structure Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-structure">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                  <i data-lucide="layout-template" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Storyboard &amp; Structure Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">storyboard</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Multimodal sample notes/handwriting analysis &amp;
-                    structure.md generation</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-structure"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('structure')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-structure" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('structure')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('structure')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-structure" onchange="onAgentConfigChanged('structure')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 6. Human Touch / Slide Editor Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-editor">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                  <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Human Touch &amp; Slide Editor Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">interactive</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Interactive slide adjustments, conversational chat &amp;
-                    content refinement</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-editor"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('editor')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-editor" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('editor')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('editor')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-editor" onchange="onAgentConfigChanged('editor')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 7. Document Parser & Vision OCR Agent -->
-          <div class="p-3 rounded-lg border border-border/70 bg-card/60 hover:bg-secondary/20 transition-all space-y-2"
-            id="agent-card-parser">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div
-                  class="w-6 h-6 rounded bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
-                  <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
-                </div>
-                <div>
-                  <div class="font-semibold text-foreground text-xs flex items-center gap-1.5">
-                    Document Parser &amp; Vision OCR Agent
-                    <span
-                      class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-secondary border border-border text-muted-foreground">parser</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Transcribes handwritten notes, worksheets &amp; complex
-                    multi-modal documents</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <span id="cfg-agent-status-parser"
-                  class="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground">Inherited</span>
-                <button type="button" onclick="resetAgentToDefault('parser')"
-                  title="Reset to Primary Model &amp; Default Think Level"
-                  class="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary transition-colors">
-                  <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
-                </button>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center pt-1">
-              <div class="md:col-span-7 relative">
-                <input type="text" id="cfg-agent-model-parser" list="cfg-chat-model-datalist"
-                  oninput="onAgentConfigChanged('parser')" class="shadcn-input font-mono text-xs pr-16"
-                  placeholder="Inherit Primary Model">
-                <button type="button" onclick="pickModelForAgent('parser')"
-                  class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground border border-border/60">Browse</button>
-              </div>
-              <div class="md:col-span-5">
-                <select id="cfg-agent-think-parser" onchange="onAgentConfigChanged('parser')"
-                  class="shadcn-input font-mono text-xs w-full">
-                  <option value="default">Think: Default / Inherit</option>
-                  <option value="none">Think: None (Off)</option>
-                  <option value="low">Think: Low (Fast Reasoning)</option>
-                  <option value="medium">Think: Medium (Balanced)</option>
-                  <option value="high">Think: High (Deep Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- Card Footer Actions -->
-          <div class="pt-3 flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-border/60">
-            <span id="agent-customized-summary" class="text-[11px] font-mono text-muted-foreground">All 7 agents
-              currently inherit the primary chat model</span>
-            <button onclick="saveConfigSettings()" class="shadcn-btn shadcn-btn-default gap-2 w-full sm:w-auto">
-              <i data-lucide="save" class="w-4 h-4"></i> Save Agent Settings (.env)
-            </button>
-          </div>
+          <p class="text-[11px] text-amber-400/90 flex items-center gap-1.5">
+            <i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>
+            Restoring overwrites current .env and reloads all engine configs.
+          </p>
+        </div>
+        <div class="shadcn-card-footer flex justify-end gap-2 pt-3 pb-3">
+          <button onclick="closeBackupRestoreModal()" class="shadcn-btn shadcn-btn-outline h-8 px-3 text-xs">
+            Cancel
+          </button>
+          <button onclick="confirmRestoreBackup()" id="btn-confirm-restore" class="shadcn-btn shadcn-btn-default h-8 px-3.5 text-xs gap-1.5">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Restore Backup
+          </button>
         </div>
       </div>
     </div>

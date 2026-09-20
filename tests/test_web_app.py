@@ -354,3 +354,29 @@ def test_config_clean_cache_api(client):
     assert data["success"] is True
     assert "cleaned_count" in data
 
+
+def test_config_com_probe_api(client):
+    res = client.post("/api/config/com-probe")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "status" in data
+    assert "latency_ms" in data
+
+
+def test_config_clean_cache_dry_run_api(client):
+    res = client.post("/api/config/clean-cache", json={"dry_run": True})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "dry_run" in data
+    assert data["dry_run"] is True
+    assert "cleaned_count" in data
+
+
+def test_config_backup_api(client):
+    res = client.get("/api/config/backup")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "backup_exists" in data
+

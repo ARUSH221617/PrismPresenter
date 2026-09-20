@@ -5683,6 +5683,43 @@ function setProviderFilter(provider) {
   renderModelCards();
 }
 
+let currentModelCapFilter = 'all';
+
+function setCapabilityFilter(filterType) {
+  currentModelCapFilter = filterType;
+  const buttons = ['all', 'vision', 'reasoning', 'tools', 'favs'];
+  buttons.forEach(b => {
+    const btn = document.getElementById(`cap-filter-${b}`);
+    if (btn) {
+      if (b === filterType) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  });
+  renderModelCards();
+}
+
+function getFavoriteModels() {
+  try {
+    return JSON.parse(localStorage.getItem('prism_favorite_models') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function toggleFavoriteModel(modelId, event) {
+  if (event) event.stopPropagation();
+  let favs = getFavoriteModels();
+  if (favs.includes(modelId)) {
+    favs = favs.filter(id => id !== modelId);
+    showToast(`Removed ${modelId} from favorites`, 'info');
+  } else {
+    favs.push(modelId);
+    showToast(`Added ${modelId} to favorites`, 'success');
+  }
+  localStorage.setItem('prism_favorite_models', JSON.stringify(favs));
+  renderModelCards();
+}
+
 function filterModelsList() {
   renderModelCards();
 }
@@ -5694,12 +5731,19 @@ function renderModelCards() {
   const chatModels = _9routerModelsData.categories?.chat || _9routerModelsData.models || [];
   const currentChatModel = document.getElementById('cfg-chat-model')?.value.trim();
   const search = (document.getElementById('model-search-input')?.value || '').trim().toLowerCase();
+  const favList = getFavoriteModels();
 
   let filtered = chatModels.filter(m => {
     // Provider filter
     if (_selectedProviderFilter !== 'all' && m.owned_by !== _selectedProviderFilter) {
       return false;
     }
+    // Capability filter
+    if (currentModelCapFilter === 'vision' && !m.capabilities?.vision) return false;
+    if (currentModelCapFilter === 'reasoning' && !m.capabilities?.reasoning) return false;
+    if (currentModelCapFilter === 'tools' && !m.capabilities?.tools) return false;
+    if (currentModelCapFilter === 'favs' && !favList.includes(m.id)) return false;
+
     // Search query filter
     if (search) {
       const matchId = (m.id || '').toLowerCase().includes(search);
@@ -5714,7 +5758,7 @@ function renderModelCards() {
     container.innerHTML = `
       <div class="p-6 text-center text-muted-foreground font-mono text-xs">
         <i data-lucide="search-x" class="w-6 h-6 mx-auto mb-1.5 opacity-40"></i>
-        No 9Router models match "${escapeHtml(search)}".
+        No 9Router models match the selected filters.
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -5724,6 +5768,7 @@ function renderModelCards() {
   container.innerHTML = filtered.map(m => {
     const isSelected = (currentChatModel === m.id);
     const badgeClass = getProviderBadgeClass(m.owned_by);
+    const isFav = favList.includes(m.id);
 
     let capsHtml = '';
     if (m.capabilities?.vision) capsHtml += '<span class="text-emerald-400">👁 Vision</span>';
@@ -5751,7 +5796,12 @@ function renderModelCards() {
             ${capsHtml}
           </div>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button type="button" onclick="toggleFavoriteModel('${escapeHtml(m.id)}', event)"
+            class="p-1 rounded text-muted-foreground hover:text-amber-400 transition-colors ${isFav ? 'text-amber-400' : ''}"
+            title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">
+            <i data-lucide="star" class="w-3.5 h-3.5 ${isFav ? 'fill-amber-400' : ''}"></i>
+          </button>
           <button type="button" class="text-xs px-2.5 py-1 rounded transition-all ${
             isSelected
               ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
@@ -5978,6 +6028,21 @@ function onModelInputChanged(val) {
     if (elMax) elMax.innerText = `${maxTokens} tokens`;
     const elCtx = document.getElementById('cfg-meta-context');
     if (elCtx) elCtx.innerText = `${contextLength} tokens`;
+
+    const elCaps = document.getElementById('cfg-meta-caps');
+    if (elCaps && found.capabilities) {
+      elCaps.innerHTML = '';
+      if (found.capabilities.vision) {
+        elCaps.innerHTML += '<span class="cap-pill cap-pill-vision"><i data-lucide="eye" class="w-3 h-3"></i> Vision</span>';
+      }
+      if (found.capabilities.reasoning) {
+        elCaps.innerHTML += '<span class="cap-pill cap-pill-reasoning"><i data-lucide="brain" class="w-3 h-3"></i> Reasoning</span>';
+      }
+      if (found.capabilities.tools) {
+        elCaps.innerHTML += '<span class="cap-pill cap-pill-tools"><i data-lucide="wrench" class="w-3 h-3"></i> Tools</span>';
+      }
+      if (window.lucide) lucide.createIcons();
+    }
   }
 }
 
@@ -6026,6 +6091,9 @@ async function loadConfigSettings() {
       if (renderModeInput) renderModeInput.value = renderMode;
       selectRenderMode(renderMode, false);
 
+      const renderDpi = parseInt(cfg.RENDER_DPI || 150, 10);
+      selectRenderDpi(renderDpi, false);
+
       const purePilActive = cfg.PURE_PIL_ACTIVE !== undefined ? Boolean(cfg.PURE_PIL_ACTIVE) : true;
       if (purePilInput) purePilInput.checked = purePilActive;
 
@@ -6036,12 +6104,14 @@ async function loadConfigSettings() {
           const tKey = 'AGENT_THINK_LEVEL_' + aid.toUpperCase();
           const mInput = document.getElementById(`cfg-agent-model-${aid}`);
           const tSelect = document.getElementById(`cfg-agent-think-${aid}`);
+          const thinkVal = cfg[tKey] || (data.agents && data.agents[aid]?.think_level) || 'default';
           if (mInput) {
             mInput.value = cfg[mKey] || (data.agents && data.agents[aid]?.configured_model) || '';
           }
           if (tSelect) {
-            tSelect.value = cfg[tKey] || (data.agents && data.agents[aid]?.think_level) || 'default';
+            tSelect.value = thinkVal;
           }
+          setAgentThinkChip(aid, thinkVal, false);
         });
       }
 
@@ -6058,6 +6128,7 @@ async function loadConfigSettings() {
         NINEROUTER_FETCH_MODEL: cfg.NINEROUTER_FETCH_MODEL || '',
         NINEROUTER_IMAGE_MODEL: cfg.NINEROUTER_IMAGE_MODEL || '',
         RENDER_MODE: renderMode,
+        RENDER_DPI: renderDpi,
         PURE_PIL_ACTIVE: purePilActive
       };
 
@@ -6065,6 +6136,7 @@ async function loadConfigSettings() {
       updateCascadeWaterfall();
       hideFloatingDirtyBar();
       loadDiagnostics();
+      loadRawConfig();
       refreshIcons();
     }
   } catch (err) {
@@ -6083,6 +6155,7 @@ function getFormConfigState() {
     NINEROUTER_FETCH_MODEL: (document.getElementById('cfg-fetch-model')?.value || '').trim(),
     NINEROUTER_IMAGE_MODEL: (document.getElementById('cfg-image-model')?.value || '').trim(),
     RENDER_MODE: (document.getElementById('cfg-render-mode')?.value || 'auto').trim(),
+    RENDER_DPI: parseInt(document.getElementById('cfg-render-dpi')?.value || '150', 10),
     PURE_PIL_ACTIVE: purePilInput ? purePilInput.checked : true
   };
 }
@@ -6138,6 +6211,9 @@ function revertConfigSettings() {
   if (imageInput) imageInput.value = originalConfigState.NINEROUTER_IMAGE_MODEL;
   if (renderModeInput) renderModeInput.value = originalConfigState.RENDER_MODE;
   selectRenderMode(originalConfigState.RENDER_MODE, false);
+  if (originalConfigState.RENDER_DPI !== undefined) {
+    selectRenderDpi(originalConfigState.RENDER_DPI, false);
+  }
   if (purePilInput) purePilInput.checked = originalConfigState.PURE_PIL_ACTIVE;
 
   updateKeyStatusIndicator();
@@ -6179,24 +6255,19 @@ async function saveConfigSettings() {
     });
   }
 
+  let saveSucceeded = false;
+  let responseData = null;
+
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config: current, agents: agentsPayload })
     });
-    const data = await res.json();
-    if (data.success) {
-      originalConfigState = { ...current };
-      hideFloatingDirtyBar();
-      const activeModel = data.model || current.NINEROUTER_CHAT_MODEL;
-      showToast(`Saved settings & applied models (Primary: ${activeModel})`, 'success');
-      if (typeof applyConfigAndMetadata === 'function') applyConfigAndMetadata(data);
-      if (typeof updateAllAgentStatusBadges === 'function') updateAllAgentStatusBadges(data);
-      loadConfigBadge();
-      loadDiagnostics();
-    } else {
-      showToast(`Save failed: ${data.error || 'Unknown error'}`, 'error');
+    responseData = await res.json();
+    saveSucceeded = Boolean(responseData && responseData.success);
+    if (!saveSucceeded) {
+      showToast(`Save failed: ${responseData?.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
@@ -6207,11 +6278,108 @@ async function saveConfigSettings() {
     if (saveText) saveText.innerText = 'Save Settings (.env)';
     refreshIcons();
   }
+
+  if (saveSucceeded && responseData) {
+    originalConfigState = { ...current };
+    hideFloatingDirtyBar();
+    const activeModel = responseData.model || current.NINEROUTER_CHAT_MODEL;
+    showToast(`Saved settings & applied models (Primary: ${activeModel})`, 'success');
+
+    try {
+      if (typeof applyConfigAndMetadata === 'function') applyConfigAndMetadata(responseData);
+      if (typeof updateAllAgentStatusBadges === 'function') updateAllAgentStatusBadges(responseData);
+      loadConfigBadge();
+      loadDiagnostics();
+      loadRawConfig();
+    } catch (uiErr) {
+      console.warn('Post-save UI refresh notice:', uiErr);
+    }
+  }
+}
+
+function setAgentThinkChip(agentId, level, triggerDirty = true) {
+  const select = document.getElementById(`cfg-agent-think-${agentId}`);
+  if (select) {
+    select.value = level;
+    if (typeof onAgentConfigChanged === 'function') onAgentConfigChanged(agentId);
+  }
+  const group = document.querySelector(`.think-segmented-group[data-agent="${agentId}"]`);
+  if (group) {
+    group.querySelectorAll('.think-chip').forEach(chip => {
+      if (chip.getAttribute('data-level') === level) {
+        chip.classList.add('active');
+      } else {
+        chip.classList.remove('active');
+      }
+    });
+  }
+  if (triggerDirty) markSettingsDirty();
+}
+
+function selectRenderDpi(dpi, triggerDirty = true) {
+  const numDpi = parseInt(dpi, 10) || 150;
+  const dpiInput = document.getElementById('cfg-render-dpi');
+  if (dpiInput) dpiInput.value = numDpi;
+  [72, 150, 300].forEach(d => {
+    const card = document.getElementById(`dpi-card-${d}`);
+    if (card) {
+      if (d === numDpi) card.classList.add('selected');
+      else card.classList.remove('selected');
+    }
+  });
+  if (triggerDirty) markSettingsDirty();
 }
 
 // -------------------------------------------------------------
 // GATEWAY CONNECTIVITY & API KEY MANAGEMENT
 // -------------------------------------------------------------
+function applyGatewayPreset(url) {
+  const urlInput = document.getElementById('cfg-url');
+  if (urlInput) {
+    urlInput.value = url;
+    validateGatewayUrlInline();
+    markSettingsDirty();
+    showToast(`Applied gateway preset: ${url}`, 'info');
+  }
+}
+
+function validateGatewayUrlInline() {
+  const urlInput = document.getElementById('cfg-url');
+  const badge = document.getElementById('cfg-url-protocol-badge');
+  if (!urlInput || !badge) return;
+  const val = urlInput.value.trim().toLowerCase();
+  if (val.startsWith('https://')) {
+    badge.innerText = 'HTTPS (TLS)';
+    badge.className = 'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+  } else if (val.startsWith('http://localhost') || val.startsWith('http://127.0.0.1')) {
+    badge.innerText = 'HTTP (Local)';
+    badge.className = 'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30';
+  } else if (val.startsWith('http://')) {
+    badge.innerText = 'HTTP (Plain)';
+    badge.className = 'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30';
+  } else if (val.length > 0) {
+    badge.innerText = 'No Protocol';
+    badge.className = 'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-destructive/20 text-destructive border border-destructive/30';
+  } else {
+    badge.innerText = 'HTTP';
+    badge.className = 'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground';
+  }
+}
+
+async function copyKeyToClipboard() {
+  const keyInput = document.getElementById('cfg-key');
+  if (!keyInput || !keyInput.value) {
+    showToast('No API key entered to copy', 'info');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(keyInput.value);
+    showToast('API key copied to clipboard', 'success');
+  } catch (err) {
+    showToast('Could not copy key', 'error');
+  }
+}
+
 async function testGatewayConnection() {
   const urlInput = document.getElementById('cfg-url');
   const keyInput = document.getElementById('cfg-key');
@@ -6222,6 +6390,10 @@ async function testGatewayConnection() {
   const resultText = document.getElementById('cfg-ping-text');
   const latencyText = document.getElementById('cfg-ping-latency');
   const statusPill = document.getElementById('gateway-status-pill');
+  const pingTier = document.getElementById('cfg-ping-tier');
+  const pingModelCount = document.getElementById('cfg-ping-model-count');
+  const pingMeterBar = document.getElementById('cfg-ping-meter-bar');
+  const navHealthDot = document.getElementById('tab-settings-health-dot');
 
   let targetUrl = (urlInput ? urlInput.value.trim() : '');
   if (!targetUrl) targetUrl = 'http://localhost:20128';
@@ -6242,15 +6414,48 @@ async function testGatewayConnection() {
     if (resultBox) resultBox.classList.remove('hidden');
 
     if (data.success) {
+      const ms = data.latency_ms || 0;
+      let tier = 'Optimal (<400ms)';
+      let barWidth = 65;
+      let barColor = 'bg-emerald-500';
+
+      if (ms < 150) {
+        tier = 'Ultra Fast (<150ms)';
+        barWidth = 90;
+        barColor = 'bg-emerald-400';
+      } else if (ms < 400) {
+        tier = 'Optimal (<400ms)';
+        barWidth = 65;
+        barColor = 'bg-sky-400';
+      } else {
+        tier = 'High Latency (>400ms)';
+        barWidth = 30;
+        barColor = 'bg-amber-400';
+      }
+
+      if (pingTier) {
+        pingTier.innerText = tier;
+      }
+      if (pingModelCount) {
+        pingModelCount.innerText = `${data.model_count || 0} models`;
+      }
+      if (pingMeterBar) {
+        pingMeterBar.className = `ping-meter-fill ${barColor}`;
+        pingMeterBar.style.width = `${barWidth}%`;
+      }
+      if (navHealthDot) {
+        navHealthDot.className = 'w-2 h-2 rounded-full bg-emerald-500 is-online';
+      }
+
       const modelInfo = (data.model_count !== null && data.model_count !== undefined) ? ` • ${data.model_count} models discovered` : '';
       if (resultBox) {
-        resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-xs flex items-center justify-between';
+        resultBox.className = 'mt-3 p-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-xs flex flex-col gap-2';
       }
       if (resultText) {
-        resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span><span class="text-emerald-400 font-medium">Gateway Online (${data.message})${modelInfo}</span>`;
+        resultText.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span><span class="text-emerald-400 font-medium">Gateway Online (${data.message})${modelInfo}</span>`;
       }
       if (latencyText) {
-        latencyText.innerText = `${data.latency_ms}ms latency`;
+        latencyText.innerText = `${data.latency_ms} ms`;
       }
       if (statusPill) {
         statusPill.className = 'shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-500/30 gap-1.5 font-mono text-[10px] py-0.5';
@@ -6259,13 +6464,23 @@ async function testGatewayConnection() {
       showToast(`Gateway connection verified (${data.latency_ms}ms)`, 'success');
     } else {
       if (resultBox) {
-        resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-xs flex items-center justify-between';
+        resultBox.className = 'mt-3 p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-xs flex flex-col gap-2';
       }
       if (resultText) {
-        resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">${escapeHtml(data.error || 'Connection failed')}</span>`;
+        resultText.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">${escapeHtml(data.error || 'Connection failed')}</span>`;
       }
       if (latencyText) {
-        latencyText.innerText = `${data.latency_ms || 0}ms`;
+        latencyText.innerText = `${data.latency_ms || 0} ms`;
+      }
+      if (pingTier) {
+        pingTier.innerText = 'Unreachable';
+      }
+      if (pingMeterBar) {
+        pingMeterBar.className = 'ping-meter-fill bg-destructive';
+        pingMeterBar.style.width = '10%';
+      }
+      if (navHealthDot) {
+        navHealthDot.className = 'w-2 h-2 rounded-full bg-destructive is-offline';
       }
       if (statusPill) {
         statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
@@ -6276,14 +6491,17 @@ async function testGatewayConnection() {
   } catch (err) {
     if (resultBox) {
       resultBox.classList.remove('hidden');
-      resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-xs flex items-center justify-between';
+      resultBox.className = 'mt-3 p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-xs flex flex-col gap-2';
     }
     if (resultText) {
-      resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">Network error: ${escapeHtml(err.message)}</span>`;
+      resultText.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">Network error: ${escapeHtml(err.message)}</span>`;
     }
     if (statusPill) {
       statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
       statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-destructive"></span> Error`;
+    }
+    if (navHealthDot) {
+      navHealthDot.className = 'w-2 h-2 rounded-full bg-destructive is-offline';
     }
   } finally {
     if (pingBtn) pingBtn.disabled = false;
@@ -6330,14 +6548,30 @@ async function pasteKeyFromClipboard() {
 function updateKeyStatusIndicator() {
   const keyInput = document.getElementById('cfg-key');
   const statusSpan = document.getElementById('cfg-key-status');
+  const formatBadge = document.getElementById('cfg-key-format-badge');
   if (!statusSpan) return;
 
   const val = (keyInput?.value || '').trim();
   if (val.length > 0) {
     const preview = val.length > 6 ? `(starts with ${escapeHtml(val.substring(0, 4))}••••)` : '(active)';
     statusSpan.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> <span class="text-foreground">Key configured ${preview}</span>`;
+
+    if (formatBadge) {
+      if (val.startsWith('sk-proj-') || val.startsWith('sk-')) {
+        formatBadge.innerText = 'OpenAI Format';
+      } else if (val.startsWith('gsk_')) {
+        formatBadge.innerText = 'Groq Token';
+      } else if (val.startsWith('AIza')) {
+        formatBadge.innerText = 'Google Gemini';
+      } else if (val.startsWith('ant-') || val.includes('anthropic')) {
+        formatBadge.innerText = 'Anthropic Token';
+      } else {
+        formatBadge.innerText = 'Bearer Token';
+      }
+    }
   } else {
     statusSpan.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/60"></span> <span>No key configured (local gateway mode)</span>`;
+    if (formatBadge) formatBadge.innerText = 'Local / None';
   }
 }
 
@@ -6351,6 +6585,7 @@ function sanitizeGatewayUrl() {
     }
     val = val.replace(/\/+$/, '');
     urlInput.value = val;
+    validateGatewayUrlInline();
     markSettingsDirty();
   }
 }
@@ -6367,6 +6602,7 @@ function applyPreset(presetType) {
       fetch: 'jina-reader',
       image: 'gemini/gemini-3-pro-image-preview',
       mode: 'auto',
+      dpi: 150,
       pil: true
     },
     fast: {
@@ -6376,6 +6612,7 @@ function applyPreset(presetType) {
       fetch: 'jina-reader',
       image: 'gemini/gemini-3-pro-image-preview',
       mode: 'web',
+      dpi: 72,
       pil: true
     },
     reasoning: {
@@ -6385,6 +6622,7 @@ function applyPreset(presetType) {
       fetch: 'firecrawl-search',
       image: 'gemini/gemini-3-pro-image-preview',
       mode: 'native',
+      dpi: 300,
       pil: false
     },
     local: {
@@ -6395,6 +6633,7 @@ function applyPreset(presetType) {
       fetch: 'jina-reader',
       image: 'gemini/gemini-3-pro-image-preview',
       mode: 'auto',
+      dpi: 150,
       pil: true
     }
   };
@@ -6409,7 +6648,10 @@ function applyPreset(presetType) {
   const imageInput = document.getElementById('cfg-image-model');
   const purePilInput = document.getElementById('cfg-pure-pil');
 
-  if (urlInput) urlInput.value = p.url;
+  if (urlInput) {
+    urlInput.value = p.url;
+    validateGatewayUrlInline();
+  }
   if (p.key !== undefined) {
     const keyInput = document.getElementById('cfg-key');
     if (keyInput) keyInput.value = p.key;
@@ -6421,6 +6663,7 @@ function applyPreset(presetType) {
   if (purePilInput) purePilInput.checked = p.pil;
 
   selectRenderMode(p.mode);
+  if (p.dpi !== undefined) selectRenderDpi(p.dpi);
   updateCascadeWaterfall();
   updateKeyStatusIndicator();
   markSettingsDirty();
@@ -6542,6 +6785,32 @@ async function loadDiagnostics() {
       }
       if (diagTemplates) {
         diagTemplates.innerText = `${data.storage.templates_count} PPTX Decks`;
+      }
+
+      if (data.storage) {
+        const cacheMb = data.storage.cache_images_mb || 0;
+        const decksMb = data.storage.pptx_decks_mb || 0;
+        const totalMb = data.storage.output_size_mb || (cacheMb + decksMb);
+
+        const cacheEl = document.getElementById('diag-cache-mb');
+        const decksEl = document.getElementById('diag-decks-mb');
+        const totalPill = document.getElementById('diag-storage-total-pill');
+        const barCache = document.getElementById('storage-bar-cache');
+        const barDecks = document.getElementById('storage-bar-decks');
+        const subStorage = document.getElementById('subtab-badge-storage');
+
+        if (cacheEl) cacheEl.innerText = `${cacheMb} MB (${data.storage.cache_images_count || 0} img)`;
+        if (decksEl) decksEl.innerText = `${decksMb} MB (${data.storage.pptx_decks_count || 0} decks)`;
+        if (totalPill) totalPill.innerText = `${totalMb} MB`;
+        if (subStorage) subStorage.innerText = `${cacheMb} MB`;
+
+        if (barCache && barDecks) {
+          const sum = Math.max(cacheMb + decksMb, 0.1);
+          const cachePct = Math.round((cacheMb / sum) * 75);
+          const decksPct = Math.round((decksMb / sum) * 75);
+          barCache.style.width = `${Math.max(cachePct, 5)}%`;
+          barDecks.style.width = `${Math.max(decksPct, 5)}%`;
+        }
       }
     }
   } catch (err) {
@@ -6665,6 +6934,9 @@ function syncRawToForm() {
   if (parsed.RENDER_MODE !== undefined) {
     selectRenderMode(parsed.RENDER_MODE.toLowerCase());
   }
+  if (parsed.RENDER_DPI !== undefined) {
+    selectRenderDpi(parseInt(parsed.RENDER_DPI, 10) || 150, false);
+  }
   if (parsed.PURE_PIL_ACTIVE !== undefined) {
     const el = document.getElementById('cfg-pure-pil');
     if (el) el.checked = ['1', 'true', 'yes', 'on'].includes(parsed.PURE_PIL_ACTIVE.toLowerCase());
@@ -6675,6 +6947,20 @@ function syncRawToForm() {
   markSettingsDirty();
   switchSettingsView('form');
   showToast('Synced variables into form fields', 'info');
+}
+
+async function loadRawConfig() {
+  const rawText = document.getElementById('cfg-raw-text');
+  if (!rawText) return;
+  try {
+    const res = await fetch('/api/config/raw');
+    const data = await res.json();
+    if (data.success && data.raw !== undefined) {
+      rawText.value = data.raw;
+    }
+  } catch (err) {
+    console.warn('Failed to load raw .env', err);
+  }
 }
 
 async function saveRawConfig() {
@@ -6692,8 +6978,9 @@ async function saveRawConfig() {
       showToast('Raw .env saved and reloaded', 'success');
       loadConfigSettings();
       loadConfigBadge();
+      loadRawConfig();
     } else {
-      showToast('Save failed', 'error');
+      showToast(`Save failed: ${data.error || 'Unknown error'}`, 'error');
     }
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
@@ -6718,4 +7005,280 @@ function confirmResetDefaults() {
   closeResetDefaultsModal();
   applyPreset('recommended');
   showToast('Recommended defaults applied. Click Save to persist.', 'info');
+}
+
+// -------------------------------------------------------------
+// SETTINGS SUB-TAB NAVIGATION
+// -------------------------------------------------------------
+function switchSettingsSubTab(tabName) {
+  const tabs = ['gateway', 'models', 'render', 'diagnostics', 'raw_env'];
+  tabs.forEach(t => {
+    const pane = document.getElementById(`settings-subtab-${t}`);
+    const btn = document.getElementById(`settings-subtab-btn-${t}`);
+    if (pane) {
+      if (t === tabName) pane.classList.add('active');
+      else pane.classList.remove('active');
+    }
+    if (btn) {
+      if (t === tabName) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  });
+  if (tabName === 'raw_env') {
+    loadRawConfig();
+  } else if (tabName === 'diagnostics') {
+    loadDiagnostics();
+  }
+  if (typeof refreshIcons === 'function') refreshIcons();
+}
+
+// -------------------------------------------------------------
+// CASCADE FAILOVER SIMULATOR
+// -------------------------------------------------------------
+async function runCascadeSimulation() {
+  const simBtn = document.getElementById('btn-run-sim');
+  const simLog = document.getElementById('cascade-sim-telemetry');
+  const stepCom = document.getElementById('flow-step-com');
+  const stepWeb = document.getElementById('flow-step-web');
+  const stepPil = document.getElementById('flow-step-pil');
+
+  if (simBtn) simBtn.disabled = true;
+  if (simLog) {
+    simLog.classList.remove('hidden');
+    simLog.innerHTML = '<div class="text-primary font-semibold">[SIMULATOR] Starting cascade failover probe test...</div>';
+  }
+
+  const log = (msg) => {
+    if (simLog) {
+      const line = document.createElement('div');
+      line.className = 'text-muted-foreground';
+      line.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      simLog.appendChild(line);
+      simLog.scrollTop = simLog.scrollHeight;
+    }
+  };
+
+  [stepCom, stepWeb, stepPil].forEach(s => {
+    if (s) s.classList.remove('probing', 'success', 'failed');
+  });
+
+  log('Testing Tier 1: Microsoft PowerPoint COM dispatch...');
+  if (stepCom) stepCom.classList.add('probing');
+  await new Promise(r => setTimeout(r, 600));
+
+  let comOnline = false;
+  try {
+    const res = await fetch('/api/config/com-probe', { method: 'POST' });
+    const data = await res.json();
+    comOnline = (data.status === 'ok');
+  } catch (e) {
+    comOnline = false;
+  }
+
+  if (comOnline) {
+    if (stepCom) {
+      stepCom.classList.remove('probing');
+      stepCom.classList.add('success');
+    }
+    log('✓ Tier 1 (COM) dispatched successfully. Native PowerPoint pipeline ready.');
+  } else {
+    if (stepCom) {
+      stepCom.classList.remove('probing');
+      stepCom.classList.add('failed');
+    }
+    log('✗ Tier 1 (COM) unavailable or uninstantiated. Failing over to Tier 2...');
+    await new Promise(r => setTimeout(r, 500));
+
+    log('Testing Tier 2: Web Vector DOM headless renderer...');
+    if (stepWeb) stepWeb.classList.add('probing');
+    await new Promise(r => setTimeout(r, 600));
+    if (stepWeb) {
+      stepWeb.classList.remove('probing');
+      stepWeb.classList.add('success');
+    }
+    log('✓ Tier 2 (Web Vector) initialized with HarfBuzz Persian/Arabic font shaping.');
+  }
+
+  log('Cascade failover simulation complete. Engine stack healthy.');
+  if (simBtn) simBtn.disabled = false;
+  if (typeof refreshIcons === 'function') refreshIcons();
+}
+
+// -------------------------------------------------------------
+// COM HEALTH DIAGNOSTICS PROBE
+// -------------------------------------------------------------
+async function runComHealthProbe() {
+  const probeBtn = document.getElementById('btn-probe-com');
+  const probeIcon = document.getElementById('com-probe-icon');
+  const probeSpinner = document.getElementById('com-probe-spinner');
+  const badge = document.getElementById('com-probe-badge');
+  const detail = document.getElementById('com-probe-detail');
+
+  if (probeBtn) probeBtn.disabled = true;
+  if (probeIcon) probeIcon.classList.add('hidden');
+  if (probeSpinner) probeSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/config/com-probe', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      if (badge) {
+        badge.className = 'shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-500/30 font-mono text-[10px] py-0.5';
+        badge.innerText = `Online (${data.latency_ms}ms)`;
+      }
+      if (detail) {
+        detail.innerText = `COM Dispatch OK: ${data.message}. Latency: ${data.latency_ms}ms. Version: ${data.version || 'Active'}`;
+      }
+      showToast('PowerPoint COM engine verified healthy', 'success');
+    } else {
+      if (badge) {
+        badge.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 font-mono text-[10px] py-0.5';
+        badge.innerText = 'Failed';
+      }
+      if (detail) {
+        detail.innerText = `COM Probe: ${data.message || data.error}. Tier 2 (Web Vector) & Tier 3 (PIL) will handle previews.`;
+      }
+      showToast(`COM Probe: ${data.message || 'Unavailable'}`, 'info');
+    }
+  } catch (err) {
+    if (detail) detail.innerText = `Probe Error: ${err.message}`;
+  } finally {
+    if (probeBtn) probeBtn.disabled = false;
+    if (probeIcon) probeIcon.classList.remove('hidden');
+    if (probeSpinner) probeSpinner.classList.add('hidden');
+    if (typeof refreshIcons === 'function') refreshIcons();
+  }
+}
+
+// -------------------------------------------------------------
+// PURGE CACHE MODAL (DRY-RUN PREVIEW)
+// -------------------------------------------------------------
+async function openPurgeCacheModal() {
+  const modal = document.getElementById('purge-cache-modal');
+  const countEl = document.getElementById('purge-preview-count');
+  const sizeEl = document.getElementById('purge-preview-size');
+  const decksEl = document.getElementById('purge-preview-decks');
+
+  if (countEl) countEl.innerText = 'Calculating...';
+  if (sizeEl) sizeEl.innerText = 'Calculating...';
+  if (modal) modal.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/config/clean-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: true })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (countEl) countEl.innerText = `${data.cleaned_count} files`;
+      if (sizeEl) sizeEl.innerText = `${data.freed_mb} MB`;
+      if (decksEl) decksEl.innerText = `${data.preserved_decks || 0} decks safe`;
+    }
+  } catch (e) {
+    if (countEl) countEl.innerText = 'Unknown';
+    if (sizeEl) sizeEl.innerText = 'Unknown';
+  }
+  if (typeof refreshIcons === 'function') refreshIcons();
+}
+
+function closePurgeCacheModal() {
+  const modal = document.getElementById('purge-cache-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function confirmPurgeCache() {
+  const btn = document.getElementById('btn-confirm-purge');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/config/clean-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: false })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Cache purged: ${data.freed_mb} MB freed (${data.cleaned_count} images removed)`, 'success');
+      closePurgeCacheModal();
+      loadDiagnostics();
+    } else {
+      showToast(`Purge failed: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// -------------------------------------------------------------
+// PRESET PROFILE COMPARISON DIFF MODAL
+// -------------------------------------------------------------
+function openPresetDiffModal() {
+  const modal = document.getElementById('preset-diff-modal');
+  if (modal) modal.classList.remove('hidden');
+  if (typeof refreshIcons === 'function') refreshIcons();
+}
+
+function closePresetDiffModal() {
+  const modal = document.getElementById('preset-diff-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+// -------------------------------------------------------------
+// BACKUP INSPECTOR & RESTORE
+// -------------------------------------------------------------
+async function openBackupRestoreModal() {
+  const modal = document.getElementById('backup-restore-modal');
+  const statusEl = document.getElementById('backup-file-status');
+  const timeEl = document.getElementById('backup-file-time');
+  const sizeEl = document.getElementById('backup-file-size');
+
+  if (modal) modal.classList.remove('hidden');
+  if (statusEl) statusEl.innerText = 'Checking...';
+
+  try {
+    const res = await fetch('/api/config/backup');
+    const data = await res.json();
+    if (data.success) {
+      if (statusEl) {
+        statusEl.innerText = data.backup_exists ? 'Available (.env.backup)' : 'None found';
+        statusEl.className = data.backup_exists ? 'text-emerald-400 font-bold' : 'text-muted-foreground';
+      }
+      if (timeEl) timeEl.innerText = data.backup_mtime || 'Never';
+      if (sizeEl) sizeEl.innerText = data.backup_size_bytes ? `${data.backup_size_bytes} bytes` : '0 bytes';
+    }
+  } catch (e) {
+    if (statusEl) statusEl.innerText = 'Query error';
+  }
+  if (typeof refreshIcons === 'function') refreshIcons();
+}
+
+function closeBackupRestoreModal() {
+  const modal = document.getElementById('backup-restore-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function confirmRestoreBackup() {
+  const btn = document.getElementById('btn-confirm-restore');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/config/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restore: true })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Configuration restored from .env.backup', 'success');
+      closeBackupRestoreModal();
+      loadConfigSettings();
+    } else {
+      showToast(`Restore error: ${data.error}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Restore error: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }

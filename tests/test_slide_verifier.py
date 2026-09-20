@@ -3,7 +3,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 
 from pptx_jahat.config import DATA_DIR, Config
 from pptx_jahat.tools.slide_verifier import (
@@ -398,6 +398,95 @@ def test_delete_unreplaced_template_formula_alternate_content(tmp_path):
     prs2 = Presentation(str(test_pptx))
     remaining_alts = len(prs2.slides[3]._element.xpath(".//*[local-name()='AlternateContent']"))
     assert remaining_alts < initial_alts
+
+
+def test_action_executor_full_access(sample_pptx):
+    """Test full access in Action Executor: move, resize, format, style, add, duplicate, execute_python."""
+    actions = [
+        {
+            "action": "move_shape",
+            "slide_index": 0,
+            "shape_index": 0,
+            "left": "150pt",
+            "top": "80pt"
+        },
+        {
+            "action": "resize_shape",
+            "slide_index": 0,
+            "shape_index": 0,
+            "width": "500pt",
+            "height": "120pt"
+        },
+        {
+            "action": "format_text",
+            "slide_index": 0,
+            "shape_index": 0,
+            "font_size": 24,
+            "bold": True,
+            "font_color": "#1E3A8A",
+            "alignment": "center"
+        },
+        {
+            "action": "set_shape_style",
+            "slide_index": 0,
+            "shape_index": 0,
+            "fill_color": "#F0F4F8",
+            "border_color": "#3B82F6",
+            "border_width": 2
+        },
+        {
+            "action": "add_shape",
+            "slide_index": 0,
+            "shape_type": "rounded_rectangle",
+            "left": "100pt",
+            "top": "300pt",
+            "width": "200pt",
+            "height": "60pt",
+            "text": "New Action Badge"
+        },
+        {
+            "action": "duplicate_shape",
+            "slide_index": 0,
+            "shape_index": 0,
+            "dx": "20pt",
+            "dy": "20pt",
+            "new_text": "Duplicated Shape"
+        },
+        {
+            "action": "execute_python",
+            "slide_index": 0,
+            "shape_index": 0,
+            "code": "shape.name = 'ExecPyShape'"
+        }
+    ]
+
+    res = apply_verification_edits(sample_pptx, actions)
+    assert res["success"] is True
+    assert res["applied_count"] >= 7
+
+    prs = Presentation(str(sample_pptx))
+    s0 = prs.slides[0]
+    sh0 = s0.shapes[0]
+    assert sh0.left == Pt(150)
+    assert sh0.top == Pt(80)
+    assert sh0.width == Pt(500)
+    assert sh0.height == Pt(120)
+    assert sh0.name == "ExecPyShape"
+
+    # Verify added shape and duplicated shape exist
+    assert len(s0.shapes) >= 4
+
+
+def test_extract_slide_semantic_layout(sample_pptx):
+    """Test generating semantic layout XML for a slide."""
+    from pptx_jahat.tools.slide_verifier import extract_slide_semantic_layout
+    prs = Presentation(str(sample_pptx))
+    xml_str = extract_slide_semantic_layout(prs.slides[0], prs.slide_width, prs.slide_height)
+    assert '<slide width=' in xml_str
+    assert '<shape index="0"' in xml_str
+    assert 'Generated Title Slide' in xml_str
+    assert '</slide>' in xml_str
+
 
 
 def test_auto_inject_deletion_when_formula_issue_detected():

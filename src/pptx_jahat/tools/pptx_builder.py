@@ -1597,30 +1597,54 @@ def build_pptx_with_agent(
                     )
                     verif_report["round"] = round_idx
                     verif_report["max_rounds"] = effective_verification_rounds
+                    verif_report["human_touch_enabled"] = bool(enable_human_touch)
+
+                    is_human_touch_active = bool(
+                        enable_human_touch
+                        and on_human_review
+                        and (not human_touch_steps or "verify" in human_touch_steps)
+                    )
 
                     # Human Touch: Review template alignment & converse with verification agent
-                    if enable_human_touch and on_human_review and (not human_touch_steps or "verify" in human_touch_steps):
-                        log(f"[Human Touch] Slide visual verification (Round {round_idx}/{effective_verification_rounds}) ready for human review & conversation...")
+                    if is_human_touch_active:
+                        log(f"[Human Touch] Slide verification statements (Round {round_idx}/{effective_verification_rounds}) awaiting human verification...")
+                        verif_report["human_verification_required"] = True
                         reviewed_verif = on_human_review("verify", verif_report)
                         if reviewed_verif and isinstance(reviewed_verif, dict):
                             verif_report = reviewed_verif
 
                     actions_to_apply = verif_report.get("aggregated_actions", [])
                     issues_count = verif_report.get("total_issues_found", 0)
+                    human_verified_clean = bool(verif_report.get("human_verified_clean", False))
+                    human_skipped = bool(verif_report.get("human_skipped", False))
 
-                    # If clean with zero issues or actions, verify passed!
-                    if verif_report.get("all_correct", False) or (issues_count == 0 and len(actions_to_apply) == 0):
-                        log(f"[Step 4.5] Visual verification PASSED on Round {round_idx}/{effective_verification_rounds}: All slides cleanly aligned with 0 issues.")
-                        all_clean = True
-                        break
+                    if is_human_touch_active:
+                        # In human touch mode, verification statements MUST be human-verified
+                        if human_verified_clean or human_skipped:
+                            log(f"[Step 4.5] Human verified all slides cleanly aligned on Round {round_idx}/{effective_verification_rounds}.")
+                            all_clean = True
+                            break
+                        if not actions_to_apply:
+                            log(f"[Step 4.5] Human approved slide verification with 0 pending actions on Round {round_idx}/{effective_verification_rounds}.")
+                            all_clean = True
+                            break
+                    else:
+                        # Autonomous non-interactive mode
+                        if verif_report.get("all_correct", False) or (issues_count == 0 and len(actions_to_apply) == 0):
+                            log(f"[Step 4.5] Visual verification PASSED on Round {round_idx}/{effective_verification_rounds}: All slides cleanly aligned with 0 issues.")
+                            all_clean = True
+                            break
 
                     if actions_to_apply:
-                        log(f"[Step 4.5] Round {round_idx}: Applying {len(actions_to_apply)} healing action(s) to presentation...")
+                        log(f"[Step 4.5] Round {round_idx}: Applying {len(actions_to_apply)} human-verified healing action(s) to presentation...")
                         edit_res = apply_verification_edits(output_path, actions_to_apply, log_cb=log)
                         applied_c = edit_res.get("applied_count", len(actions_to_apply))
                         total_healed_across_rounds += applied_c
+                        if round_idx >= effective_verification_rounds:
+                            all_clean = True
+                            break
                     else:
-                        # Issues noted but no automated actions formulated
+                        all_clean = True
                         break
 
                 if all_clean:

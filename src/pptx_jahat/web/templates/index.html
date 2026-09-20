@@ -440,6 +440,29 @@
             </div>
           </div>
 
+          <!-- Human Verification Bar for Active Slide -->
+          <div id="ht-verify-statement-banner"
+            class="p-2.5 rounded-lg bg-secondary/30 border border-border/80 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-foreground text-xs flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-primary"></i> Human Verification Statement:
+              </span>
+              <span id="ht-verify-slide-status-text" class="text-[11px] font-mono text-muted-foreground">
+                Awaiting your verification...
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-ht-verify-slide-clean" type="button" onclick="markActiveSlideHumanVerified(true)"
+                class="px-2.5 py-1 rounded text-[11px] font-medium bg-emerald-950/60 border border-emerald-700/80 text-emerald-300 hover:bg-emerald-900 transition flex items-center gap-1 cursor-pointer">
+                <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400"></i> Confirm Slide Verified Clean
+              </button>
+              <button id="btn-ht-verify-slide-flag" type="button" onclick="markActiveSlideHumanVerified(false)"
+                class="px-2.5 py-1 rounded text-[11px] font-medium bg-amber-950/60 border border-amber-700/80 text-amber-300 hover:bg-amber-900 transition flex items-center gap-1 cursor-pointer">
+                <i data-lucide="flag" class="w-3.5 h-3.5 text-amber-400"></i> Flag Discrepancies
+              </button>
+            </div>
+          </div>
+
           <!-- Side-by-Side Slide Comparison -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             <!-- Left: Template Slide -->
@@ -492,8 +515,14 @@
                   <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-400"></i> Detected Discrepancies &amp;
                   Missed Elements
                 </span>
-                <span id="ht-verify-issue-count"
-                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0 issues</span>
+                <div class="flex items-center gap-2">
+                  <span id="ht-verify-issue-count"
+                    class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0 issues</span>
+                  <button type="button" onclick="addCustomDiscrepancyPrompt()"
+                    class="text-[10px] font-medium text-primary hover:underline flex items-center gap-0.5 cursor-pointer">
+                    <i data-lucide="plus" class="w-3 h-3"></i> Add Issue
+                  </button>
+                </div>
               </div>
               <div id="ht-verify-issues-list" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                 <!-- Dynamically populated issues -->
@@ -506,9 +535,15 @@
                 <span class="font-medium text-foreground text-[11px] flex items-center gap-1.5">
                   <i data-lucide="wrench" class="w-3.5 h-3.5 text-sky-400"></i> Formulated Edit Actions (To Be Applied)
                 </span>
-                <span id="ht-verify-action-count"
-                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0
-                  actions</span>
+                <div class="flex items-center gap-2">
+                  <span id="ht-verify-action-count"
+                    class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">0
+                    actions</span>
+                  <button type="button" onclick="addCustomHealingAction()"
+                    class="text-[10px] font-medium text-primary hover:underline flex items-center gap-0.5 cursor-pointer">
+                    <i data-lucide="plus" class="w-3 h-3"></i> Add Action
+                  </button>
+                </div>
               </div>
               <div id="ht-verify-actions-list" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                 <!-- Dynamically populated actions -->

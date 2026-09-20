@@ -2178,6 +2178,8 @@ function setHumanTouchView(view) {
 // -------------------------------------------------------------
 // VERIFICATION HUMAN TOUCH FUNCTIONS
 // -------------------------------------------------------------
+// VERIFICATION HUMAN TOUCH FUNCTIONS
+// -------------------------------------------------------------
 let currentVerifySlideIdx = 0;
 
 function renderHumanTouchVerification(data) {
@@ -2190,11 +2192,16 @@ function renderHumanTouchVerification(data) {
     const totalIssues = data.total_issues_found || 0;
     const totalActions = data.total_actions_planned || 0;
     const roundStr = (data.round && data.max_rounds) ? ` [Round ${data.round}/${data.max_rounds}]` : '';
-    if (data.all_correct || (totalIssues === 0 && totalActions === 0)) {
-      overallBadge.innerText = `✓ Visual Verification: All Slides Aligned OK${roundStr}`;
+    const isHumanVerified = Boolean(data.human_verified || data.human_verified_clean);
+
+    if (isHumanVerified) {
+      overallBadge.innerText = `✓ Human Verified: Presentation Alignment Approved${roundStr}`;
       overallBadge.className = 'text-[11px] font-mono px-2.5 py-1 rounded bg-emerald-950/80 border border-emerald-800 text-emerald-300';
+    } else if (data.all_correct || (totalIssues === 0 && totalActions === 0)) {
+      overallBadge.innerText = `⚠ Awaiting Human Verification: AI declared 0 issues${roundStr}`;
+      overallBadge.className = 'text-[11px] font-mono px-2.5 py-1 rounded bg-sky-950/80 border border-sky-800 text-sky-300';
     } else {
-      overallBadge.innerText = `⚠ Found ${totalIssues} discrepancy item(s) • ${totalActions} healing action(s)${roundStr}`;
+      overallBadge.innerText = `⚠ Human Verification Required: ${totalIssues} issue(s) • ${totalActions} action(s)${roundStr}`;
       overallBadge.className = 'text-[11px] font-mono px-2.5 py-1 rounded bg-amber-950/80 border border-amber-800 text-amber-300';
     }
   }
@@ -2205,17 +2212,20 @@ function renderHumanTouchVerification(data) {
       const btn = document.createElement('button');
       btn.type = 'button';
       const hasIssues = (s.detected_issues && s.detected_issues.length > 0) || (s.edit_structure?.actions?.length > 0);
+      const isVerified = Boolean(s.human_verified);
       const isSelected = (idx === currentVerifySlideIdx);
 
       btn.className = `px-2.5 py-1 rounded text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
         isSelected
           ? 'bg-primary text-primary-foreground border-primary'
-          : hasIssues
-            ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
-            : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
+          : isVerified
+            ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/80 hover:bg-emerald-950/70'
+            : hasIssues
+              ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
+              : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
       }`;
 
-      const icon = hasIssues ? '⚠' : '✓';
+      const icon = isVerified ? '✓' : (hasIssues ? '⚠' : '?');
       btn.innerHTML = `<span>Slide ${s.slide_number}</span><span class="text-[10px] opacity-80">${icon}</span>`;
       btn.onclick = () => selectVerifySlide(idx);
       selector.appendChild(btn);
@@ -2240,13 +2250,16 @@ function selectVerifySlide(idx) {
     Array.from(selector.children).forEach((btn, bIdx) => {
       const s = slides[bIdx];
       const hasIssues = s && ((s.detected_issues && s.detected_issues.length > 0) || (s.edit_structure?.actions?.length > 0));
+      const isVerified = Boolean(s?.human_verified);
       const isSelected = (bIdx === currentVerifySlideIdx);
       btn.className = `px-2.5 py-1 rounded text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 ${
         isSelected
           ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-          : hasIssues
-            ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
-            : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
+          : isVerified
+            ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/80 hover:bg-emerald-950/70'
+            : hasIssues
+              ? 'bg-amber-950/40 text-amber-300 border-amber-800/80 hover:bg-amber-950/70'
+              : 'bg-secondary text-muted-foreground hover:text-foreground border-border'
       }`;
     });
   }
@@ -2259,6 +2272,23 @@ function selectVerifySlide(idx) {
   const genInfo = document.getElementById('ht-verify-gen-info');
   if (tplInfo) tplInfo.innerText = `${s.source_template || 'Template'} (Slide #${(s.source_slide_index ?? 0) + 1})`;
   if (genInfo) genInfo.innerText = `Slide ${s.slide_number}: ${s.title || ''}`;
+
+  // Update Slide Verification Statement Banner
+  const statusBanner = document.getElementById('ht-verify-slide-status-text');
+  const issues = s.detected_issues || [];
+  const actions = (s.edit_structure?.actions || []);
+  if (statusBanner) {
+    if (s.human_verified) {
+      statusBanner.innerText = `✓ Human-Verified: Slide confirmed clean and aligned.`;
+      statusBanner.className = 'text-[11px] font-mono text-emerald-400 font-medium';
+    } else if (issues.length > 0) {
+      statusBanner.innerText = `⚠ AI Discrepancy Statement: ${issues.length} issue(s) detected. Human approval required.`;
+      statusBanner.className = 'text-[11px] font-mono text-amber-400 font-medium';
+    } else {
+      statusBanner.innerText = `AI Statement: Clean & aligned with template. Awaiting human verification sign-off.`;
+      statusBanner.className = 'text-[11px] font-mono text-sky-400 font-medium';
+    }
+  }
 
   // Update Template Image
   const tplImg = document.getElementById('ht-verify-tpl-img');
@@ -2288,63 +2318,100 @@ function selectVerifySlide(idx) {
     }
   }
 
-  // Update Detected Issues List
+  // Update Detected Issues List with interactive verification toggles
   const issuesList = document.getElementById('ht-verify-issues-list');
   const issueCount = document.getElementById('ht-verify-issue-count');
-  const issues = s.detected_issues || [];
   if (issueCount) issueCount.innerText = `${issues.length} issue(s)`;
   if (issuesList) {
     if (issues.length > 0) {
-      issuesList.innerHTML = issues.map(iss => `
-        <div class="p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 flex items-start gap-2">
-          <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5"></i>
-          <span class="leading-relaxed">${escapeHtml(iss)}</span>
+      issuesList.innerHTML = issues.map((iss, iIdx) => `
+        <div class="p-2 rounded bg-amber-950/30 border border-amber-800/50 text-amber-200 flex items-start justify-between gap-2 text-xs">
+          <div class="flex items-start gap-2">
+            <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5"></i>
+            <span class="leading-relaxed">${escapeHtml(iss)}</span>
+          </div>
+          <button type="button" onclick="dismissVerificationIssue(${idx}, ${iIdx})"
+            class="text-[10px] text-muted-foreground hover:text-rose-400 shrink-0 px-1 py-0.5 rounded border border-border/40 hover:border-rose-800 transition"
+            title="Mark as false positive / dismiss">
+            Dismiss
+          </button>
         </div>
       `).join('');
     } else {
       issuesList.innerHTML = `
-        <div class="p-2.5 rounded bg-emerald-950/20 border border-emerald-800/40 text-emerald-300 flex items-center gap-2">
-          <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
-          <span>No missing elements, placeholder text, or layout issues detected on this slide.</span>
+        <div class="p-2.5 rounded bg-emerald-950/20 border border-emerald-800/40 text-emerald-300 flex items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2">
+            <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i>
+            <span>No missing elements, placeholder text, or layout issues detected on this slide.</span>
+          </div>
+          <button type="button" onclick="markActiveSlideHumanVerified(true)" class="text-[10px] px-2 py-0.5 rounded bg-emerald-800/50 hover:bg-emerald-800 text-emerald-200 cursor-pointer">
+            Confirm Clean
+          </button>
         </div>
       `;
     }
   }
 
-  // Update Actions List
+  // Update Actions List with active selection checkboxes and rich action badge types
   const actionsList = document.getElementById('ht-verify-actions-list');
   const actionCount = document.getElementById('ht-verify-action-count');
-  const actions = s.edit_structure?.actions || [];
-  if (actionCount) actionCount.innerText = `${actions.length} action(s)`;
+  const activeActionsCount = actions.filter(a => a.enabled !== false).length;
+  if (actionCount) actionCount.innerText = `${activeActionsCount} active / ${actions.length} action(s)`;
   if (actionsList) {
     if (actions.length > 0) {
       actionsList.innerHTML = actions.map((act, aIdx) => {
         const isDelete = ['delete_shape', 'remove_shape', 'delete_shapes', 'remove_shapes', 'delete_element', 'remove_element', 'remove_formula', 'delete_formula'].includes(act.action);
-        const iconName = isDelete ? 'trash-2' : 'wrench';
-        const badgeColor = isDelete ? 'bg-rose-950/40 border-rose-800/60 text-rose-200' : 'bg-sky-950/30 border-sky-800/50 text-sky-200';
-        const iconColor = isDelete ? 'text-rose-400' : 'text-sky-400';
+        const isGeometry = ['move_shape', 'resize_shape', 'align_shapes', 'set_position', 'set_dimensions'].includes(act.action);
+        const isFormat = ['format_text', 'set_font', 'set_typography', 'adjust_font'].includes(act.action);
+        const isClone = ['clone_shape_from_template', 'add_shape', 'duplicate_shape'].includes(act.action);
+        const isScript = ['execute_python', 'patch_oxml'].includes(act.action);
 
-        let desc = act.action;
-        if (['delete_shape', 'remove_shape', 'delete_element', 'remove_element'].includes(act.action)) {
-          desc = `Delete shape #${act.shape_index}${act.formula_text ? ` (Formula: "${escapeHtml(act.formula_text)}")` : ''}`;
-        } else if (['remove_formula', 'delete_formula'].includes(act.action)) {
-          desc = `Delete unreplaced formula${act.formula_text ? `: "${escapeHtml(act.formula_text)}"` : ' equation from template'}`;
-        } else if (act.action === 'remove_shapes' || act.action === 'delete_shapes') {
-          desc = `Delete shape(s) #${(act.shape_indices || []).join(', #')}`;
-        } else if (act.action === 'update_text') {
-          desc = `Update shape #${act.shape_index} text: "${escapeHtml(act.new_text || '')}"`;
-        } else if (act.action === 'update_table') {
-          desc = `Update table shape #${act.shape_index} cell contents`;
-        } else if (act.action === 'update_notes') {
-          desc = `Update speaker notes`;
+        let iconName = 'wrench';
+        let badgeColor = 'bg-sky-950/30 border-sky-800/50 text-sky-200';
+        let iconColor = 'text-sky-400';
+        let categoryTag = 'Action';
+
+        if (isDelete) {
+          iconName = 'trash-2';
+          badgeColor = 'bg-rose-950/40 border-rose-800/60 text-rose-200';
+          iconColor = 'text-rose-400';
+          categoryTag = 'Delete';
+        } else if (isGeometry) {
+          iconName = 'move';
+          badgeColor = 'bg-purple-950/30 border-purple-800/50 text-purple-200';
+          iconColor = 'text-purple-400';
+          categoryTag = 'Geometry';
+        } else if (isFormat) {
+          iconName = 'type';
+          badgeColor = 'bg-blue-950/30 border-blue-800/50 text-blue-200';
+          iconColor = 'text-blue-400';
+          categoryTag = 'Typography';
+        } else if (isClone) {
+          iconName = 'copy-plus';
+          badgeColor = 'bg-teal-950/30 border-teal-800/50 text-teal-200';
+          iconColor = 'text-teal-400';
+          categoryTag = 'Clone/Add';
+        } else if (isScript) {
+          iconName = 'code';
+          badgeColor = 'bg-emerald-950/30 border-emerald-800/50 text-emerald-200';
+          iconColor = 'text-emerald-400';
+          categoryTag = 'Script';
         }
+
+        const isChecked = act.enabled !== false;
+        const desc = getActionSummary(act);
+
         return `
-          <div class="p-2 rounded ${badgeColor} border flex items-start justify-between gap-2">
+          <div class="p-2 rounded ${badgeColor} border flex items-start justify-between gap-2 text-xs ${!isChecked ? 'opacity-40 line-through' : ''}">
             <div class="flex items-start gap-2">
+              <input type="checkbox" onchange="toggleVerificationActionEnabled(${idx}, ${aIdx}, this.checked)" ${isChecked ? 'checked' : ''} class="mt-0.5 rounded border-border" title="Toggle action execution" />
               <i data-lucide="${iconName}" class="w-3.5 h-3.5 ${iconColor} shrink-0 mt-0.5"></i>
-              <span class="leading-relaxed">${desc}</span>
+              <div>
+                <span class="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-black/40 border border-white/10 mr-1">${categoryTag}</span>
+                <span class="leading-relaxed">${desc}</span>
+              </div>
             </div>
-            <button type="button" onclick="removeVerificationAction(${idx}, ${aIdx})" class="text-muted-foreground hover:text-rose-400 text-[10px] p-0.5" title="Dismiss this action">
+            <button type="button" onclick="removeVerificationAction(${idx}, ${aIdx})" class="text-muted-foreground hover:text-rose-400 text-[10px] p-0.5 shrink-0" title="Delete action">
               ✕
             </button>
           </div>
@@ -2352,9 +2419,14 @@ function selectVerifySlide(idx) {
       }).join('');
     } else {
       actionsList.innerHTML = `
-        <div class="p-2.5 rounded bg-secondary/30 border border-border/40 text-muted-foreground flex items-center gap-2">
-          <i data-lucide="check" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
-          <span>No healing modifications required for this slide.</span>
+        <div class="p-2.5 rounded bg-secondary/30 border border-border/40 text-muted-foreground flex items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2">
+            <i data-lucide="check" class="w-3.5 h-3.5 text-muted-foreground/60 shrink-0"></i>
+            <span>No healing modifications required for this slide.</span>
+          </div>
+          <button type="button" onclick="addCustomHealingAction()" class="text-[10px] text-primary hover:underline cursor-pointer">
+            + Add Action
+          </button>
         </div>
       `;
     }
@@ -2366,12 +2438,145 @@ function selectVerifySlide(idx) {
   if (window.lucide) lucide.createIcons();
 }
 
+function getActionSummary(act) {
+  const at = (act.action || '').toLowerCase();
+  if (['delete_shape', 'remove_shape', 'delete_element', 'remove_element'].includes(at)) {
+    return `Delete shape #${act.shape_index}${act.formula_text ? ` (Formula: "${escapeHtml(act.formula_text)}")` : ''}`;
+  } else if (['remove_formula', 'delete_formula'].includes(at)) {
+    return `Delete unreplaced formula${act.formula_text ? `: "${escapeHtml(act.formula_text)}"` : ' equation'}`;
+  } else if (at === 'remove_shapes' || at === 'delete_shapes') {
+    return `Delete shape(s) #${(act.shape_indices || []).join(', #')}`;
+  } else if (at === 'update_text') {
+    return `Update shape #${act.shape_index} text: "${escapeHtml(act.new_text || '')}"`;
+  } else if (at === 'move_shape' || at === 'set_position' || at === 'reposition') {
+    return `Move shape #${act.shape_index} (left=${act.left || 'auto'}, top=${act.top || 'auto'}${act.dx ? `, dx=${act.dx}` : ''}${act.dy ? `, dy=${act.dy}` : ''})`;
+  } else if (at === 'resize_shape' || at === 'set_dimensions' || at === 'set_size') {
+    return `Resize shape #${act.shape_index} (width=${act.width || 'auto'}, height=${act.height || 'auto'})`;
+  } else if (at === 'align_shapes' || at === 'distribute_shapes') {
+    return `Align shapes #${(act.shape_indices || []).join(', #')} (${act.alignment || 'left'})`;
+  } else if (at === 'format_text' || at === 'set_font' || at === 'set_typography') {
+    return `Format shape #${act.shape_index} (size=${act.font_size || 'auto'}pt${act.font_color ? `, col=${act.font_color}` : ''}${act.font_name ? `, font=${act.font_name}` : ''})`;
+  } else if (at === 'set_shape_style' || at === 'set_fill' || at === 'set_border') {
+    return `Style shape #${act.shape_index} (fill=${act.fill_color || 'none'}, border=${act.border_color || 'none'})`;
+  } else if (at === 'set_z_order' || at === 'reorder_shape') {
+    return `Z-Order shape #${act.shape_index}: ${act.position || 'bring_to_front'}`;
+  } else if (at === 'clone_shape_from_template' || at === 'copy_from_template') {
+    return `Clone template shape #${act.template_shape_index} into slide`;
+  } else if (at === 'add_shape' || at === 'create_shape') {
+    return `Add shape '${act.shape_type || 'rectangle'}'${act.text ? ` ("${escapeHtml(act.text)}")` : ''}`;
+  } else if (at === 'duplicate_shape') {
+    return `Duplicate shape #${act.shape_index}`;
+  } else if (at === 'update_table') {
+    return `Update table shape #${act.shape_index} cell contents`;
+  } else if (at === 'update_notes') {
+    return `Update speaker notes`;
+  } else if (at === 'generate_image' || at === 'replace_image') {
+    return `Generate AI image for shape #${act.shape_index}`;
+  } else if (at === 'execute_python') {
+    return `Execute Python script on slide`;
+  }
+  return `${act.action}`;
+}
+
+function markActiveSlideHumanVerified(isClean) {
+  const slides = currentHumanTouchData.slides || [];
+  const s = slides[currentVerifySlideIdx];
+  if (!s) return;
+  s.human_verified = true;
+  if (isClean) {
+    s.is_correct = true;
+    s.detected_issues = [];
+    if (s.edit_structure) {
+      s.edit_structure.actions = [];
+    }
+    showToast(`Slide ${s.slide_number} marked as verified clean.`, 'success');
+  } else {
+    s.human_verified = false;
+    s.is_correct = false;
+    showToast(`Slide ${s.slide_number} flagged with discrepancies.`, 'warning');
+  }
+  currentHumanTouchData.aggregated_actions = slides.flatMap(sl => (sl.edit_structure?.actions || []).filter(a => a.enabled !== false));
+  currentHumanTouchData.total_actions_planned = currentHumanTouchData.aggregated_actions.length;
+  currentHumanTouchData.total_issues_found = slides.reduce((acc, sl) => acc + (sl.detected_issues?.length || 0), 0);
+  renderHumanTouchVerification(currentHumanTouchData);
+}
+
+function addCustomDiscrepancyPrompt() {
+  const slides = currentHumanTouchData.slides || [];
+  const s = slides[currentVerifySlideIdx];
+  if (!s) return;
+  const desc = prompt(`Enter discrepancy statement or missing element description for Slide ${s.slide_number}:`);
+  if (!desc || !desc.trim()) return;
+  if (!Array.isArray(s.detected_issues)) s.detected_issues = [];
+  s.detected_issues.push(desc.trim());
+  s.is_correct = false;
+  s.human_verified = false;
+  currentHumanTouchData.total_issues_found = slides.reduce((acc, sl) => acc + (sl.detected_issues?.length || 0), 0);
+  renderHumanTouchVerification(currentHumanTouchData);
+  showToast('Discrepancy statement added.', 'info');
+}
+
+function addCustomHealingAction() {
+  const slides = currentHumanTouchData.slides || [];
+  const s = slides[currentVerifySlideIdx];
+  if (!s) return;
+  const actType = prompt('Enter Action type (update_text, move_shape, resize_shape, format_text, clone_shape_from_template, delete_shape):', 'update_text');
+  if (!actType) return;
+  const shIdx = parseInt(prompt('Shape index (0-based):', '0') || '0', 10);
+  let act = { action: actType.trim(), slide_index: currentVerifySlideIdx, shape_index: shIdx, enabled: true };
+  if (actType === 'update_text') {
+    act.new_text = prompt('New text:', '') || '';
+  } else if (actType === 'move_shape') {
+    act.left = prompt('Left (e.g. "100pt" or "10%"):', '100pt') || '100pt';
+    act.top = prompt('Top (e.g. "50pt" or "5%"):', '50pt') || '50pt';
+  } else if (actType === 'resize_shape') {
+    act.width = prompt('Width (e.g. "300pt"):', '300pt') || '300pt';
+    act.height = prompt('Height (e.g. "150pt"):', '150pt') || '150pt';
+  } else if (actType === 'format_text') {
+    act.font_size = parseFloat(prompt('Font size (pt):', '16') || '16');
+  }
+  if (!s.edit_structure) s.edit_structure = { actions: [] };
+  if (!Array.isArray(s.edit_structure.actions)) s.edit_structure.actions = [];
+  s.edit_structure.actions.push(act);
+  currentHumanTouchData.aggregated_actions = slides.flatMap(sl => (sl.edit_structure?.actions || []).filter(a => a.enabled !== false));
+  currentHumanTouchData.total_actions_planned = currentHumanTouchData.aggregated_actions.length;
+  renderHumanTouchVerification(currentHumanTouchData);
+  showToast('Healing action formulated.', 'success');
+}
+
+function dismissVerificationIssue(slideIdx, issueIdx) {
+  const slides = currentHumanTouchData.slides || [];
+  const s = slides[slideIdx];
+  if (s && Array.isArray(s.detected_issues)) {
+    s.detected_issues.splice(issueIdx, 1);
+    if (s.detected_issues.length === 0 && (!s.edit_structure?.actions || s.edit_structure.actions.length === 0)) {
+      s.is_correct = true;
+      s.human_verified = true;
+    }
+    currentHumanTouchData.total_issues_found = slides.reduce((acc, sl) => acc + (sl.detected_issues?.length || 0), 0);
+    renderHumanTouchVerification(currentHumanTouchData);
+    showToast('Issue statement dismissed as false positive.', 'info');
+  }
+}
+
+function toggleVerificationActionEnabled(slideIdx, actionIdx, isChecked) {
+  const slides = currentHumanTouchData.slides || [];
+  const s = slides[slideIdx];
+  if (s && s.edit_structure && s.edit_structure.actions && s.edit_structure.actions[actionIdx]) {
+    s.edit_structure.actions[actionIdx].enabled = Boolean(isChecked);
+    currentHumanTouchData.aggregated_actions = slides.flatMap(sl => (sl.edit_structure?.actions || []).filter(a => a.enabled !== false));
+    currentHumanTouchData.total_actions_planned = currentHumanTouchData.aggregated_actions.length;
+    const badge = document.getElementById('ht-verify-action-count');
+    if (badge) badge.innerText = `${currentHumanTouchData.total_actions_planned} active / ${(s.edit_structure.actions || []).length} action(s)`;
+  }
+}
+
 function removeVerificationAction(slideIdx, actionIdx) {
   const slides = currentHumanTouchData.slides || [];
   if (slides[slideIdx] && slides[slideIdx].edit_structure && slides[slideIdx].edit_structure.actions) {
     slides[slideIdx].edit_structure.actions.splice(actionIdx, 1);
     // Recompute aggregated_actions
-    currentHumanTouchData.aggregated_actions = slides.flatMap(s => s.edit_structure?.actions || []);
+    currentHumanTouchData.aggregated_actions = slides.flatMap(s => (s.edit_structure?.actions || []).filter(a => a.enabled !== false));
     currentHumanTouchData.total_actions_planned = currentHumanTouchData.aggregated_actions.length;
     selectVerifySlide(slideIdx);
   }
@@ -2420,6 +2625,8 @@ function skipVerificationEdits() {
       });
     }
     currentHumanTouchData.total_actions_planned = 0;
+    currentHumanTouchData.human_skipped = true;
+    currentHumanTouchData.human_verified = true;
   }
   continueHumanTouchJob();
 }
@@ -2695,8 +2902,21 @@ function collectHumanTouchDataFromVisual() {
       slides: slides
     };
   } else if (currentHumanTouchStep === 'verify') {
+    const slides = currentHumanTouchData.slides || [];
+    const enabledActions = [];
+    slides.forEach(s => {
+      if (s.edit_structure && Array.isArray(s.edit_structure.actions)) {
+        s.edit_structure.actions = s.edit_structure.actions.filter(a => a.enabled !== false);
+        enabledActions.push(...s.edit_structure.actions);
+      }
+    });
+
     return {
       ...currentHumanTouchData,
+      aggregated_actions: enabledActions,
+      total_actions_planned: enabledActions.length,
+      human_verified: true,
+      human_verified_clean: (enabledActions.length === 0),
       active_slide_index: currentVerifySlideIdx
     };
   }

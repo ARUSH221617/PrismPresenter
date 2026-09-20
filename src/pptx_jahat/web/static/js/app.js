@@ -6094,6 +6094,11 @@ async function loadConfigSettings() {
       const renderDpi = parseInt(cfg.RENDER_DPI || 150, 10);
       selectRenderDpi(renderDpi, false);
 
+      const subGateway = document.getElementById('subtab-badge-gateway');
+      if (subGateway && subGateway.innerText === 'Status') {
+        subGateway.innerText = cfg.NINEROUTER_URL ? 'Ready' : 'Not Set';
+      }
+
       const purePilActive = cfg.PURE_PIL_ACTIVE !== undefined ? Boolean(cfg.PURE_PIL_ACTIVE) : true;
       if (purePilInput) purePilInput.checked = purePilActive;
 
@@ -6461,6 +6466,11 @@ async function testGatewayConnection() {
         statusPill.className = 'shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-500/30 gap-1.5 font-mono text-[10px] py-0.5';
         statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Online (${data.latency_ms}ms)`;
       }
+      const subGateway = document.getElementById('subtab-badge-gateway');
+      if (subGateway) {
+        subGateway.innerText = `${data.latency_ms}ms`;
+        subGateway.className = 'settings-subnav-badge text-emerald-400 border-emerald-500/30';
+      }
       showToast(`Gateway connection verified (${data.latency_ms}ms)`, 'success');
     } else {
       if (resultBox) {
@@ -6486,6 +6496,11 @@ async function testGatewayConnection() {
         statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
         statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-destructive"></span> Offline`;
       }
+      const subGateway = document.getElementById('subtab-badge-gateway');
+      if (subGateway) {
+        subGateway.innerText = 'Offline';
+        subGateway.className = 'settings-subnav-badge text-destructive border-destructive/30';
+      }
       showToast(`Gateway connection failed: ${data.error || 'Unreachable'}`, 'error');
     }
   } catch (err) {
@@ -6499,6 +6514,11 @@ async function testGatewayConnection() {
     if (statusPill) {
       statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
       statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-destructive"></span> Error`;
+    }
+    const subGateway = document.getElementById('subtab-badge-gateway');
+    if (subGateway) {
+      subGateway.innerText = 'Error';
+      subGateway.className = 'settings-subnav-badge text-destructive border-destructive/30';
     }
     if (navHealthDot) {
       navHealthDot.className = 'w-2 h-2 rounded-full bg-destructive is-offline';
@@ -6694,6 +6714,9 @@ function selectRenderMode(mode, triggerDirty = true) {
 
   const targetCard = document.getElementById(`render-mode-${mode}`);
   if (targetCard) targetCard.classList.add('selected');
+
+  const subRender = document.getElementById('subtab-badge-render');
+  if (subRender) subRender.innerText = mode.charAt(0).toUpperCase() + mode.slice(1);
 
   updateCascadeWaterfall();
   if (triggerDirty) markSettingsDirty();
@@ -7020,8 +7043,13 @@ function switchSettingsSubTab(tabName) {
       else pane.classList.remove('active');
     }
     if (btn) {
-      if (t === tabName) btn.classList.add('active');
-      else btn.classList.remove('active');
+      if (t === tabName) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      } else {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-selected', 'false');
+      }
     }
   });
   if (tabName === 'raw_env') {

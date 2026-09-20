@@ -2291,31 +2291,31 @@
       </div>
 
       <!-- Settings Sub-Navigation Tabs Bar (5 Distinct Focus Areas) -->
-      <div class="settings-subnav">
-        <button onclick="switchSettingsSubTab('gateway')" id="settings-subtab-btn-gateway" class="settings-subnav-btn active">
-          <i data-lucide="network" class="w-4 h-4"></i>
-          <span>1. Gateway &amp; Auth</span>
-          <span id="subtab-badge-gateway" class="settings-subnav-badge">Unknown</span>
+      <div class="settings-subnav" role="tablist" aria-label="Settings Navigation">
+        <button onclick="switchSettingsSubTab('gateway')" id="settings-subtab-btn-gateway" class="settings-subnav-btn active" role="tab" aria-selected="true" title="Gateway &amp; Authentication">
+          <i data-lucide="network" class="w-4 h-4 shrink-0"></i>
+          <span class="truncate">Gateway &amp; Auth</span>
+          <span id="subtab-badge-gateway" class="settings-subnav-badge">Status</span>
         </button>
-        <button onclick="switchSettingsSubTab('models')" id="settings-subtab-btn-models" class="settings-subnav-btn">
-          <i data-lucide="brain-circuit" class="w-4 h-4"></i>
-          <span>2. Models &amp; Pipeline</span>
+        <button onclick="switchSettingsSubTab('models')" id="settings-subtab-btn-models" class="settings-subnav-btn" role="tab" aria-selected="false" title="Autonomous Models &amp; Agent Routing">
+          <i data-lucide="brain-circuit" class="w-4 h-4 shrink-0"></i>
+          <span class="truncate">Models &amp; Pipeline</span>
           <span class="settings-subnav-badge">7 Agents</span>
         </button>
-        <button onclick="switchSettingsSubTab('render')" id="settings-subtab-btn-render" class="settings-subnav-btn">
-          <i data-lucide="layers" class="w-4 h-4"></i>
-          <span>3. Render Cascade</span>
+        <button onclick="switchSettingsSubTab('render')" id="settings-subtab-btn-render" class="settings-subnav-btn" role="tab" aria-selected="false" title="3-Tier Cascade Render Engine">
+          <i data-lucide="layers" class="w-4 h-4 shrink-0"></i>
+          <span class="truncate">Render Cascade</span>
           <span id="subtab-badge-render" class="settings-subnav-badge">Auto</span>
         </button>
-        <button onclick="switchSettingsSubTab('diagnostics')" id="settings-subtab-btn-diagnostics" class="settings-subnav-btn">
-          <i data-lucide="gauge" class="w-4 h-4"></i>
-          <span>4. Diagnostics &amp; Storage</span>
-          <span id="subtab-badge-storage" class="settings-subnav-badge">Cache</span>
+        <button onclick="switchSettingsSubTab('diagnostics')" id="settings-subtab-btn-diagnostics" class="settings-subnav-btn" role="tab" aria-selected="false" title="Diagnostics, Caches &amp; Storage">
+          <i data-lucide="gauge" class="w-4 h-4 shrink-0"></i>
+          <span class="truncate">Diagnostics &amp; Storage</span>
+          <span id="subtab-badge-storage" class="settings-subnav-badge">0 MB</span>
         </button>
-        <button onclick="switchSettingsSubTab('raw_env')" id="settings-subtab-btn-raw_env" class="settings-subnav-btn">
-          <i data-lucide="file-code" class="w-4 h-4"></i>
-          <span>5. Environment &amp; Raw .env</span>
-          <span class="settings-subnav-badge">.env</span>
+        <button onclick="switchSettingsSubTab('raw_env')" id="settings-subtab-btn-raw_env" class="settings-subnav-btn" role="tab" aria-selected="false" title="Environment Variables &amp; Raw .env File">
+          <i data-lucide="file-code" class="w-4 h-4 shrink-0"></i>
+          <span class="truncate">Environment (.env)</span>
+          <span class="settings-subnav-badge">Raw</span>
         </button>
       </div>
 

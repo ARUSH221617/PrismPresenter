@@ -191,6 +191,15 @@ function setupDragAndDrop() {
 // -------------------------------------------------------------
 function setupKeyboardHotkeys() {
   document.addEventListener('keydown', (e) => {
+    // Quick Save shortcut for Settings tab
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      if (activeTab === 'settings') {
+        e.preventDefault();
+        saveConfigSettings();
+        return;
+      }
+    }
+
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
       if (e.key === 'Enter' && e.ctrlKey && activeTab === 'generator') {
         startPresentationGeneration();
@@ -286,6 +295,15 @@ function switchTab(tabId) {
     loadComponentsCatalog();
   } else if (tabId === 'settings') {
     loadConfigSettings();
+    if (isSettingsDirty) {
+      const bar = document.getElementById('settings-floating-bar');
+      if (bar) bar.classList.remove('hidden');
+    }
+  }
+
+  if (tabId !== 'settings') {
+    const bar = document.getElementById('settings-floating-bar');
+    if (bar) bar.classList.add('hidden');
   }
 
   refreshIcons();
@@ -5968,18 +5986,35 @@ async function refresh9RouterModels(forceLive = false) {
   await fetch9RouterModels(forceLive);
 }
 
+// -------------------------------------------------------------
+// SETTINGS & CONFIGURATION (15 UI/UX IMPROVEMENTS)
+// -------------------------------------------------------------
+let originalConfigState = null;
+let isSettingsDirty = false;
+
 async function loadConfigSettings() {
   try {
     const res = await fetch('/api/config');
     const data = await res.json();
     if (data.success && data.config) {
       const cfg = data.config;
-      document.getElementById('cfg-url').value = cfg.NINEROUTER_URL || '';
-      document.getElementById('cfg-key').value = cfg.NINEROUTER_KEY || '';
-      document.getElementById('cfg-chat-model').value = cfg.NINEROUTER_CHAT_MODEL || '';
-      document.getElementById('cfg-search-model').value = cfg.NINEROUTER_SEARCH_MODEL || '';
-      document.getElementById('cfg-fetch-model').value = cfg.NINEROUTER_FETCH_MODEL || '';
-      document.getElementById('cfg-image-model').value = cfg.NINEROUTER_IMAGE_MODEL || '';
+
+      const urlInput = document.getElementById('cfg-url');
+      const keyInput = document.getElementById('cfg-key');
+      const chatInput = document.getElementById('cfg-chat-model');
+      const searchInput = document.getElementById('cfg-search-model');
+      const fetchInput = document.getElementById('cfg-fetch-model');
+      const imageInput = document.getElementById('cfg-image-model');
+      const renderModeInput = document.getElementById('cfg-render-mode');
+      const purePilInput = document.getElementById('cfg-pure-pil');
+
+      if (urlInput) urlInput.value = cfg.NINEROUTER_URL || '';
+      if (keyInput) keyInput.value = cfg.NINEROUTER_KEY || '';
+      if (chatInput) chatInput.value = cfg.NINEROUTER_CHAT_MODEL || '';
+      if (searchInput) searchInput.value = cfg.NINEROUTER_SEARCH_MODEL || '';
+      if (fetchInput) fetchInput.value = cfg.NINEROUTER_FETCH_MODEL || '';
+      if (imageInput) imageInput.value = cfg.NINEROUTER_IMAGE_MODEL || '';
+
       const timeoutEl = document.getElementById('cfg-timeout');
       if (timeoutEl) timeoutEl.value = cfg.LLM_TIMEOUT || 300;
       const vRoundsEl = document.getElementById('cfg-verification-rounds');
@@ -5987,74 +6022,713 @@ async function loadConfigSettings() {
       const genVRoundsEl = document.getElementById('gen-verification-rounds');
       if (genVRoundsEl) genVRoundsEl.value = cfg.VERIFICATION_ROUNDS || 3;
 
-      // Populate per-agent model and think level configurations
-      AGENT_IDS.forEach(aid => {
-        const mKey = 'AGENT_MODEL_' + aid.toUpperCase();
-        const tKey = 'AGENT_THINK_LEVEL_' + aid.toUpperCase();
-        const mInput = document.getElementById(`cfg-agent-model-${aid}`);
-        const tSelect = document.getElementById(`cfg-agent-think-${aid}`);
-        if (mInput) {
-          mInput.value = cfg[mKey] || (data.agents && data.agents[aid]?.configured_model) || '';
-        }
-        if (tSelect) {
-          tSelect.value = cfg[tKey] || (data.agents && data.agents[aid]?.think_level) || 'default';
-        }
-      });
+      const renderMode = (cfg.RENDER_MODE || 'auto').toLowerCase();
+      if (renderModeInput) renderModeInput.value = renderMode;
+      selectRenderMode(renderMode, false);
 
-      applyConfigAndMetadata(data);
-      updateAllAgentStatusBadges(data);
-      // Automatically load 9Router model suggestions & datalists
-      fetch9RouterModels();
+      const purePilActive = cfg.PURE_PIL_ACTIVE !== undefined ? Boolean(cfg.PURE_PIL_ACTIVE) : true;
+      if (purePilInput) purePilInput.checked = purePilActive;
+
+      // Populate per-agent model and think level configurations
+      if (typeof AGENT_IDS !== 'undefined' && Array.isArray(AGENT_IDS)) {
+        AGENT_IDS.forEach(aid => {
+          const mKey = 'AGENT_MODEL_' + aid.toUpperCase();
+          const tKey = 'AGENT_THINK_LEVEL_' + aid.toUpperCase();
+          const mInput = document.getElementById(`cfg-agent-model-${aid}`);
+          const tSelect = document.getElementById(`cfg-agent-think-${aid}`);
+          if (mInput) {
+            mInput.value = cfg[mKey] || (data.agents && data.agents[aid]?.configured_model) || '';
+          }
+          if (tSelect) {
+            tSelect.value = cfg[tKey] || (data.agents && data.agents[aid]?.think_level) || 'default';
+          }
+        });
+      }
+
+      if (typeof applyConfigAndMetadata === 'function') applyConfigAndMetadata(data);
+      if (typeof updateAllAgentStatusBadges === 'function') updateAllAgentStatusBadges(data);
+      if (typeof fetch9RouterModels === 'function') fetch9RouterModels();
+
+      // Cache snapshot for dirty-state diffing
+      originalConfigState = {
+        NINEROUTER_URL: cfg.NINEROUTER_URL || '',
+        NINEROUTER_KEY: cfg.NINEROUTER_KEY || '',
+        NINEROUTER_CHAT_MODEL: cfg.NINEROUTER_CHAT_MODEL || '',
+        NINEROUTER_SEARCH_MODEL: cfg.NINEROUTER_SEARCH_MODEL || '',
+        NINEROUTER_FETCH_MODEL: cfg.NINEROUTER_FETCH_MODEL || '',
+        NINEROUTER_IMAGE_MODEL: cfg.NINEROUTER_IMAGE_MODEL || '',
+        RENDER_MODE: renderMode,
+        PURE_PIL_ACTIVE: purePilActive
+      };
+
+      updateKeyStatusIndicator();
+      updateCascadeWaterfall();
+      hideFloatingDirtyBar();
+      loadDiagnostics();
+      refreshIcons();
     }
   } catch (err) {
     console.error('Failed to load settings', err);
+    showToast(`Failed to load settings: ${err.message}`, 'error');
   }
 }
 
+function getFormConfigState() {
+  const purePilInput = document.getElementById('cfg-pure-pil');
+  return {
+    NINEROUTER_URL: (document.getElementById('cfg-url')?.value || '').trim(),
+    NINEROUTER_KEY: (document.getElementById('cfg-key')?.value || '').trim(),
+    NINEROUTER_CHAT_MODEL: (document.getElementById('cfg-chat-model')?.value || '').trim(),
+    NINEROUTER_SEARCH_MODEL: (document.getElementById('cfg-search-model')?.value || '').trim(),
+    NINEROUTER_FETCH_MODEL: (document.getElementById('cfg-fetch-model')?.value || '').trim(),
+    NINEROUTER_IMAGE_MODEL: (document.getElementById('cfg-image-model')?.value || '').trim(),
+    RENDER_MODE: (document.getElementById('cfg-render-mode')?.value || 'auto').trim(),
+    PURE_PIL_ACTIVE: purePilInput ? purePilInput.checked : true
+  };
+}
+
+function markSettingsDirty() {
+  if (!originalConfigState) return;
+  const current = getFormConfigState();
+  let diffCount = 0;
+
+  for (const key of Object.keys(originalConfigState)) {
+    if (current[key] !== originalConfigState[key]) {
+      diffCount++;
+    }
+  }
+
+  isSettingsDirty = diffCount > 0;
+  const bar = document.getElementById('settings-floating-bar');
+  const countSpan = document.getElementById('dirty-changes-count');
+
+  if (isSettingsDirty && activeTab === 'settings') {
+    if (bar) bar.classList.remove('hidden');
+    if (countSpan) {
+      countSpan.innerText = `${diffCount} unsaved configuration change${diffCount > 1 ? 's' : ''}`;
+    }
+  } else {
+    hideFloatingDirtyBar();
+  }
+}
+
+function hideFloatingDirtyBar() {
+  isSettingsDirty = false;
+  const bar = document.getElementById('settings-floating-bar');
+  if (bar) bar.classList.add('hidden');
+}
+
+function revertConfigSettings() {
+  if (!originalConfigState) return;
+
+  const urlInput = document.getElementById('cfg-url');
+  const keyInput = document.getElementById('cfg-key');
+  const chatInput = document.getElementById('cfg-chat-model');
+  const searchInput = document.getElementById('cfg-search-model');
+  const fetchInput = document.getElementById('cfg-fetch-model');
+  const imageInput = document.getElementById('cfg-image-model');
+  const renderModeInput = document.getElementById('cfg-render-mode');
+  const purePilInput = document.getElementById('cfg-pure-pil');
+
+  if (urlInput) urlInput.value = originalConfigState.NINEROUTER_URL;
+  if (keyInput) keyInput.value = originalConfigState.NINEROUTER_KEY;
+  if (chatInput) chatInput.value = originalConfigState.NINEROUTER_CHAT_MODEL;
+  if (searchInput) searchInput.value = originalConfigState.NINEROUTER_SEARCH_MODEL;
+  if (fetchInput) fetchInput.value = originalConfigState.NINEROUTER_FETCH_MODEL;
+  if (imageInput) imageInput.value = originalConfigState.NINEROUTER_IMAGE_MODEL;
+  if (renderModeInput) renderModeInput.value = originalConfigState.RENDER_MODE;
+  selectRenderMode(originalConfigState.RENDER_MODE, false);
+  if (purePilInput) purePilInput.checked = originalConfigState.PURE_PIL_ACTIVE;
+
+  updateKeyStatusIndicator();
+  updateCascadeWaterfall();
+  hideFloatingDirtyBar();
+  showToast('Configuration changes reverted', 'info');
+}
+
 async function saveConfigSettings() {
+  const current = getFormConfigState();
+
   const timeoutVal = parseInt(document.getElementById('cfg-timeout')?.value.trim() || '300', 10);
   const vRoundsVal = parseInt(document.getElementById('cfg-verification-rounds')?.value.trim() || '3', 10);
-  const chatModel = document.getElementById('cfg-chat-model')?.value.trim();
+  current.LLM_TIMEOUT = isNaN(timeoutVal) ? 300 : timeoutVal;
+  current.VERIFICATION_ROUNDS = isNaN(vRoundsVal) ? 3 : vRoundsVal;
 
-  const config = {
-    NINEROUTER_URL: document.getElementById('cfg-url')?.value.trim() || '',
-    NINEROUTER_KEY: document.getElementById('cfg-key')?.value.trim() || '',
-    NINEROUTER_CHAT_MODEL: chatModel,
-    NINEROUTER_SEARCH_MODEL: document.getElementById('cfg-search-model')?.value.trim() || '',
-    NINEROUTER_FETCH_MODEL: document.getElementById('cfg-fetch-model')?.value.trim() || '',
-    NINEROUTER_IMAGE_MODEL: document.getElementById('cfg-image-model')?.value.trim() || '',
-    LLM_TIMEOUT: isNaN(timeoutVal) ? 300 : timeoutVal,
-    VERIFICATION_ROUNDS: isNaN(vRoundsVal) ? 3 : vRoundsVal,
-    PURE_PIL_ACTIVE: true
-  };
+  // Loading UI feedback
+  const saveBtn = document.getElementById('btn-save-settings');
+  const saveIcon = document.getElementById('save-btn-icon');
+  const saveSpinner = document.getElementById('save-btn-spinner');
+  const saveText = document.getElementById('save-btn-text');
+
+  if (saveBtn) saveBtn.disabled = true;
+  if (saveIcon) saveIcon.classList.add('hidden');
+  if (saveSpinner) saveSpinner.classList.remove('hidden');
+  if (saveText) saveText.innerText = 'Saving...';
 
   const agentsPayload = {};
-  AGENT_IDS.forEach(aid => {
-    const mVal = document.getElementById(`cfg-agent-model-${aid}`)?.value.trim() || '';
-    const tVal = document.getElementById(`cfg-agent-think-${aid}`)?.value || 'default';
-    config[`AGENT_MODEL_${aid.toUpperCase()}`] = mVal;
-    config[`AGENT_THINK_LEVEL_${aid.toUpperCase()}`] = tVal;
-    agentsPayload[aid] = {
-      model: mVal,
-      think_level: tVal
-    };
-  });
+  if (typeof AGENT_IDS !== 'undefined' && Array.isArray(AGENT_IDS)) {
+    AGENT_IDS.forEach(aid => {
+      const mVal = document.getElementById(`cfg-agent-model-${aid}`)?.value.trim() || '';
+      const tVal = document.getElementById(`cfg-agent-think-${aid}`)?.value || 'default';
+      current[`AGENT_MODEL_${aid.toUpperCase()}`] = mVal;
+      current[`AGENT_THINK_LEVEL_${aid.toUpperCase()}`] = tVal;
+      agentsPayload[aid] = {
+        model: mVal,
+        think_level: tVal
+      };
+    });
+  }
 
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config, agents: agentsPayload })
+      body: JSON.stringify({ config: current, agents: agentsPayload })
     });
     const data = await res.json();
     if (data.success) {
-      const activeModel = data.model || chatModel;
+      originalConfigState = { ...current };
+      hideFloatingDirtyBar();
+      const activeModel = data.model || current.NINEROUTER_CHAT_MODEL;
       showToast(`Saved settings & applied models (Primary: ${activeModel})`, 'success');
-      applyConfigAndMetadata(data);
-      updateAllAgentStatusBadges(data);
-      await loadConfigBadge();
+      if (typeof applyConfigAndMetadata === 'function') applyConfigAndMetadata(data);
+      if (typeof updateAllAgentStatusBadges === 'function') updateAllAgentStatusBadges(data);
+      loadConfigBadge();
+      loadDiagnostics();
+    } else {
+      showToast(`Save failed: ${data.error || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (saveIcon) saveIcon.classList.remove('hidden');
+    if (saveSpinner) saveSpinner.classList.add('hidden');
+    if (saveText) saveText.innerText = 'Save Settings (.env)';
+    refreshIcons();
+  }
+}
+      showToast(`Save failed: ${data.error || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (saveIcon) saveIcon.classList.remove('hidden');
+    if (saveSpinner) saveSpinner.classList.add('hidden');
+    if (saveText) saveText.innerText = 'Save Settings (.env)';
+    refreshIcons();
+  }
+}
+
+// -------------------------------------------------------------
+// GATEWAY CONNECTIVITY & API KEY MANAGEMENT
+// -------------------------------------------------------------
+async function testGatewayConnection() {
+  const urlInput = document.getElementById('cfg-url');
+  const keyInput = document.getElementById('cfg-key');
+  const pingIcon = document.getElementById('ping-icon');
+  const pingSpinner = document.getElementById('ping-spinner');
+  const pingBtn = document.getElementById('btn-test-connection');
+  const resultBox = document.getElementById('cfg-ping-result');
+  const resultText = document.getElementById('cfg-ping-text');
+  const latencyText = document.getElementById('cfg-ping-latency');
+  const statusPill = document.getElementById('gateway-status-pill');
+
+  let targetUrl = (urlInput ? urlInput.value.trim() : '');
+  if (!targetUrl) targetUrl = 'http://localhost:20128';
+  const apiKey = (keyInput ? keyInput.value.trim() : '');
+
+  if (pingBtn) pingBtn.disabled = true;
+  if (pingIcon) pingIcon.classList.add('hidden');
+  if (pingSpinner) pingSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/config/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: targetUrl, key: apiKey })
+    });
+    const data = await res.json();
+
+    if (resultBox) resultBox.classList.remove('hidden');
+
+    if (data.success) {
+      const modelInfo = (data.model_count !== null && data.model_count !== undefined) ? ` • ${data.model_count} models discovered` : '';
+      if (resultBox) {
+        resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-xs flex items-center justify-between';
+      }
+      if (resultText) {
+        resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span><span class="text-emerald-400 font-medium">Gateway Online (${data.message})${modelInfo}</span>`;
+      }
+      if (latencyText) {
+        latencyText.innerText = `${data.latency_ms}ms latency`;
+      }
+      if (statusPill) {
+        statusPill.className = 'shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-500/30 gap-1.5 font-mono text-[10px] py-0.5';
+        statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Online (${data.latency_ms}ms)`;
+      }
+      showToast(`Gateway connection verified (${data.latency_ms}ms)`, 'success');
+    } else {
+      if (resultBox) {
+        resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-xs flex items-center justify-between';
+      }
+      if (resultText) {
+        resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">${escapeHtml(data.error || 'Connection failed')}</span>`;
+      }
+      if (latencyText) {
+        latencyText.innerText = `${data.latency_ms || 0}ms`;
+      }
+      if (statusPill) {
+        statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
+        statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-destructive"></span> Offline`;
+      }
+      showToast(`Gateway connection failed: ${data.error || 'Unreachable'}`, 'error');
+    }
+  } catch (err) {
+    if (resultBox) {
+      resultBox.classList.remove('hidden');
+      resultBox.className = 'mt-2.5 p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-xs flex items-center justify-between';
+    }
+    if (resultText) {
+      resultText.innerHTML = `<span class="w-2 h-2 rounded-full bg-destructive shrink-0"></span><span class="text-destructive font-medium">Network error: ${escapeHtml(err.message)}</span>`;
+    }
+    if (statusPill) {
+      statusPill.className = 'shadcn-badge shadcn-badge-outline text-destructive border-destructive/30 gap-1.5 font-mono text-[10px] py-0.5';
+      statusPill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-destructive"></span> Error`;
+    }
+  } finally {
+    if (pingBtn) pingBtn.disabled = false;
+    if (pingIcon) pingIcon.classList.remove('hidden');
+    if (pingSpinner) pingSpinner.classList.add('hidden');
+    refreshIcons();
+  }
+}
+
+function toggleKeyVisibility() {
+  const keyInput = document.getElementById('cfg-key');
+  const eyeIcon = document.getElementById('key-icon-eye');
+  const eyeOffIcon = document.getElementById('key-icon-eye-off');
+  if (!keyInput) return;
+
+  if (keyInput.type === 'password') {
+    keyInput.type = 'text';
+    if (eyeIcon) eyeIcon.classList.add('hidden');
+    if (eyeOffIcon) eyeOffIcon.classList.remove('hidden');
+  } else {
+    keyInput.type = 'password';
+    if (eyeIcon) eyeIcon.classList.remove('hidden');
+    if (eyeOffIcon) eyeOffIcon.classList.add('hidden');
+  }
+}
+
+async function pasteKeyFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      const keyInput = document.getElementById('cfg-key');
+      if (keyInput) {
+        keyInput.value = text.trim();
+        updateKeyStatusIndicator();
+        markSettingsDirty();
+        showToast('Pasted API key from clipboard', 'info');
+      }
+    }
+  } catch (e) {
+    showToast('Clipboard access was blocked or empty', 'warning');
+  }
+}
+
+function updateKeyStatusIndicator() {
+  const keyInput = document.getElementById('cfg-key');
+  const statusSpan = document.getElementById('cfg-key-status');
+  if (!statusSpan) return;
+
+  const val = (keyInput?.value || '').trim();
+  if (val.length > 0) {
+    const preview = val.length > 6 ? `(starts with ${escapeHtml(val.substring(0, 4))}••••)` : '(active)';
+    statusSpan.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> <span class="text-foreground">Key configured ${preview}</span>`;
+  } else {
+    statusSpan.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-muted-foreground/60"></span> <span>No key configured (local gateway mode)</span>`;
+  }
+}
+
+function sanitizeGatewayUrl() {
+  const urlInput = document.getElementById('cfg-url');
+  if (!urlInput) return;
+  let val = urlInput.value.trim();
+  if (val.length > 0) {
+    if (!val.startsWith('http://') && !val.startsWith('https://')) {
+      val = 'http://' + val;
+    }
+    val = val.replace(/\/+$/, '');
+    urlInput.value = val;
+    markSettingsDirty();
+  }
+}
+
+// -------------------------------------------------------------
+// PRESETS & MODEL CHIPS
+// -------------------------------------------------------------
+function applyPreset(presetType) {
+  const presets = {
+    recommended: {
+      url: 'http://localhost:20128',
+      chat: 'ag/gemini-3.7-flash-high',
+      search: 'tavily',
+      fetch: 'jina-reader',
+      image: 'gemini/gemini-3-pro-image-preview',
+      mode: 'auto',
+      pil: true
+    },
+    fast: {
+      url: 'http://localhost:20128',
+      chat: 'ag/gemini-3.7-flash-high',
+      search: 'brave-search',
+      fetch: 'jina-reader',
+      image: 'gemini/gemini-3-pro-image-preview',
+      mode: 'web',
+      pil: true
+    },
+    reasoning: {
+      url: 'http://localhost:20128',
+      chat: 'aval/claude-sonnet-4-6',
+      search: 'exa_ai-search',
+      fetch: 'firecrawl-search',
+      image: 'gemini/gemini-3-pro-image-preview',
+      mode: 'native',
+      pil: false
+    },
+    local: {
+      url: 'http://localhost:20128',
+      key: '',
+      chat: 'ag/gemini-3.7-flash-high',
+      search: 'tavily',
+      fetch: 'jina-reader',
+      image: 'gemini/gemini-3-pro-image-preview',
+      mode: 'auto',
+      pil: true
+    }
+  };
+
+  const p = presets[presetType];
+  if (!p) return;
+
+  const urlInput = document.getElementById('cfg-url');
+  const chatInput = document.getElementById('cfg-chat-model');
+  const searchInput = document.getElementById('cfg-search-model');
+  const fetchInput = document.getElementById('cfg-fetch-model');
+  const imageInput = document.getElementById('cfg-image-model');
+  const purePilInput = document.getElementById('cfg-pure-pil');
+
+  if (urlInput) urlInput.value = p.url;
+  if (p.key !== undefined) {
+    const keyInput = document.getElementById('cfg-key');
+    if (keyInput) keyInput.value = p.key;
+  }
+  if (chatInput) chatInput.value = p.chat;
+  if (searchInput) searchInput.value = p.search;
+  if (fetchInput) fetchInput.value = p.fetch;
+  if (imageInput) imageInput.value = p.image;
+  if (purePilInput) purePilInput.checked = p.pil;
+
+  selectRenderMode(p.mode);
+  updateCascadeWaterfall();
+  updateKeyStatusIndicator();
+  markSettingsDirty();
+
+  showToast(`Applied ${presetType.toUpperCase()} preset profile`, 'info');
+}
+
+function setFieldChip(fieldId, value) {
+  const el = document.getElementById(fieldId);
+  if (!el) return;
+  el.value = value;
+  markSettingsDirty();
+
+  el.classList.add('ring-2', 'ring-primary');
+  setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 350);
+}
+
+// -------------------------------------------------------------
+// RENDER CASCADE SELECTOR & VISUAL WATERFALL
+// -------------------------------------------------------------
+function selectRenderMode(mode, triggerDirty = true) {
+  const hiddenInput = document.getElementById('cfg-render-mode');
+  if (hiddenInput) hiddenInput.value = mode;
+
+  document.querySelectorAll('.render-mode-card').forEach(card => {
+    card.classList.remove('selected');
+  });
+
+  const targetCard = document.getElementById(`render-mode-${mode}`);
+  if (targetCard) targetCard.classList.add('selected');
+
+  updateCascadeWaterfall();
+  if (triggerDirty) markSettingsDirty();
+}
+
+function updateCascadeWaterfall() {
+  const purePilInput = document.getElementById('cfg-pure-pil');
+  const modeInput = document.getElementById('cfg-render-mode');
+  const flowCom = document.getElementById('flow-step-com');
+  const flowWeb = document.getElementById('flow-step-web');
+  const flowPil = document.getElementById('flow-step-pil');
+  const pilStatus = document.getElementById('flow-pil-status');
+  const warningText = document.getElementById('flow-warning-text');
+
+  const mode = (modeInput?.value || 'auto').toLowerCase();
+  const pilActive = purePilInput ? purePilInput.checked : true;
+
+  if (flowCom && flowWeb && flowPil) {
+    flowCom.className = 'cascade-flow-step active';
+    flowWeb.className = 'cascade-flow-step active';
+    flowPil.className = 'cascade-flow-step active';
+
+    if (mode === 'native') {
+      flowWeb.classList.add('disabled-step');
+      flowPil.classList.add('disabled-step');
+      if (pilStatus) pilStatus.innerText = 'Bypassed (COM only)';
+      if (warningText) warningText.innerText = 'Strict Native COM mode: requires Microsoft PowerPoint installed on host.';
+    } else if (mode === 'web') {
+      flowCom.classList.add('disabled-step');
+      flowPil.classList.add('disabled-step');
+      if (pilStatus) pilStatus.innerText = 'Bypassed (Web only)';
+      if (warningText) warningText.innerText = 'Direct Web Vector Engine mode active.';
+    } else if (mode === 'pil') {
+      flowCom.classList.add('disabled-step');
+      flowWeb.classList.add('disabled-step');
+      if (pilStatus) pilStatus.innerText = 'Active Standalone';
+      if (warningText) warningText.innerText = 'Pure PIL Fallback mode: generates slide preview raster images directly.';
+    } else {
+      if (!pilActive) {
+        flowPil.classList.add('disabled-step');
+        if (pilStatus) {
+          pilStatus.innerText = 'Disabled (Strict)';
+          pilStatus.className = 'text-[10px] text-destructive font-mono';
+        }
+        if (warningText) warningText.innerText = 'Warning: Pure PIL fallback is disabled. If PowerPoint COM & Web render fails, generation will halt with an error.';
+      } else {
+        if (pilStatus) {
+          pilStatus.innerText = 'Active (OK)';
+          pilStatus.className = 'text-[10px] text-emerald-400 font-mono';
+        }
+        if (warningText) warningText.innerText = '';
+      }
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// DIAGNOSTICS & CACHE CLEANER
+// -------------------------------------------------------------
+async function loadDiagnostics() {
+  const diagOs = document.getElementById('diag-os');
+  const diagCom = document.getElementById('diag-com');
+  const diagStorage = document.getElementById('diag-storage');
+  const diagComponents = document.getElementById('diag-components');
+  const diagTemplates = document.getElementById('diag-templates');
+  const refreshIcon = document.getElementById('diag-refresh-icon');
+
+  if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+  try {
+    const res = await fetch('/api/config/diagnostics');
+    const data = await res.json();
+    if (data.success) {
+      if (diagOs) {
+        diagOs.innerText = `${data.platform.system} (${data.platform.os}) • Py ${data.platform.python}`;
+      }
+      if (diagCom) {
+        if (data.com_engine.status === 'available') {
+          diagCom.innerHTML = `<span class="shadcn-badge shadcn-badge-outline text-emerald-400 border-emerald-500/30 text-[10px] py-0 px-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 inline-block"></span> COM Ready</span>`;
+        } else {
+          diagCom.innerHTML = `<span class="shadcn-badge shadcn-badge-outline text-muted-foreground text-[10px] py-0 px-1.5">Unavailable</span>`;
+        }
+      }
+      if (diagStorage) {
+        diagStorage.innerText = `${data.storage.output_files_count} files • ${data.storage.output_size_mb} MB`;
+      }
+      if (diagComponents) {
+        diagComponents.innerText = `${data.storage.components_count} Archetypes`;
+      }
+      if (diagTemplates) {
+        diagTemplates.innerText = `${data.storage.templates_count} PPTX Decks`;
+      }
+    }
+  } catch (err) {
+    console.warn('Diagnostics fetch failed', err);
+  } finally {
+    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+  }
+}
+
+async function cleanRenderCache() {
+  const cleanBtn = document.getElementById('btn-clean-cache');
+  const cleanIcon = document.getElementById('clean-cache-icon');
+  const cleanSpinner = document.getElementById('clean-cache-spinner');
+
+  if (cleanBtn) cleanBtn.disabled = true;
+  if (cleanIcon) cleanIcon.classList.add('hidden');
+  if (cleanSpinner) cleanSpinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/config/clean-cache', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Cache cleaned: freed ${data.freed_mb} MB (${data.cleaned_count} files removed)`, 'success');
+      loadDiagnostics();
+    } else {
+      showToast(`Cache cleaning error: ${data.error || 'Failed'}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Failed to clean cache: ${err.message}`, 'error');
+  } finally {
+    if (cleanBtn) cleanBtn.disabled = false;
+    if (cleanIcon) cleanIcon.classList.remove('hidden');
+    if (cleanSpinner) cleanSpinner.classList.add('hidden');
+    refreshIcons();
+  }
+}
+
+// -------------------------------------------------------------
+// DUAL MODE: FORM VS RAW .ENV SYNTAX EDITOR
+// -------------------------------------------------------------
+async function switchSettingsView(mode) {
+  const formView = document.getElementById('settings-form-view');
+  const rawView = document.getElementById('settings-raw-view');
+  const formBtn = document.getElementById('btn-view-form');
+  const rawBtn = document.getElementById('btn-view-raw');
+
+  if (mode === 'raw') {
+    if (formView) formView.classList.add('hidden');
+    if (rawView) rawView.classList.remove('hidden');
+    if (formBtn) formBtn.classList.remove('active');
+    if (rawBtn) rawBtn.classList.add('active');
+
+    try {
+      const res = await fetch('/api/config/raw');
+      const data = await res.json();
+      const rawText = document.getElementById('cfg-raw-text');
+      if (rawText) rawText.value = data.raw || '';
+    } catch (e) {
+      console.warn('Failed to load raw .env', e);
+    }
+  } else {
+    if (rawView) rawView.classList.add('hidden');
+    if (formView) formView.classList.remove('hidden');
+    if (rawBtn) rawBtn.classList.remove('active');
+    if (formBtn) formBtn.classList.add('active');
+  }
+  refreshIcons();
+}
+
+function copyRawConfig() {
+  const rawText = document.getElementById('cfg-raw-text');
+  if (!rawText) return;
+  navigator.clipboard.writeText(rawText.value).then(() => {
+    showToast('Copied .env configuration to clipboard', 'success');
+  }).catch(() => {
+    showToast('Failed to copy to clipboard', 'warning');
+  });
+}
+
+function syncRawToForm() {
+  const rawText = document.getElementById('cfg-raw-text');
+  if (!rawText) return;
+
+  const lines = rawText.value.split('\n');
+  const parsed = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx !== -1) {
+      const k = trimmed.substring(0, eqIdx).trim();
+      const v = trimmed.substring(eqIdx + 1).trim();
+      parsed[k] = v;
+    }
+  }
+
+  if (parsed.NINEROUTER_URL !== undefined) {
+    const el = document.getElementById('cfg-url');
+    if (el) el.value = parsed.NINEROUTER_URL;
+  }
+  if (parsed.NINEROUTER_KEY !== undefined) {
+    const el = document.getElementById('cfg-key');
+    if (el) el.value = parsed.NINEROUTER_KEY;
+  }
+  if (parsed.NINEROUTER_CHAT_MODEL !== undefined) {
+    const el = document.getElementById('cfg-chat-model');
+    if (el) el.value = parsed.NINEROUTER_CHAT_MODEL;
+  }
+  if (parsed.NINEROUTER_SEARCH_MODEL !== undefined) {
+    const el = document.getElementById('cfg-search-model');
+    if (el) el.value = parsed.NINEROUTER_SEARCH_MODEL;
+  }
+  if (parsed.NINEROUTER_FETCH_MODEL !== undefined) {
+    const el = document.getElementById('cfg-fetch-model');
+    if (el) el.value = parsed.NINEROUTER_FETCH_MODEL;
+  }
+  if (parsed.NINEROUTER_IMAGE_MODEL !== undefined) {
+    const el = document.getElementById('cfg-image-model');
+    if (el) el.value = parsed.NINEROUTER_IMAGE_MODEL;
+  }
+  if (parsed.RENDER_MODE !== undefined) {
+    selectRenderMode(parsed.RENDER_MODE.toLowerCase());
+  }
+  if (parsed.PURE_PIL_ACTIVE !== undefined) {
+    const el = document.getElementById('cfg-pure-pil');
+    if (el) el.checked = ['1', 'true', 'yes', 'on'].includes(parsed.PURE_PIL_ACTIVE.toLowerCase());
+  }
+
+  updateCascadeWaterfall();
+  updateKeyStatusIndicator();
+  markSettingsDirty();
+  switchSettingsView('form');
+  showToast('Synced variables into form fields', 'info');
+}
+
+async function saveRawConfig() {
+  const rawText = document.getElementById('cfg-raw-text');
+  if (!rawText) return;
+
+  try {
+    const res = await fetch('/api/config/raw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: rawText.value })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Raw .env saved and reloaded', 'success');
+      loadConfigSettings();
+      loadConfigBadge();
+    } else {
+      showToast('Save failed', 'error');
+>>>>>>> agents/give-me-15-ui-ux-improvment-for-setting
     }
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
   }
+}
+
+// -------------------------------------------------------------
+// RESET DEFAULTS MODAL
+// -------------------------------------------------------------
+function openResetDefaultsModal() {
+  const modal = document.getElementById('reset-defaults-modal');
+  if (modal) modal.classList.remove('hidden');
+  refreshIcons();
+}
+
+function closeResetDefaultsModal() {
+  const modal = document.getElementById('reset-defaults-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function confirmResetDefaults() {
+  closeResetDefaultsModal();
+  applyPreset('recommended');
+  showToast('Recommended defaults applied. Click Save to persist.', 'info');
 }

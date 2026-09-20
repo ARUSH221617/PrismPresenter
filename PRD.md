@@ -108,8 +108,14 @@ Key highlights of v0.4 include:
      - **Slide icon:** Enable/disable Slide Synthesis & editing tools.
    - Message-level actions (Copy response, Edit & reload user prompt).
    - Chat transcript export to Markdown (`.md`) or JSON (`.json`).
-6. **Engine Settings:**
-   - Interactive configuration editor for `.env` credentials, 9Router endpoints, and model routing.
+6. **Engine Settings Studio:**
+   - Responsive 2-column studio layout with quick preset switcher (Balanced, Creative, High-Speed, Enterprise Offline).
+   - AI Gateway Card with live Ping connectivity tester, latency monitor, secret eye visibility toggles, and clipboard paste.
+   - 3-Tier Cascade Render Engine selector (`auto`, `native`, `web`, `pil`) with strict mode toggle and dynamic waterfall flowchart.
+   - LLM Routing Suite with quick-pick model chips and visual pipeline badges (Synthesis, Vision, Fast/Formatting).
+   - System & Cache Diagnostics panel with real-time status of COM, Chromium, and Pillow, plus one-click slide render cache cleaner.
+   - Raw `.env` editor with two-way synchronization, line numbers, and copy-to-clipboard.
+   - Floating dirty action bar with modified fields counter, automatic `.env.backup` generation, and `Ctrl+S` keyboard shortcut.
 7. **Help & Architecture:**
    - Top looping brand motion video (`assets/videos/PrismPresenter_brand_reveal.mp4`) that pauses when switching tabs.
    - 4-step end-to-end architecture pipeline summary.

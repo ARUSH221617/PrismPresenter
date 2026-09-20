@@ -6208,18 +6208,6 @@ async function saveConfigSettings() {
     refreshIcons();
   }
 }
-      showToast(`Save failed: ${data.error || 'Unknown error'}`, 'error');
-    }
-  } catch (err) {
-    showToast(`Save failed: ${err.message}`, 'error');
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-    if (saveIcon) saveIcon.classList.remove('hidden');
-    if (saveSpinner) saveSpinner.classList.add('hidden');
-    if (saveText) saveText.innerText = 'Save Settings (.env)';
-    refreshIcons();
-  }
-}
 
 // -------------------------------------------------------------
 // GATEWAY CONNECTIVITY & API KEY MANAGEMENT
@@ -6706,7 +6694,6 @@ async function saveRawConfig() {
       loadConfigBadge();
     } else {
       showToast('Save failed', 'error');
->>>>>>> agents/give-me-15-ui-ux-improvment-for-setting
     }
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');

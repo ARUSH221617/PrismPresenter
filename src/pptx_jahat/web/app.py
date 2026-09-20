@@ -1754,6 +1754,7 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
                 "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
                 "RENDER_MODE": Config.RENDER_MODE,
+                "RENDER_DPI": getattr(Config, "RENDER_DPI", 150),
                 "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
                 "LLM_TIMEOUT": Config.LLM_TIMEOUT,
                 "VERIFICATION_ROUNDS": Config.VERIFICATION_ROUNDS
@@ -1805,6 +1806,7 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "NINEROUTER_FETCH_MODEL",
                 "NINEROUTER_IMAGE_MODEL",
                 "RENDER_MODE",
+                "RENDER_DPI",
                 "PURE_PIL_ACTIVE",
                 "LLM_TIMEOUT",
                 "VERIFICATION_ROUNDS"
@@ -1824,7 +1826,7 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                                 setattr(Config, k, float(val))
                             except ValueError:
                                 pass
-                        elif k == "VERIFICATION_ROUNDS":
+                        elif k in ("VERIFICATION_ROUNDS", "RENDER_DPI"):
                             try:
                                 setattr(Config, k, int(val))
                             except ValueError:
@@ -1835,10 +1837,11 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                             setattr(Config, k, val)
 
             env_lines = [f"{k}={v}" for k, v in existing_env.items()]
-            env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+            from pptx_jahat.config import BASE_DIR
+            env_path = BASE_DIR / ".env"
             if env_path.exists():
                 try:
-                    backup_path = env_path.with_suffix(".env.backup")
+                    backup_path = env_path.parent / ".env.backup"
                     shutil.copy2(env_path, backup_path)
                 except Exception:
                     pass
@@ -1855,6 +1858,7 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
                 "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
                 "RENDER_MODE": Config.RENDER_MODE,
+                "RENDER_DPI": getattr(Config, "RENDER_DPI", 150),
                 "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE,
                 "LLM_TIMEOUT": Config.LLM_TIMEOUT,
                 "VERIFICATION_ROUNDS": Config.VERIFICATION_ROUNDS
@@ -1959,17 +1963,33 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 com_status = "error"
                 com_detail = str(e)
 
-        output_count = 0
-        output_size_bytes = 0
+        cache_count, cache_bytes = 0, 0
+        pptx_count, pptx_bytes = 0, 0
+        other_count, other_bytes = 0, 0
+
         if OUTPUT_DIR.exists():
             for p in OUTPUT_DIR.glob("**/*"):
                 if p.is_file():
-                    output_count += 1
                     try:
-                        output_size_bytes += p.stat().st_size
+                        sz = p.stat().st_size
+                        ext = p.suffix.lower()
+                        if ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                            cache_count += 1
+                            cache_bytes += sz
+                        elif ext in [".pptx", ".ppt"]:
+                            pptx_count += 1
+                            pptx_bytes += sz
+                        else:
+                            other_count += 1
+                            other_bytes += sz
                     except OSError:
                         pass
-        output_size_mb = round(output_size_bytes / (1024 * 1024), 2)
+
+        output_count = cache_count + pptx_count + other_count
+        output_size_mb = round((cache_bytes + pptx_bytes + other_bytes) / (1024 * 1024), 2)
+        cache_mb = round(cache_bytes / (1024 * 1024), 2)
+        pptx_mb = round(pptx_bytes / (1024 * 1024), 2)
+        other_mb = round(other_bytes / (1024 * 1024), 2)
 
         components_file = COMPONENTS_DIR / "components.json"
         component_count = 0
@@ -1999,47 +2019,186 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
                 "output_dir": str(OUTPUT_DIR),
                 "output_files_count": output_count,
                 "output_size_mb": output_size_mb,
+                "cache_images_count": cache_count,
+                "cache_images_mb": cache_mb,
+                "pptx_decks_count": pptx_count,
+                "pptx_decks_mb": pptx_mb,
+                "other_count": other_count,
+                "other_mb": other_mb,
                 "components_count": component_count,
                 "templates_count": templates_count
             },
             "runtime": {
                 "render_mode": Config.RENDER_MODE,
+                "render_dpi": getattr(Config, "RENDER_DPI", 150),
                 "pure_pil_active": Config.PURE_PIL_ACTIVE,
                 "chat_model": Config.NINEROUTER_CHAT_MODEL
             }
         })
 
+    @app.route("/api/config/com-probe", methods=["POST"])
+    def probe_com_engine():
+        import sys
+        import time
+        from pptx_jahat.tools.renderers.com_renderer import find_powerpoint_executable
+
+        start_time = time.time()
+        probe_result = {
+            "success": True,
+            "is_windows": sys.platform == "win32",
+            "win32com_available": False,
+            "powerpoint_installed": False,
+            "powerpoint_path": None,
+            "dispatch_status": "untested",
+            "dispatch_error": None,
+            "fallback_ready": True,
+            "fallback_engine": "Pure-PIL & Web Vector (Cross-platform)",
+            "diagnostics_log": []
+        }
+
+        if not probe_result["is_windows"]:
+            probe_result["fallback_ready"] = True
+            probe_result["diagnostics_log"].append("Host is non-Windows; Web Vector & Pure-PIL renderers activated.")
+            latency_ms = int((time.time() - start_time) * 1000)
+            return jsonify({
+                "status": "bypassed",
+                "latency_ms": latency_ms,
+                "message": "Non-Windows host; Pure-PIL / Web Vector activated",
+                **probe_result
+            })
+
+        try:
+            import win32com.client
+            probe_result["win32com_available"] = True
+            probe_result["diagnostics_log"].append("pywin32 / win32com.client library loaded successfully.")
+        except Exception as e:
+            probe_result["win32com_available"] = False
+            probe_result["diagnostics_log"].append(f"pywin32 import failed: {str(e)}")
+
+        exe_path = find_powerpoint_executable()
+        if exe_path:
+            probe_result["powerpoint_installed"] = True
+            probe_result["powerpoint_path"] = exe_path
+            probe_result["diagnostics_log"].append(f"PowerPoint executable detected: {exe_path}")
+        else:
+            probe_result["diagnostics_log"].append("PowerPoint executable could not be resolved from registry or default paths.")
+
+        if probe_result["win32com_available"] and probe_result["powerpoint_installed"]:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                app_obj = win32com.client.DispatchEx("PowerPoint.Application")
+                app_ver = getattr(app_obj, "Version", "Unknown")
+                app_obj.Quit()
+                pythoncom.CoUninitialize()
+                probe_result["dispatch_status"] = "verified"
+                probe_result["diagnostics_log"].append(f"PowerPoint COM automation verified (Version {app_ver}).")
+            except Exception as e:
+                probe_result["dispatch_status"] = "failed"
+                probe_result["dispatch_error"] = str(e)
+                probe_result["diagnostics_log"].append(f"COM Dispatch test: {str(e)}")
+        else:
+            probe_result["dispatch_status"] = "bypassed"
+            probe_result["diagnostics_log"].append("PowerPoint COM bypassed. Tier 2 (Web Vector) & Tier 3 (Pure PIL) operational.")
+
+        latency_ms = int((time.time() - start_time) * 1000)
+        status = "ok" if probe_result["dispatch_status"] == "verified" else ("failed" if probe_result["dispatch_status"] == "failed" else "bypassed")
+        return jsonify({
+            "status": status,
+            "latency_ms": latency_ms,
+            "message": probe_result["diagnostics_log"][-1] if probe_result["diagnostics_log"] else "Probe finished",
+            **probe_result
+        })
+
     @app.route("/api/config/clean-cache", methods=["POST"])
     def clean_render_cache():
-        cleaned_count = 0
+        data = request.get_json(silent=True) or {}
+        dry_run = data.get("dry_run", False) or request.args.get("dry_run") == "true"
+
+        preview_files = []
         freed_bytes = 0
         if OUTPUT_DIR.exists():
-            for p in list(OUTPUT_DIR.glob("**/*.png")) + list(OUTPUT_DIR.glob("**/*.jpg")):
+            for p in list(OUTPUT_DIR.glob("**/*.png")) + list(OUTPUT_DIR.glob("**/*.jpg")) + list(OUTPUT_DIR.glob("**/*.jpeg")) + list(OUTPUT_DIR.glob("**/*.webp")):
                 try:
                     sz = p.stat().st_size
-                    p.unlink()
-                    cleaned_count += 1
+                    preview_files.append(p)
                     freed_bytes += sz
                 except Exception:
                     pass
 
         freed_mb = round(freed_bytes / (1024 * 1024), 2)
+        deck_count = len(list(OUTPUT_DIR.glob("**/*.pptx"))) if OUTPUT_DIR.exists() else 0
+
+        if dry_run:
+            return jsonify({
+                "success": True,
+                "dry_run": True,
+                "cleaned_count": len(preview_files),
+                "preview_count": len(preview_files),
+                "freed_mb": freed_mb,
+                "estimated_freed_mb": freed_mb,
+                "preserved_decks": deck_count,
+                "preserved_decks_count": deck_count
+            })
+
+        cleaned_count = 0
+        for p in preview_files:
+            try:
+                p.unlink()
+                cleaned_count += 1
+            except Exception:
+                pass
+
         return jsonify({
             "success": True,
             "cleaned_count": cleaned_count,
             "freed_mb": freed_mb,
+            "preserved_decks_count": deck_count,
             "message": f"Cleaned {cleaned_count} preview cache files, freeing {freed_mb} MB."
         })
 
+    @app.route("/api/config/backup", methods=["GET", "POST"])
+    def handle_backup_config():
+        from pptx_jahat.config import BASE_DIR
+        import datetime
+        env_path = BASE_DIR / ".env"
+        backup_path = env_path.parent / ".env.backup"
+
+        if request.method == "GET":
+            has_backup = backup_path.exists()
+            backup_info = {
+                "exists": has_backup,
+                "path": str(backup_path) if has_backup else None,
+                "size_bytes": backup_path.stat().st_size if has_backup else 0,
+                "modified": datetime.datetime.fromtimestamp(backup_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S") if has_backup else None
+            }
+            return jsonify({
+                "success": True,
+                "backup_exists": has_backup,
+                "backup_size_bytes": backup_info["size_bytes"],
+                "backup_mtime": backup_info["modified"],
+                "backup": backup_info
+            })
+        else:
+            if not backup_path.exists():
+                return jsonify({"success": False, "error": "No .env.backup file found to restore."}), 404
+            try:
+                shutil.copy2(backup_path, env_path)
+                Config.reload(env_path)
+                return jsonify({"success": True, "message": "Successfully restored configuration from .env.backup"})
+            except Exception as e:
+                return jsonify({"success": False, "error": f"Restore failed: {str(e)}"}), 500
+
     @app.route("/api/config/raw", methods=["GET", "POST"])
     def handle_raw_config():
-        env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+        from pptx_jahat.config import BASE_DIR
+        env_path = BASE_DIR / ".env"
         if request.method == "GET":
             if env_path.exists():
                 with open(env_path, "r", encoding="utf-8") as f:
                     content = f.read()
             else:
-                example_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.example"
+                example_path = BASE_DIR / ".env.example"
                 if example_path.exists():
                     with open(example_path, "r", encoding="utf-8") as f:
                         content = f.read()
@@ -2051,13 +2210,13 @@ def create_app(dev_mode: Optional[bool] = None) -> Flask:
             raw_text = data.get("raw", "")
             if env_path.exists():
                 try:
-                    backup_path = env_path.with_suffix(".env.backup")
+                    backup_path = env_path.parent / ".env.backup"
                     shutil.copy2(env_path, backup_path)
                 except Exception:
                     pass
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write(raw_text)
-            Config.reload()
+            Config.reload(env_path)
             return jsonify({
                 "success": True,
                 "message": "Raw .env saved and reloaded successfully.",

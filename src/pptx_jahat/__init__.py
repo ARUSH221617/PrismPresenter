@@ -89,18 +89,15 @@ def main() -> None:
 
             threading.Thread(target=open_browser, daemon=True).start()
 
-        # Extra files to watch in dev mode
+        # Extra files to watch in dev mode (do not watch .env to avoid connection resets during GUI save)
         extra_files = []
-        env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-        if env_path.exists():
-            extra_files.append(str(env_path))
 
         print(f"\n=======================================================")
         if is_dev:
-            print(f"  ⚡ PRISMPRESENTER DEV SERVER (AUTO-RELOAD ACTIVE)")
-            print(f"  Live Watch: Python sources, templates, static assets & .env")
+            print(f"  [*] PRISMPRESENTER DEV SERVER (AUTO-RELOAD ACTIVE)")
+            print(f"  Live Watch: Python sources, templates, and static assets")
         else:
-            print(f"  ⚡ PRISMPRESENTER WEB GUI RUNNING AT: {url}")
+            print(f"  [*] PRISMPRESENTER WEB GUI RUNNING AT: {url}")
         print(f"  URL: {url}")
         print(f"  Press Ctrl+C to stop server")
         print(f"=======================================================\n")

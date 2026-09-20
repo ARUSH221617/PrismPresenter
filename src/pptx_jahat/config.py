@@ -125,6 +125,9 @@ class Config:
     # Options: "auto" (Native COM -> Web Engine -> PIL), "native", "web", "pil"
     RENDER_MODE: str = os.getenv("RENDER_MODE", "auto").strip().lower()
 
+    # Render Quality / Resolution DPI (72 = Draft, 150 = Balanced FHD, 300 = High-Def 4K)
+    RENDER_DPI: int = int(os.getenv("RENDER_DPI", "150"))
+
     # If False (default is True), disables pure-Python PIL fallback and enforces native PowerPoint COM export.
     # If PowerPoint COM fails or is unavailable when PURE_PIL_ACTIVE is False, an error is raised.
     PURE_PIL_ACTIVE: bool = os.getenv("PURE_PIL_ACTIVE", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -507,6 +510,7 @@ class Config:
         cls.NINEROUTER_IMAGE_MODEL = os.getenv("NINEROUTER_IMAGE_MODEL", "gemini/gemini-3-pro-image-preview")
         cls.LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "300"))
         cls.RENDER_MODE = os.getenv("RENDER_MODE", "auto").strip().lower()
+        cls.RENDER_DPI = int(os.getenv("RENDER_DPI", "150"))
         cls.PURE_PIL_ACTIVE = os.getenv("PURE_PIL_ACTIVE", "true").strip().lower() in ("1", "true", "yes", "on")
         cls.VERIFICATION_ROUNDS = int(os.getenv("VERIFICATION_ROUNDS", os.getenv("VERIFICATION_MAX_ROUNDS", "3")))
         cls.AGENT_MODELS = {}

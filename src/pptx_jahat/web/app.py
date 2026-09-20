@@ -691,6 +691,7 @@ def create_app() -> Flask:
                     "NINEROUTER_SEARCH_MODEL": Config.NINEROUTER_SEARCH_MODEL,
                     "NINEROUTER_FETCH_MODEL": Config.NINEROUTER_FETCH_MODEL,
                     "NINEROUTER_IMAGE_MODEL": Config.NINEROUTER_IMAGE_MODEL,
+                    "RENDER_MODE": Config.RENDER_MODE,
                     "PURE_PIL_ACTIVE": Config.PURE_PIL_ACTIVE
                 }
             })
@@ -706,12 +707,21 @@ def create_app() -> Flask:
                 "NINEROUTER_SEARCH_MODEL",
                 "NINEROUTER_FETCH_MODEL",
                 "NINEROUTER_IMAGE_MODEL",
+                "RENDER_MODE",
                 "PURE_PIL_ACTIVE"
             ]:
                 if k in cfg:
-                    env_lines.append(f"{k}={str(cfg[k]).strip()}")
+                    val = str(cfg[k]).strip()
+                    env_lines.append(f"{k}={val}")
 
             env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+            if env_path.exists():
+                try:
+                    backup_path = env_path.with_suffix(".env.backup")
+                    shutil.copy2(env_path, backup_path)
+                except Exception:
+                    pass
+
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(env_lines) + "\n")
 
@@ -719,6 +729,198 @@ def create_app() -> Flask:
             return jsonify({
                 "success": True,
                 "message": "Configuration saved to .env and reloaded.",
+                "model": Config.NINEROUTER_CHAT_MODEL,
+                "render_mode": Config.RENDER_MODE
+            })
+
+    @app.route("/api/config/ping", methods=["POST"])
+    def ping_gateway():
+        import requests
+        data = request.get_json() or {}
+        target_url = (data.get("url") or Config.NINEROUTER_URL or "http://localhost:20128").strip().rstrip("/")
+        api_key = (data.get("key") if "key" in data else Config.NINEROUTER_KEY).strip()
+
+        if not target_url:
+            return jsonify({"success": False, "error": "Gateway URL cannot be empty."})
+
+        # Ensure protocol
+        if not target_url.startswith("http://") and not target_url.startswith("https://"):
+            target_url = f"http://{target_url}"
+
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        start_time = time.time()
+        try:
+            test_url = f"{target_url}/v1/models"
+            try:
+                resp = requests.get(test_url, headers=headers, timeout=4)
+            except Exception:
+                test_url = f"{target_url}/health"
+                try:
+                    resp = requests.get(test_url, headers=headers, timeout=4)
+                except Exception:
+                    test_url = target_url
+                    resp = requests.get(test_url, headers=headers, timeout=4)
+
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            model_count = None
+            if resp.status_code == 200:
+                try:
+                    body = resp.json()
+                    if isinstance(body, dict) and "data" in body and isinstance(body["data"], list):
+                        model_count = len(body["data"])
+                except Exception:
+                    pass
+
+            is_ok = resp.status_code in (200, 204, 301, 302, 401)
+            return jsonify({
+                "success": is_ok,
+                "status_code": resp.status_code,
+                "latency_ms": latency_ms,
+                "model_count": model_count,
+                "url": target_url,
+                "message": f"HTTP {resp.status_code} ({latency_ms}ms)"
+            })
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "success": False,
+                "error": f"Connection refused at {target_url}. Gateway is not running or port is closed.",
+                "latency_ms": int((time.time() - start_time) * 1000)
+            })
+        except requests.exceptions.Timeout:
+            return jsonify({
+                "success": False,
+                "error": f"Connection timed out (4s) to {target_url}.",
+                "latency_ms": 4000
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Ping failed: {str(e)}",
+                "latency_ms": int((time.time() - start_time) * 1000)
+            })
+
+    @app.route("/api/config/diagnostics", methods=["GET"])
+    def get_diagnostics():
+        import platform
+        import sys
+
+        com_status = "unavailable"
+        com_detail = "Non-Windows OS"
+        if sys.platform == "win32":
+            try:
+                import win32com.client
+                com_status = "available"
+                com_detail = "ActiveX / COM Automation library loaded"
+            except Exception as e:
+                com_status = "error"
+                com_detail = str(e)
+
+        output_count = 0
+        output_size_bytes = 0
+        if OUTPUT_DIR.exists():
+            for p in OUTPUT_DIR.glob("**/*"):
+                if p.is_file():
+                    output_count += 1
+                    try:
+                        output_size_bytes += p.stat().st_size
+                    except OSError:
+                        pass
+        output_size_mb = round(output_size_bytes / (1024 * 1024), 2)
+
+        components_file = COMPONENTS_DIR / "components.json"
+        component_count = 0
+        if components_file.exists():
+            try:
+                with open(components_file, "r", encoding="utf-8") as f:
+                    cdata = json.load(f)
+                    component_count = len(cdata) if isinstance(cdata, list) else len(cdata.get("components", []))
+            except Exception:
+                pass
+
+        templates_count = len(list(DATA_DIR.glob("T*.pptx")))
+
+        return jsonify({
+            "success": True,
+            "platform": {
+                "system": platform.system(),
+                "release": platform.release(),
+                "python": platform.python_version(),
+                "os": sys.platform
+            },
+            "com_engine": {
+                "status": com_status,
+                "detail": com_detail
+            },
+            "storage": {
+                "output_dir": str(OUTPUT_DIR),
+                "output_files_count": output_count,
+                "output_size_mb": output_size_mb,
+                "components_count": component_count,
+                "templates_count": templates_count
+            },
+            "runtime": {
+                "render_mode": Config.RENDER_MODE,
+                "pure_pil_active": Config.PURE_PIL_ACTIVE,
+                "chat_model": Config.NINEROUTER_CHAT_MODEL
+            }
+        })
+
+    @app.route("/api/config/clean-cache", methods=["POST"])
+    def clean_render_cache():
+        cleaned_count = 0
+        freed_bytes = 0
+        if OUTPUT_DIR.exists():
+            for p in list(OUTPUT_DIR.glob("**/*.png")) + list(OUTPUT_DIR.glob("**/*.jpg")):
+                try:
+                    sz = p.stat().st_size
+                    p.unlink()
+                    cleaned_count += 1
+                    freed_bytes += sz
+                except Exception:
+                    pass
+
+        freed_mb = round(freed_bytes / (1024 * 1024), 2)
+        return jsonify({
+            "success": True,
+            "cleaned_count": cleaned_count,
+            "freed_mb": freed_mb,
+            "message": f"Cleaned {cleaned_count} preview cache files, freeing {freed_mb} MB."
+        })
+
+    @app.route("/api/config/raw", methods=["GET", "POST"])
+    def handle_raw_config():
+        env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+        if request.method == "GET":
+            if env_path.exists():
+                with open(env_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                example_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.example"
+                if example_path.exists():
+                    with open(example_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                else:
+                    content = ""
+            return jsonify({"success": True, "raw": content})
+        else:
+            data = request.get_json() or {}
+            raw_text = data.get("raw", "")
+            if env_path.exists():
+                try:
+                    backup_path = env_path.with_suffix(".env.backup")
+                    shutil.copy2(env_path, backup_path)
+                except Exception:
+                    pass
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write(raw_text)
+            Config.reload()
+            return jsonify({
+                "success": True,
+                "message": "Raw .env saved and reloaded successfully.",
                 "model": Config.NINEROUTER_CHAT_MODEL
             })
 

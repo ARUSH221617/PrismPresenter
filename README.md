@@ -75,6 +75,7 @@ Built-in workflow guide, brand motion reveal, pipeline breakdown, and author con
   2. *Tier 2 (Vector DOM)*: Interactive client-side HTML5/SVG vector renderer.
   3. *Tier 3 (Pure Python PIL)*: Fallback slide renderer for headless environments.
 - **Google Gemini-Style AI Terminal**: Multi-turn agent chat with tool execution streaming, collapsible reasoning traces, suggestion chips, and Markdown snippet export.
+- **Engine Settings Studio**: Live AI gateway connectivity & latency tester, interactive 3-tier cascade render selector with visual flowchart, LLM pipeline model chips, hardware diagnostics with cache cleaner, dual-mode raw `.env` editor with automatic backup, and `Ctrl+S` hotkey.
 - **Visual Component Primitives Catalog**: Searchable card grid previewing extracted shapes, cards, metric callouts, and images.
 - **AI Image Synthesis**: Contextual slide illustrations and graphics generated on demand via 9Router image endpoints (`gemini-3-pro-image-preview`, `dall-e-3`, `flux`).
 - **Dark / Light Mode UI**: Modern Tailwind CSS and shadcn/ui design tokens with persistent theme states and full mobile/tablet responsiveness.
